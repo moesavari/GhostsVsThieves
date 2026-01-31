@@ -8,9 +8,11 @@ void UGvTNoiseSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& NoiseEvent)
 {
-    UE_LOG(LogTemp, Log, TEXT("Noise emitted at %s | Radius: %.1f | Loudness: %.2f"),
+    UE_LOG(LogTemp, Log, TEXT("Noise [%s] at %s | R=%.1f | L=%.2f"),
+        *NoiseEvent.NoiseTag.ToString(),
         *NoiseEvent.Location.ToString(),
         NoiseEvent.Radius,
         NoiseEvent.Loudness
     );
+
 }

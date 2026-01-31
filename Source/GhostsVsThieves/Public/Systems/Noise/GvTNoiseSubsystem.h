@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "GameplayTagContainer.h"
 #include "GvTNoiseSubsystem.generated.h"
 
 USTRUCT(BlueprintType)
@@ -17,7 +18,11 @@ struct FGvTNoiseEvent
 
     UPROPERTY(BlueprintReadOnly)
     float Loudness = 0.f;
+
+    UPROPERTY(BlueprintReadOnly)
+    FGameplayTag NoiseTag;
 };
+
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTNoiseSubsystem : public UGameInstanceSubsystem

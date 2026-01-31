@@ -8,22 +8,22 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/PlayerController.h"
+#include "Systems/Noise/GvTNoiseEmitterComponent.h"
+#include "GameplayTagContainer.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
     bReplicates = true;
 
-    // Spring arm + camera (simple, stable)
     SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
     SpringArm->SetupAttachment(GetRootComponent());
-    SpringArm->TargetArmLength = 0.f;               // 0 feels FPS-ish; set ~250-350 for 3rd person later
+    SpringArm->TargetArmLength = 0.f;               
     SpringArm->bUsePawnControlRotation = true;
 
     Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
     Camera->SetupAttachment(SpringArm);
     Camera->bUsePawnControlRotation = false;
 
-    // Movement defaults
     bUseControllerRotationYaw = true;
 
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
@@ -31,19 +31,21 @@ AGvTThiefCharacter::AGvTThiefCharacter()
         Move->bOrientRotationToMovement = false;
         Move->MaxWalkSpeed = WalkSpeed;
     }
+
+    NoiseEmitter = CreateDefaultSubobject<UGvTNoiseEmitterComponent>(TEXT("NoiseEmitter"));
+    NoiseEmitter->EmitNoise(FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact")), 600.f, 1.0f);
+
 }
 
 void AGvTThiefCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
-    // Ensure walk speed
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
         Move->MaxWalkSpeed = WalkSpeed;
     }
 
-    // Add mapping context for the local player only
     if (APlayerController* PC = Cast<APlayerController>(Controller))
     {
         if (ULocalPlayer* LP = PC->GetLocalPlayer())
@@ -90,6 +92,12 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_Crouch, ETriggerEvent::Completed, this, &AGvTThiefCharacter::StopCrouch);
         EIC->BindAction(IA_Crouch, ETriggerEvent::Canceled, this, &AGvTThiefCharacter::StopCrouch);
     }
+
+    if (IA_TestNoise)
+    {
+        EIC->BindAction(IA_TestNoise, ETriggerEvent::Started, this, &AGvTThiefCharacter::TestNoise);
+    }
+
 }
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
@@ -150,4 +158,15 @@ void AGvTThiefCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AGvTThiefCharacter, bIsSprinting);
+}
+
+void AGvTThiefCharacter::TestNoise()
+{
+    if (!NoiseEmitter) return;
+
+    NoiseEmitter->EmitNoise(
+        FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact")),
+        600.f,
+        1.0f
+    );
 }

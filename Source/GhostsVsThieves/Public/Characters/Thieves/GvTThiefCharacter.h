@@ -9,6 +9,7 @@ class UCameraComponent;
 class USpringArmComponent;
 class UInputMappingContext;
 class UInputAction;
+class UGvTNoiseEmitterComponent;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -22,7 +23,6 @@ protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
-    // Enhanced Input handlers
     void OnMove(const FInputActionValue& Value);
     void OnLook(const FInputActionValue& Value);
 
@@ -31,6 +31,8 @@ protected:
 
     void StartCrouch();
     void StopCrouch();
+
+    void TestNoise();
 
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Camera")
@@ -48,13 +50,15 @@ protected:
     UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Movement")
     bool bIsSprinting = false;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Noise")
+    UGvTNoiseEmitterComponent* NoiseEmitter;
+
     UFUNCTION(Server, Reliable)
     void ServerSetSprinting(bool bNewSprinting);
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 protected:
-    // Enhanced Input assets (assign in BP)
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputMappingContext* DefaultMappingContext;
 
@@ -69,4 +73,8 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_Crouch;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_TestNoise;
+
 };

@@ -33,8 +33,6 @@ AGvTThiefCharacter::AGvTThiefCharacter()
     }
 
     NoiseEmitter = CreateDefaultSubobject<UGvTNoiseEmitterComponent>(TEXT("NoiseEmitter"));
-    NoiseEmitter->EmitNoise(FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact")), 600.f, 1.0f);
-
 }
 
 void AGvTThiefCharacter::BeginPlay()
@@ -98,6 +96,10 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_TestNoise, ETriggerEvent::Started, this, &AGvTThiefCharacter::TestNoise);
     }
 
+    if (IA_Interact)
+    {
+        EIC->BindAction(IA_Interact, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnInteractPressed);
+    }
 }
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
@@ -169,4 +171,12 @@ void AGvTThiefCharacter::TestNoise()
         600.f,
         1.0f
     );
+}
+
+void AGvTThiefCharacter::OnInteractPressed()
+{
+    if (!IsLocallyControlled())
+        return;
+
+    BP_OnInteractPressed();
 }

@@ -34,6 +34,8 @@ protected:
 
     void TestNoise();
 
+    void OnInteractPressed();
+
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Camera")
     USpringArmComponent* SpringArm;
@@ -77,4 +79,9 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_TestNoise;
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_Interact;
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
+    void BP_OnInteractPressed();
 };

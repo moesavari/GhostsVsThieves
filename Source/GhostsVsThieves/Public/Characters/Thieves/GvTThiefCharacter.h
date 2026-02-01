@@ -36,6 +36,8 @@ protected:
 
     void OnInteractPressed();
 
+    void OnPhotoPressed();
+
 protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Camera")
     USpringArmComponent* SpringArm;
@@ -84,4 +86,10 @@ protected:
 
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnInteractPressed();
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_Photo;
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
+    void BP_OnPhotoPressed();
 };

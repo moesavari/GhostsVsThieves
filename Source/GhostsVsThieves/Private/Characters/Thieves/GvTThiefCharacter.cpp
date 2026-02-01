@@ -100,6 +100,11 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
     {
         EIC->BindAction(IA_Interact, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnInteractPressed);
     }
+
+    if (IA_Photo)
+    {
+        EIC->BindAction(IA_Photo, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnPhotoPressed);
+    }
 }
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
@@ -179,4 +184,12 @@ void AGvTThiefCharacter::OnInteractPressed()
         return;
 
     BP_OnInteractPressed();
+}
+
+void AGvTThiefCharacter::OnPhotoPressed()
+{
+    if (!IsLocallyControlled())
+        return;
+
+    BP_OnPhotoPressed();
 }

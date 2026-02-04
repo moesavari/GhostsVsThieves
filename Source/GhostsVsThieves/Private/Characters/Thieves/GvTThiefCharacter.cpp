@@ -10,6 +10,7 @@
 #include "GameFramework/PlayerController.h"
 #include "Systems/Noise/GvTNoiseEmitterComponent.h"
 #include "GameplayTagContainer.h"
+#include "Interaction/GvTInteractionComponent.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -33,6 +34,9 @@ AGvTThiefCharacter::AGvTThiefCharacter()
     }
 
     NoiseEmitter = CreateDefaultSubobject<UGvTNoiseEmitterComponent>(TEXT("NoiseEmitter"));
+
+    InteractionComponent = CreateDefaultSubobject<UGvTInteractionComponent>(TEXT("InteractionComponent"));
+
 }
 
 void AGvTThiefCharacter::BeginPlay()
@@ -180,16 +184,16 @@ void AGvTThiefCharacter::TestNoise()
 
 void AGvTThiefCharacter::OnInteractPressed()
 {
-    if (!IsLocallyControlled())
+    if (!IsLocallyControlled() || !InteractionComponent)
         return;
 
-    BP_OnInteractPressed();
+    InteractionComponent->TryInteract();
 }
 
 void AGvTThiefCharacter::OnPhotoPressed()
 {
-    if (!IsLocallyControlled())
+    if (!IsLocallyControlled() || !InteractionComponent)
         return;
 
-    BP_OnPhotoPressed();
+    InteractionComponent->TryPhoto();
 }

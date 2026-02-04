@@ -10,6 +10,7 @@ class USpringArmComponent;
 class UInputMappingContext;
 class UInputAction;
 class UGvTNoiseEmitterComponent;
+class UGvTInteractionComponent;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -61,6 +62,9 @@ protected:
     void ServerSetSprinting(bool bNewSprinting);
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
+    UGvTInteractionComponent* InteractionComponent;
 
 protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")

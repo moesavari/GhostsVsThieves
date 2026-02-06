@@ -18,9 +18,89 @@ AGvTInteractableItem::AGvTInteractableItem()
 	PhotoNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Photo"));
 }
 
-void AGvTInteractableItem::Interact_Implementation(APawn* InstigatorPawn)
+void AGvTInteractableItem::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
 {
-	if (!HasAuthority() || bIsConsumed)
+	OutSpec = FGvTInteractionSpec{};
+	if (Verb == EGvTInteractionVerb::Photo)
+	{
+		OutSpec.CastTime = PhotoCastTime;
+		OutSpec.bLockMovement = true;
+		OutSpec.bLockLook = true;
+		OutSpec.bCancelable = true;
+		OutSpec.bEmitNoiseOnCancel = true;
+		OutSpec.CancelNoiseRadius = PhotoNoiseRadius * 0.75f;
+		OutSpec.CancelNoiseLoudness = 1.0f;
+		OutSpec.InteractionTag = PhotoNoiseTag;
+	}
+	else
+	{
+		OutSpec.CastTime = InteractCastTime;
+		OutSpec.bLockMovement = bLockMoveDuringInteract;
+		OutSpec.bLockLook = bLockLookDuringInteract;
+		OutSpec.bCancelable = true;
+		OutSpec.bEmitNoiseOnCancel = true;
+		OutSpec.CancelNoiseRadius = InteractNoiseRadius * 0.75f;
+		OutSpec.CancelNoiseLoudness = 1.0f;
+		OutSpec.InteractionTag = InteractNoiseTag;
+	}
+}
+
+bool AGvTInteractableItem::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
+{
+	if (bIsConsumed)
+	{
+		return false;
+	}
+	if (Verb == EGvTInteractionVerb::Photo)
+	{
+		return !bHasBeenPhotographed;
+	}
+	return true;
+}
+
+void AGvTInteractableItem::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
+{
+	// Optional: play a local SFX/FX via multicast later.
+}
+
+void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (Verb == EGvTInteractionVerb::Photo)
+	{
+		if (bHasBeenPhotographed || bIsConsumed)
+			return;
+
+		bHasBeenPhotographed = true;
+
+		if (InstigatorPawn)
+		{
+			if (UGvTNoiseEmitterComponent* Noise = InstigatorPawn->FindComponentByClass<UGvTNoiseEmitterComponent>())
+			{
+				Noise->EmitNoise(PhotoNoiseTag, PhotoNoiseRadius, 1.0f);
+			}
+
+			APlayerController* PC = Cast<APlayerController>(InstigatorPawn->GetController());
+			if (PC)
+			{
+				AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
+				if (PS)
+				{
+					const int32 PhotoScore = FMath::RoundToInt(static_cast<float>(BaseValue) * PhotoMultiplier);
+					PS->AddLoot(PhotoScore);
+				}
+			}
+		}
+
+		return;
+	}
+
+	// Verb == Interact
+	if (bIsConsumed)
 		return;
 
 	if (InstigatorPawn)
@@ -38,31 +118,9 @@ void AGvTInteractableItem::Interact_Implementation(APawn* InstigatorPawn)
 	}
 }
 
-void AGvTInteractableItem::Photo_Implementation(APawn* InstigatorPawn)
+void AGvTInteractableItem::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)
 {
-	if (!HasAuthority() || bHasBeenPhotographed || bIsConsumed)
-		return;
-
-	bHasBeenPhotographed = true;
-
-	if (InstigatorPawn)
-	{
-		if (UGvTNoiseEmitterComponent* Noise = InstigatorPawn->FindComponentByClass<UGvTNoiseEmitterComponent>())
-		{
-			Noise->EmitNoise(PhotoNoiseTag, PhotoNoiseRadius, 1.0f);
-		}
-
-		APlayerController* PC = Cast<APlayerController>(InstigatorPawn->GetController());
-		if (PC)
-		{
-			AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
-			if (PS)
-			{
-				const int32 PhotoScore = FMath::RoundToInt(static_cast<float>(BaseValue) * PhotoMultiplier);
-				PS->AddLoot(PhotoScore);
-			}
-		}
-	}
+	// Optional: stop SFX/FX. Noise-on-cancel is handled by InteractionComponent.
 }
 
 void AGvTInteractableItem::ApplyConsumedState(bool bConsumed)

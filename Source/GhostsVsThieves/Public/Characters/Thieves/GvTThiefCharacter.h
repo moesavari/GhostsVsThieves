@@ -20,6 +20,18 @@ class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
 public:
     AGvTThiefCharacter();
 
+public:
+    // Interaction lock-in (cast-time interactions)
+    UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+    void SetInteractionLock(bool bLockMove, bool bLockLook);
+
+    UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+    bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
+
+    UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+    bool IsInteractionLookLocked() const { return bInteractionLockLook; }
+
+
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -63,7 +75,15 @@ protected:
 
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
+    
+protected:
+    UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Interaction")
+    bool bInteractionLockMove = false;
+
+    UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Interaction")
+    bool bInteractionLockLook = false;
+
+UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
     UGvTInteractionComponent* InteractionComponent;
 
 protected:

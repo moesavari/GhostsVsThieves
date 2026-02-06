@@ -113,6 +113,8 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
 {
+    if (bInteractionLockMove) { return; }
+
     if (!Controller) return;
 
     const FVector2D Move = Value.Get<FVector2D>();
@@ -128,6 +130,8 @@ void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
 
 void AGvTThiefCharacter::OnLook(const FInputActionValue& Value)
 {
+    if (bInteractionLockLook) { return; }
+
     const FVector2D Look = Value.Get<FVector2D>();
     AddControllerYawInput(Look.X);
     AddControllerPitchInput(Look.Y);
@@ -135,6 +139,8 @@ void AGvTThiefCharacter::OnLook(const FInputActionValue& Value)
 
 void AGvTThiefCharacter::StartSprint()
 {
+    if (bInteractionLockMove) { return; }
+
     if (bIsSprinting) return;
     ServerSetSprinting(true);
 }
@@ -147,6 +153,8 @@ void AGvTThiefCharacter::StopSprint()
 
 void AGvTThiefCharacter::StartCrouch()
 {
+    if (bInteractionLockMove) { return; }
+
     Crouch();
 }
 
@@ -169,6 +177,8 @@ void AGvTThiefCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 {
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
     DOREPLIFETIME(AGvTThiefCharacter, bIsSprinting);
+    DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockMove);
+    DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockLook);
 }
 
 void AGvTThiefCharacter::TestNoise()
@@ -196,4 +206,19 @@ void AGvTThiefCharacter::OnPhotoPressed()
         return;
 
     InteractionComponent->TryPhoto();
+}
+
+
+void AGvTThiefCharacter::SetInteractionLock(bool bLockMove, bool bLockLook)
+{
+    // Only the server should replicate authoritative lock flags,
+    // but applying locally keeps input responsive.
+    bInteractionLockMove = bLockMove;
+    bInteractionLockLook = bLockLook;
+
+    if (bInteractionLockMove)
+    {
+        // Hard stop movement immediately
+        GetCharacterMovement()->StopMovementImmediately();
+    }
 }

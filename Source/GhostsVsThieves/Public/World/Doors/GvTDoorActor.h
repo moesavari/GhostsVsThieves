@@ -17,8 +17,12 @@ class GHOSTSVSTHIEVES_API AGvTDoorActor : public AActor, public IGvTInteractable
 public:
 	AGvTDoorActor();
 
-	virtual void Interact_Implementation(APawn* InstigatorPawn) override;
-	virtual void Photo_Implementation(APawn* InstigatorPawn) override {}
+	virtual void GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const override;
+virtual bool CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const override;
+virtual void BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
+virtual void CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
+virtual void CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason) override;
+
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Door")

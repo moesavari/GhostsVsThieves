@@ -21,9 +21,36 @@ AGvTDoorActor::AGvTDoorActor()
 	DoorNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact"));
 }
 
-void AGvTDoorActor::Interact_Implementation(APawn* InstigatorPawn)
+void AGvTDoorActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
+{
+	OutSpec = FGvTInteractionSpec{};
+	OutSpec.CastTime = 0.f;          // doors are instant (per MVP build order)
+	OutSpec.bLockMovement = false;
+	OutSpec.bLockLook = false;
+	OutSpec.bCancelable = false;
+	OutSpec.bEmitNoiseOnCancel = false;
+	OutSpec.CancelNoiseRadius = 0.f;
+	OutSpec.CancelNoiseLoudness = 0.f;
+	OutSpec.InteractionTag = DoorNoiseTag;
+}
+
+bool AGvTDoorActor::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
+{
+	// Doors ignore Photo verb for now, but you could support it later.
+	return Verb == EGvTInteractionVerb::Interact;
+}
+
+void AGvTDoorActor::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
+{
+	// No-op for instant door.
+}
+
+void AGvTDoorActor::CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
 {
 	if (!HasAuthority())
+		return;
+
+	if (Verb != EGvTInteractionVerb::Interact)
 		return;
 
 	bIsOpen = !bIsOpen;
@@ -36,6 +63,11 @@ void AGvTDoorActor::Interact_Implementation(APawn* InstigatorPawn)
 			Noise->EmitNoise(DoorNoiseTag, DoorNoiseRadius, 1.0f);
 		}
 	}
+}
+
+void AGvTDoorActor::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)
+{
+	// No-op
 }
 
 void AGvTDoorActor::OnRep_IsOpen()

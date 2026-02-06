@@ -1,16 +1,19 @@
 #include "Interaction/GvTInteractionComponent.h"
 
+#include "DrawDebugHelpers.h"
+#include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
-#include "Engine/World.h"
-#include "DrawDebugHelpers.h"
+#include "Net/UnrealNetwork.h"
 
 #include "Interaction/GvTInteractable.h"
+#include "Characters/Thieves/GvTThiefCharacter.h"
+#include "Systems/Noise/GvTNoiseSubsystem.h"
 
 UGvTInteractionComponent::UGvTInteractionComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-	SetIsReplicatedByDefault(false); // state lives in interactables, not here
+	SetIsReplicatedByDefault(true);
 }
 
 void UGvTInteractionComponent::TryInteract()
@@ -21,7 +24,14 @@ void UGvTInteractionComponent::TryInteract()
 		return;
 	}
 
-	Server_TryInteract();
+	// Pressing again while interacting cancels (MVP friendly)
+	if (bIsInteracting)
+	{
+		TryCancelInteraction(EGvTInteractionCancelReason::UserCanceled);
+		return;
+	}
+
+	Server_TryInteract(EGvTInteractionVerb::Interact);
 }
 
 void UGvTInteractionComponent::TryPhoto()
@@ -32,17 +42,44 @@ void UGvTInteractionComponent::TryPhoto()
 		return;
 	}
 
-	Server_TryPhoto();
+	if (bIsInteracting)
+	{
+		TryCancelInteraction(EGvTInteractionCancelReason::UserCanceled);
+		return;
+	}
+
+	Server_TryInteract(EGvTInteractionVerb::Photo);
 }
 
-void UGvTInteractionComponent::Server_TryInteract_Implementation()
+void UGvTInteractionComponent::TryCancelInteraction(EGvTInteractionCancelReason Reason)
 {
-	PerformServerTraceAndInteract(false);
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (!bIsInteracting)
+	{
+		return;
+	}
+
+	Server_CancelInteraction(Reason);
 }
 
-void UGvTInteractionComponent::Server_TryPhoto_Implementation()
+void UGvTInteractionComponent::Server_TryInteract_Implementation(EGvTInteractionVerb Verb)
 {
-	PerformServerTraceAndInteract(true);
+	PerformServerTraceAndTryStart(Verb);
+}
+
+void UGvTInteractionComponent::Server_CancelInteraction_Implementation(EGvTInteractionCancelReason Reason)
+{
+	if (!bIsInteracting)
+	{
+		return;
+	}
+
+	CancelInteractionInternal(Reason);
 }
 
 bool UGvTInteractionComponent::GetViewTrace(FVector& OutStart, FVector& OutEnd) const
@@ -69,10 +106,10 @@ bool UGvTInteractionComponent::GetViewTrace(FVector& OutStart, FVector& OutEnd) 
 	return true;
 }
 
-void UGvTInteractionComponent::PerformServerTraceAndInteract(bool bPhoto)
+void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb Verb)
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!OwnerPawn)
+	if (!OwnerPawn || bIsInteracting)
 	{
 		return;
 	}
@@ -98,23 +135,175 @@ void UGvTInteractionComponent::PerformServerTraceAndInteract(bool bPhoto)
 		}
 	}
 
-	if (!bHit || !Hit.GetActor())
+	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
+	if (!HitActor || !HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
 		return;
 	}
 
-	AActor* HitActor = Hit.GetActor();
-	if (!HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
+	FGvTInteractionSpec Spec;
+	IGvTInteractable::Execute_GetInteractionSpec(HitActor, OwnerPawn, Verb, Spec);
+
+	// Instant interactions resolve immediately (no lock-in)
+	if (Spec.CastTime <= KINDA_SMALL_NUMBER)
+	{
+		IGvTInteractable::Execute_CompleteInteract(HitActor, OwnerPawn, Verb);
+		return;
+	}
+
+	BeginInteraction(HitActor, Verb, Spec);
+}
+
+void UGvTInteractionComponent::BeginInteraction(AActor* Target, EGvTInteractionVerb Verb, const FGvTInteractionSpec& Spec)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !Target)
 	{
 		return;
 	}
 
-	if (bPhoto)
+	bIsInteracting = true;
+	CurrentInteractable = Target;
+	ActiveVerb = Verb;
+	ActiveSpec = Spec;
+
+	InteractionStartServerTime = GetWorld()->GetTimeSeconds();
+	InteractionEndServerTime = InteractionStartServerTime + Spec.CastTime;
+
+	ApplyLockIn(Spec);
+
+	IGvTInteractable::Execute_BeginInteract(Target, OwnerPawn, Verb);
+
+	// Server timer to complete
+	GetWorld()->GetTimerManager().ClearTimer(InteractionTimerHandle);
+	GetWorld()->GetTimerManager().SetTimer(
+		InteractionTimerHandle,
+		this,
+		&UGvTInteractionComponent::CompleteInteraction,
+		Spec.CastTime,
+		false
+	);
+
+	// Notify local + remote UI
+	OnRep_InteractionState();
+	OnInteractionStarted.Broadcast(Verb, Target);
+}
+
+void UGvTInteractionComponent::CompleteInteraction()
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !bIsInteracting || !CurrentInteractable)
 	{
-		IGvTInteractable::Execute_Photo(HitActor, OwnerPawn);
+		CancelInteractionInternal(EGvTInteractionCancelReason::Invalid);
+		return;
 	}
-	else
+
+	AActor* Target = CurrentInteractable;
+
+	// Clear state first (prevents re-entrancy)
+	GetWorld()->GetTimerManager().ClearTimer(InteractionTimerHandle);
+	bIsInteracting = false;
+	CurrentInteractable = nullptr;
+
+	const EGvTInteractionVerb Verb = ActiveVerb;
+
+	ClearLockIn();
+
+	// Complete on target
+	if (Target->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
-		IGvTInteractable::Execute_Interact(HitActor, OwnerPawn);
+		IGvTInteractable::Execute_CompleteInteract(Target, OwnerPawn, Verb);
 	}
+
+	// Reset timings/spec
+	InteractionStartServerTime = 0.f;
+	InteractionEndServerTime = 0.f;
+	ActiveSpec = FGvTInteractionSpec{};
+
+	OnRep_InteractionState();
+	OnInteractionCompleted.Broadcast(Verb, Target);
+}
+
+void UGvTInteractionComponent::CancelInteractionInternal(EGvTInteractionCancelReason Reason)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !bIsInteracting)
+	{
+		return;
+	}
+
+	AActor* Target = CurrentInteractable;
+	const EGvTInteractionVerb Verb = ActiveVerb;
+	const FGvTInteractionSpec SpecSnapshot = ActiveSpec;
+
+	GetWorld()->GetTimerManager().ClearTimer(InteractionTimerHandle);
+
+	bIsInteracting = false;
+	CurrentInteractable = nullptr;
+
+	ClearLockIn();
+
+	// Notify target
+	if (Target && Target->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
+	{
+		IGvTInteractable::Execute_CancelInteract(Target, OwnerPawn, Verb, Reason);
+	}
+
+	// Emit cancel noise (server)
+	if (SpecSnapshot.bEmitNoiseOnCancel && SpecSnapshot.CancelNoiseRadius > KINDA_SMALL_NUMBER)
+	{
+		if (UGameInstance* GI = GetWorld()->GetGameInstance())
+		{
+			if (UGvTNoiseSubsystem* Noise = GI->GetSubsystem<UGvTNoiseSubsystem>())
+			{
+				FGvTNoiseEvent E; E.Location = OwnerPawn->GetActorLocation(); E.Radius = SpecSnapshot.CancelNoiseRadius; E.Loudness = SpecSnapshot.CancelNoiseLoudness; E.NoiseTag = SpecSnapshot.InteractionTag; Noise->EmitNoise(E);
+			}
+		}
+	}
+
+	InteractionStartServerTime = 0.f;
+	InteractionEndServerTime = 0.f;
+	ActiveSpec = FGvTInteractionSpec{};
+
+	OnRep_InteractionState();
+	OnInteractionCanceled.Broadcast(Verb, Target, Reason);
+}
+
+void UGvTInteractionComponent::ApplyLockIn(const FGvTInteractionSpec& Spec)
+{
+	if (AGvTThiefCharacter* Thief = GetOwnerThief())
+	{
+		Thief->SetInteractionLock(Spec.bLockMovement, Spec.bLockLook);
+	}
+}
+
+void UGvTInteractionComponent::ClearLockIn()
+{
+	if (AGvTThiefCharacter* Thief = GetOwnerThief())
+	{
+		Thief->SetInteractionLock(false, false);
+	}
+}
+
+AGvTThiefCharacter* UGvTInteractionComponent::GetOwnerThief() const
+{
+	return Cast<AGvTThiefCharacter>(GetOwner());
+}
+
+void UGvTInteractionComponent::OnRep_InteractionState()
+{
+	// Intentionally minimal: UI can poll replicated state (bIsInteracting + start/end)
+	// If you want, you can start/stop local widget here.
+}
+
+void UGvTInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(UGvTInteractionComponent, bIsInteracting);
+	DOREPLIFETIME(UGvTInteractionComponent, CurrentInteractable);
+	DOREPLIFETIME(UGvTInteractionComponent, InteractionStartServerTime);
+	DOREPLIFETIME(UGvTInteractionComponent, InteractionEndServerTime);
+	DOREPLIFETIME(UGvTInteractionComponent, ActiveVerb);
+	DOREPLIFETIME(UGvTInteractionComponent, ActiveSpec);
 }

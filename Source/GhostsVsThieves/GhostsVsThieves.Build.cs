@@ -15,7 +15,10 @@ public class GhostsVsThieves : ModuleRules
             "Engine",
             "InputCore",
             "EnhancedInput",
-            "GameplayTags"
+            "GameplayTags",
+            "UMG",
+            "Slate",
+            "SlateCore"
         });
         PrivateDependencyModuleNames.AddRange(new string[] {  });
 

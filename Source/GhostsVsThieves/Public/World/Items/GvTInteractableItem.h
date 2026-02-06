@@ -16,8 +16,12 @@ class GHOSTSVSTHIEVES_API AGvTInteractableItem : public AActor, public IGvTInter
 public:
 	AGvTInteractableItem();
 
-	virtual void Interact_Implementation(APawn* InstigatorPawn) override;
-	virtual void Photo_Implementation(APawn* InstigatorPawn) override;
+	// IGvTInteractable
+virtual void GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const override;
+virtual bool CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const override;
+virtual void BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
+virtual void CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
+virtual void CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason) override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Item")
@@ -25,6 +29,20 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Item|Rules")
 	bool bConsumedOnInteract = true;
+
+
+UPROPERTY(EditAnywhere, Category="Item|Interaction")
+float InteractCastTime = 0.75f;
+
+UPROPERTY(EditAnywhere, Category="Item|Interaction")
+float PhotoCastTime = 0.25f;
+
+UPROPERTY(EditAnywhere, Category="Item|Interaction")
+bool bLockMoveDuringInteract = true;
+
+UPROPERTY(EditAnywhere, Category="Item|Interaction")
+bool bLockLookDuringInteract = true;
+
 
 	UPROPERTY(EditAnywhere, Category = "Item|Value")
 	int32 BaseValue = 50;

@@ -13,10 +13,21 @@ public:
     virtual void BeginPlay() override;
 
 protected:
-    // Assign this in a BP child OR via defaults if you hard reference a widget class.
     UPROPERTY(EditDefaultsOnly, Category = "UI")
     TSubclassOf<UUserWidget> HUDWidgetClass;
 
     UPROPERTY()
     TObjectPtr<UUserWidget> HUDWidget;
+
+    UFUNCTION(Exec)
+    void DoorLock(float MaxDistance = 500.f);
+
+    UFUNCTION(Exec)
+    void DoorUnlock(float MaxDistance = 500.f);
+
+    UFUNCTION(Exec)
+    void DoorToggleLock(float MaxDistance = 500.f);
+
+    UFUNCTION(Exec)
+    void DoorForceUnlock(float MaxDistance = 500.f);
 };

@@ -1,7 +1,9 @@
 #include "GvTPlayerController.h"
 #include "Blueprint/UserWidget.h"
+#include "GvTPlayerState.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Engine/World.h"
+#include "Interaction/GvTInteractable.h"
 
 void AGvTPlayerController::BeginPlay()
 {
@@ -18,11 +20,15 @@ void AGvTPlayerController::BeginPlay()
         return;
     }
 
-    HUDWidget = CreateWidget<UUserWidget>(this, HUDWidgetClass);
-    if (HUDWidget)
-    {
-        HUDWidget->AddToViewport();
-    }
+	HUDWidget = CreateWidget<UGvTHUDWidget>(this, HUDWidgetClass);
+	UE_LOG(LogTemp, Warning, TEXT("HUDWidgetClass=%s"), *GetNameSafe(HUDWidgetClass));
+	UE_LOG(LogTemp, Warning, TEXT("HUDWidget=%s"), *GetNameSafe(HUDWidget));
+
+	if (HUDWidget)
+	{
+		HUDWidget->AddToViewport();
+		BindHUDToPlayerState();
+	}
 }
 
 void AGvTPlayerController::Tick(float DeltaSeconds)
@@ -154,4 +160,45 @@ void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
 			Comp->SetCustomDepthStencilValue(HighlightStencilValue);
 		}
 	}
+}
+
+void AGvTPlayerController::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+	BindHUDToPlayerState();
+}
+
+void AGvTPlayerController::BindHUDToPlayerState()
+{
+	if (!IsLocalController() || !HUDWidget)
+		return;
+
+	AGvTPlayerState* PS = GetPlayerState<AGvTPlayerState>();
+
+	if (!PS)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("BindHUDToPlayerState: PS None, retrying..."));
+
+		if (!GetWorldTimerManager().IsTimerActive(TimerHandle_BindHUDRetry))
+		{
+			GetWorldTimerManager().SetTimer(
+				TimerHandle_BindHUDRetry,
+				this,
+				&AGvTPlayerController::BindHUDToPlayerState,
+				0.1f,
+				true
+			);
+		}
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(TimerHandle_BindHUDRetry);
+
+	UE_LOG(LogTemp, Warning, TEXT("BindHUDToPlayerState: SUCCESS PS=%s Loot=%d"),
+		*GetNameSafe(PS), PS->GetLoot());
+
+	HUDWidget->SetLootValue(PS->GetLoot());
+
+	PS->OnLootValueChanged.RemoveDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
+	PS->OnLootValueChanged.AddDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
 }

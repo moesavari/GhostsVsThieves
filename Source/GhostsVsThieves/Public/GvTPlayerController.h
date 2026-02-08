@@ -1,10 +1,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Systems/GvTHUDWidget.h"
 #include "GameFramework/PlayerController.h"
 #include "GvTPlayerController.generated.h"
-
-class UUserWidget;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
@@ -15,13 +14,11 @@ public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
 
+    virtual void OnRep_PlayerState() override;
+
+    //void BindHUDToPlayerState();
+
 protected:
-    UPROPERTY(EditDefaultsOnly, Category = "UI")
-    TSubclassOf<UUserWidget> HUDWidgetClass;
-
-    UPROPERTY()
-    TObjectPtr<UUserWidget> HUDWidget;
-
     UFUNCTION(Exec)
     void DoorLock(float MaxDistance = 500.f);
 
@@ -45,4 +42,13 @@ protected:
     void UpdateHighlight();
     void SetActorHighlighted(AActor* Actor, bool bHighlighted);
 
+    UPROPERTY()
+    TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+    TSubclassOf<UGvTHUDWidget> HUDWidgetClass;
+
+    FTimerHandle TimerHandle_BindHUDRetry;
+    UFUNCTION()
+    void BindHUDToPlayerState();
 };

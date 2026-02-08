@@ -24,6 +24,18 @@ void AGvTPlayerController::BeginPlay()
         HUDWidget->AddToViewport();
     }
 }
+
+void AGvTPlayerController::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (!IsLocalController())
+		return;
+
+	UpdateHighlight();
+}
+
+
 static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
 {
 	if (!PC || !PC->GetWorld()) return nullptr;
@@ -76,5 +88,70 @@ void AGvTPlayerController::DoorForceUnlock(float MaxDistance)
 	if (AGvTDoorActor* Door = FindDoorLookAt(this, MaxDistance))
 	{
 		Door->TryUnlock(GetPawn(), EDoorUnlockMethod::Force, true);
+	}
+}
+
+void AGvTPlayerController::UpdateHighlight()
+{
+	FVector ViewLoc;
+	FRotator ViewRot;
+	GetPlayerViewPoint(ViewLoc, ViewRot);
+
+	const FVector Start = ViewLoc;
+	const FVector End = Start + ViewRot.Vector() * HighlightTraceDistance;
+
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvTHighlightTrace), false);
+	if (APawn* P = GetPawn())
+	{
+		Params.AddIgnoredActor(P);
+	}
+
+	AActor* HitActor = nullptr;
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		HitActor = Hit.GetActor();
+	}
+
+	// Only highlight interactables you can Interact with (spooky, not spammy)
+	if (HitActor && HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
+	{
+		const bool bCan = IGvTInteractable::Execute_CanInteract(HitActor, GetPawn(), EGvTInteractionVerb::Interact);
+		if (!bCan)
+		{
+			HitActor = nullptr;
+		}
+	}
+	else
+	{
+		HitActor = nullptr;
+	}
+
+	AActor* Prev = CurrentHighlightedActor.Get();
+	if (Prev != HitActor)
+	{
+		if (Prev) SetActorHighlighted(Prev, false);
+		if (HitActor) SetActorHighlighted(HitActor, true);
+		CurrentHighlightedActor = HitActor;
+	}
+}
+
+void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
+{
+	if (!Actor) return;
+
+	TArray<UPrimitiveComponent*> PrimComps;
+	Actor->GetComponents<UPrimitiveComponent>(PrimComps);
+
+	for (UPrimitiveComponent* Comp : PrimComps)
+	{
+		if (!Comp || !Comp->IsRegistered())
+			continue;
+
+		Comp->SetRenderCustomDepth(bHighlighted);
+		if (bHighlighted)
+		{
+			Comp->SetCustomDepthStencilValue(HighlightStencilValue);
+		}
 	}
 }

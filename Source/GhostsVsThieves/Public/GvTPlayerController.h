@@ -4,6 +4,8 @@
 #include "GameFramework/PlayerController.h"
 #include "GvTPlayerController.generated.h"
 
+class UUserWidget;
+
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
 {
@@ -11,6 +13,7 @@ class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
 
 public:
     virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category = "UI")
@@ -30,4 +33,16 @@ protected:
 
     UFUNCTION(Exec)
     void DoorForceUnlock(float MaxDistance = 500.f);
+
+    UPROPERTY(EditDefaultsOnly, Category = "Highlight")
+    float HighlightTraceDistance = 650.f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "Highlight")
+    int32 HighlightStencilValue = 1;
+
+    TWeakObjectPtr<AActor> CurrentHighlightedActor;
+
+    void UpdateHighlight();
+    void SetActorHighlighted(AActor* Actor, bool bHighlighted);
+
 };

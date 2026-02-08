@@ -90,8 +90,7 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 				AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
 				if (PS)
 				{
-					const int32 PhotoScore = FMath::RoundToInt(static_cast<float>(BaseValue) * PhotoMultiplier);
-					PS->AddLoot(PhotoScore);
+					AppraisedValue = FMath::RoundToInt(static_cast<float>(BaseValue) * PhotoMultiplier);
 				}
 			}
 		}
@@ -107,7 +106,24 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 	{
 		if (UGvTNoiseEmitterComponent* Noise = InstigatorPawn->FindComponentByClass<UGvTNoiseEmitterComponent>())
 		{
-			Noise->EmitNoise(InteractNoiseTag, InteractNoiseRadius, 1.0f);
+			Noise->EmitNoise(InteractNoiseTag, InteractNoiseRadius, 1.f);
+		}
+	}
+
+	if (InstigatorPawn)
+	{
+		APlayerController* PC = Cast<APlayerController>(InstigatorPawn->GetController());
+		if (PC)
+		{
+			AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
+			if (PS)
+			{
+				const int32 FinalValue = bHasBeenPhotographed
+					? FMath::Max(AppraisedValue, 0)
+					: BaseValue;
+
+				PS->AddLoot(FinalValue);
+			}
 		}
 	}
 
@@ -144,4 +160,5 @@ void AGvTInteractableItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AGvTInteractableItem, bIsConsumed);
 	DOREPLIFETIME(AGvTInteractableItem, bHasBeenPhotographed);
+	DOREPLIFETIME(AGvTInteractableItem, AppraisedValue);
 }

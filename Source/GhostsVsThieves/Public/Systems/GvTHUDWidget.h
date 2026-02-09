@@ -15,4 +15,7 @@ public:
 
 	UFUNCTION()
 	void HandleLootChanged(int32 NewLoot);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
+	void ShowScanValueNamed(AActor* Item, const FText& DisplayName, int32 Value);
 };

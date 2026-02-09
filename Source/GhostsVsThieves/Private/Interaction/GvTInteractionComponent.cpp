@@ -36,11 +36,28 @@ void UGvTInteractionComponent::TryInteract()
 
 void UGvTInteractionComponent::TryPhoto()
 {
+	//APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	//if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	//{
+	//	return;
+	//}
+
+	//if (bIsInteracting)
+	//{
+	//	TryCancelInteraction(EGvTInteractionCancelReason::UserCanceled);
+	//	return;
+	//}
+
+	//Server_TryInteract(EGvTInteractionVerb::Photo);
+
+	TryScan();
+}
+
+void UGvTInteractionComponent::TryScan()
+{
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
-	{
 		return;
-	}
 
 	if (bIsInteracting)
 	{
@@ -48,7 +65,12 @@ void UGvTInteractionComponent::TryPhoto()
 		return;
 	}
 
-	Server_TryInteract(EGvTInteractionVerb::Photo);
+	Server_TryInteract(EGvTInteractionVerb::Scan);
+}
+
+bool UGvTInteractionComponent::IsScanning() const
+{
+	return bIsInteracting && ActiveVerb == EGvTInteractionVerb::Scan;
 }
 
 void UGvTInteractionComponent::TryCancelInteraction(EGvTInteractionCancelReason Reason)
@@ -292,8 +314,15 @@ AGvTThiefCharacter* UGvTInteractionComponent::GetOwnerThief() const
 
 void UGvTInteractionComponent::OnRep_InteractionState()
 {
-	// Intentionally minimal: UI can poll replicated state (bIsInteracting + start/end)
-	// If you want, you can start/stop local widget here.
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+		return;
+
+	if (bPrevInteracting_Local != bIsInteracting)
+	{
+		bPrevInteracting_Local = bIsInteracting;
+		BP_OnInteractionStateChanged(bIsInteracting, ActiveVerb, CurrentInteractable, ActiveSpec);
+	}
 }
 
 void UGvTInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

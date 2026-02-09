@@ -25,9 +25,21 @@ void AGvTPlayerState::OnRep_LootValue()
 
 }
 
-
 void AGvTPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AGvTPlayerState, LootValue);
+	DOREPLIFETIME(AGvTPlayerState, Panic01);
+}
+
+void AGvTPlayerState::Server_AddPanic_Implementation(float Delta01)
+{
+	Panic01 = FMath::Clamp(Panic01 + Delta01, 0.f, 1.f);
+	OnRep_Panic();
+	ForceNetUpdate();
+}
+
+void AGvTPlayerState::OnRep_Panic()
+{
+	// TODO: broadcast a delegate for UI
 }

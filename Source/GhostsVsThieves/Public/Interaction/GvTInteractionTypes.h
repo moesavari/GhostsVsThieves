@@ -7,18 +7,19 @@
 UENUM(BlueprintType)
 enum class EGvTInteractionVerb : uint8
 {
-	Interact UMETA(DisplayName="Interact"),
-	Photo UMETA(DisplayName="Photo"),
+	Interact		UMETA(DisplayName="Interact"),
+	Photo			UMETA(DisplayName="Photo"),
+	Scan			UMETA(DisplayName="Scan"),
 };
 
 UENUM(BlueprintType)
 enum class EGvTInteractionCancelReason : uint8
 {
-	UserCanceled UMETA(DisplayName="User Canceled"),
-	Moved UMETA(DisplayName="Moved"),
-	Damaged UMETA(DisplayName="Damaged"),
-	Invalid UMETA(DisplayName="Invalid"),
-	Other UMETA(DisplayName="Other"),
+	UserCanceled	UMETA(DisplayName="User Canceled"),
+	Moved			UMETA(DisplayName="Moved"),
+	Damaged			UMETA(DisplayName="Damaged"),
+	Invalid			UMETA(DisplayName="Invalid"),
+	Other			UMETA(DisplayName="Other"),
 };
 
 USTRUCT(BlueprintType)

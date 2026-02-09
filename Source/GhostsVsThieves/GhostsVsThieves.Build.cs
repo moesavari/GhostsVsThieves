@@ -18,7 +18,8 @@ public class GhostsVsThieves : ModuleRules
             "GameplayTags",
             "UMG",
             "Slate",
-            "SlateCore"
+            "SlateCore",
+            "NetCore"
         });
         PrivateDependencyModuleNames.AddRange(new string[] {  });
 

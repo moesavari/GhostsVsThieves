@@ -16,6 +16,9 @@ public:
 
     virtual void OnRep_PlayerState() override;
 
+
+    UFUNCTION(Client, Reliable)
+    void Client_ShowScanResult(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue);
     //void BindHUDToPlayerState();
 
 protected:

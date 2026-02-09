@@ -26,12 +26,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
 	void TryPhoto();
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
+	void TryScan();
+
 	// Client entry point to cancel (useful for "release to cancel" or pressing again)
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
 	void TryCancelInteraction(EGvTInteractionCancelReason Reason = EGvTInteractionCancelReason::UserCanceled);
 
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
 	bool IsInteracting() const { return bIsInteracting; }
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
+	bool IsScanning() const;
 
 	// Replicated timings for UI
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
@@ -70,6 +76,9 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, Category="GvT|Interaction")
 	bool bDebugDraw = false;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Interaction")
+	void BP_OnInteractionStateChanged(bool bNowInteracting, EGvTInteractionVerb Verb, AActor* Target, FGvTInteractionSpec Spec);
 
 	// Replicated state
 	UPROPERTY(ReplicatedUsing=OnRep_InteractionState)
@@ -117,4 +126,6 @@ protected:
 
 private:
 	FTimerHandle InteractionTimerHandle;
+
+	bool bPrevInteracting_Local = false;
 };

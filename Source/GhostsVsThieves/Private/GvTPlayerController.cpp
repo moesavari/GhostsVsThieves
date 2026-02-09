@@ -202,3 +202,11 @@ void AGvTPlayerController::BindHUDToPlayerState()
 	PS->OnLootValueChanged.RemoveDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
 	PS->OnLootValueChanged.AddDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
 }
+
+void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue)
+{
+	if (HUDWidget)
+	{
+		HUDWidget->ShowScanValueNamed(Item, ItemDisplayName, ScannedValue);
+	}
+}

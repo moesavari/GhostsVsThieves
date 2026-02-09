@@ -22,6 +22,12 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "GvT|Loot")
 	FOnLootValueChanged OnLootValueChanged;
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Panic")
+	float GetPanic01() const { return Panic01; }
+
+	UFUNCTION(Server, Reliable)
+	void Server_AddPanic(float Delta01);
+
 protected:
 	UPROPERTY(ReplicatedUsing = OnRep_LootValue, BlueprintReadOnly, Category = "GvT|Loot")
 	int32 LootValue = 0;
@@ -30,4 +36,10 @@ protected:
 	void OnRep_LootValue();
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UPROPERTY(ReplicatedUsing = OnRep_Panic, BlueprintReadOnly, Category = "GvT|Panic")
+	float Panic01 = 0.f;
+
+	UFUNCTION()
+	void OnRep_Panic();
 };

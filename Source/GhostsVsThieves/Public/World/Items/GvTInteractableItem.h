@@ -43,6 +43,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
 	bool bLockLookDuringInteract = true;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scan")
+	FText DisplayName = FText::FromString(TEXT("Item"));
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scan", meta = (ClampMin = "0.0"))
+	float ScanMultiplier = 1.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Item|Value")
 	int32 BaseValue = 50;

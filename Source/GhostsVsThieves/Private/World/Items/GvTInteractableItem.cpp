@@ -4,6 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Systems/Noise/GvTNoiseEmitterComponent.h"
 #include "GvTPlayerState.h"
+#include "GvTPlayerController.h"
 #include "GameFramework/PlayerController.h"
 
 AGvTInteractableItem::AGvTInteractableItem()
@@ -51,7 +52,7 @@ bool AGvTInteractableItem::CanInteract_Implementation(APawn* InstigatorPawn, EGv
 	{
 		return false;
 	}
-	if (Verb == EGvTInteractionVerb::Photo)
+	if (Verb == EGvTInteractionVerb::Scan)
 	{
 		return !bHasBeenPhotographed;
 	}
@@ -70,7 +71,7 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 		return;
 	}
 
-	if (Verb == EGvTInteractionVerb::Photo)
+	if (Verb == EGvTInteractionVerb::Scan)
 	{
 		if (bHasBeenPhotographed || bIsConsumed)
 			return;
@@ -84,7 +85,7 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 				Noise->EmitNoise(PhotoNoiseTag, PhotoNoiseRadius, 1.0f);
 			}
 
-			APlayerController* PC = Cast<APlayerController>(InstigatorPawn->GetController());
+			AGvTPlayerController* PC = Cast<AGvTPlayerController>(InstigatorPawn->GetController());
 			if (PC)
 			{
 				AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
@@ -92,6 +93,8 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 				{
 					AppraisedValue = FMath::RoundToInt(static_cast<float>(BaseValue) * PhotoMultiplier);
 				}
+
+				PC->Client_ShowScanResult(this, DisplayName, AppraisedValue);
 			}
 		}
 

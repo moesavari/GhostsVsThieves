@@ -205,7 +205,8 @@ void AGvTThiefCharacter::OnPhotoPressed()
     if (!IsLocallyControlled() || !InteractionComponent)
         return;
 
-    InteractionComponent->TryPhoto();
+    //InteractionComponent->TryPhoto();
+    InteractionComponent->TryScan();
 }
 
 

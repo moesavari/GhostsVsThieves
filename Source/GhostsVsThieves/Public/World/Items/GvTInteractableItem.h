@@ -37,6 +37,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
 	float PhotoCastTime = 0.25f;
 
+	UPROPERTY(EditAnywhere, Category = "Item|Interaction")
+	float ScanCastTime = 0.85f;
+
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
 	bool bLockMoveDuringInteract = true;
 
@@ -62,16 +65,44 @@ protected:
 	float PhotoNoiseRadius = 300.f;
 
 	UPROPERTY(EditAnywhere, Category = "Item|Noise")
+	float ScanNoiseRadius = 250.f;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Noise")
 	FGameplayTag InteractNoiseTag;
 
 	UPROPERTY(EditAnywhere, Category = "Item|Noise")
 	FGameplayTag PhotoNoiseTag;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Noise")
+	FGameplayTag ScanNoiseTag;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TObjectPtr<USoundBase> InteractLoopSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TObjectPtr<USoundBase> InteractEndSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TObjectPtr<USoundBase> InteractCancelSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TObjectPtr<USoundBase> ScanLoopSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TObjectPtr<USoundBase> ScanEndSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TObjectPtr<USoundBase> ScanCancelSfx = nullptr;
+
 
 	UPROPERTY(ReplicatedUsing = OnRep_IsConsumed)
 	bool bIsConsumed = false;
 
 	UPROPERTY(ReplicatedUsing = OnRep_HasPhoto)
 	bool bHasBeenPhotographed = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_HasBeenScanned)
+	bool bHasBeenScanned = false;
 
 	UPROPERTY(Replicated)
 	int32 AppraisedValue = 0;
@@ -81,6 +112,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_HasPhoto();
+
+	UFUNCTION()
+	void OnRep_HasBeenScanned();
 
 	void ApplyConsumedState(bool bConsumed);
 

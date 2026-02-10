@@ -9,6 +9,8 @@
 #include "Interaction/GvTInteractable.h"
 #include "Characters/Thieves/GvTThiefCharacter.h"
 #include "Systems/Noise/GvTNoiseSubsystem.h"
+#include "Components/AudioComponent.h"
+#include "Kismet/GameplayStatics.h"
 
 UGvTInteractionComponent::UGvTInteractionComponent()
 {
@@ -136,6 +138,15 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 		return;
 	}
 
+	if (Verb == EGvTInteractionVerb::Scan)
+	{
+		const float Now = GetWorld()->GetTimeSeconds();
+		if (Now - LastScanServerTime < ScanAttemptCooldownSeconds)
+			return;
+
+		LastScanServerTime = Now;
+	}
+
 	FVector Start, End;
 	if (!GetViewTrace(Start, End))
 	{
@@ -240,6 +251,8 @@ void UGvTInteractionComponent::CompleteInteraction()
 	// Reset timings/spec
 	InteractionStartServerTime = 0.f;
 	InteractionEndServerTime = 0.f;
+
+	Client_PlayInteractionFinishSfx(true, Verb, ActiveSpec);
 	ActiveSpec = FGvTInteractionSpec{};
 
 	OnRep_InteractionState();
@@ -285,6 +298,7 @@ void UGvTInteractionComponent::CancelInteractionInternal(EGvTInteractionCancelRe
 
 	InteractionStartServerTime = 0.f;
 	InteractionEndServerTime = 0.f;
+	Client_PlayInteractionFinishSfx(false, Verb, SpecSnapshot);
 	ActiveSpec = FGvTInteractionSpec{};
 
 	OnRep_InteractionState();
@@ -318,12 +332,47 @@ void UGvTInteractionComponent::OnRep_InteractionState()
 	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
 		return;
 
+	if (!bPrevInteracting_Local && bIsInteracting)
+	{
+		// entering interaction locally
+		PrevVerb_Local = ActiveVerb;
+		PrevSpec_Local = ActiveSpec;
+
+		if (ActiveSpec.LoopSfx)
+		{
+			ActiveLoopAudio = UGameplayStatics::SpawnSoundAttached(
+				ActiveSpec.LoopSfx,
+				GetOwner()->GetRootComponent()
+			);
+		}
+	}
+	else if (bPrevInteracting_Local && !bIsInteracting)
+	{
+		// leaving interaction locally
+		if (ActiveLoopAudio)
+		{
+			ActiveLoopAudio->Stop();
+			ActiveLoopAudio = nullptr;
+		}
+	}
+
 	if (bPrevInteracting_Local != bIsInteracting)
 	{
 		bPrevInteracting_Local = bIsInteracting;
 		BP_OnInteractionStateChanged(bIsInteracting, ActiveVerb, CurrentInteractable, ActiveSpec);
 	}
 }
+
+void UGvTInteractionComponent::Client_PlayInteractionFinishSfx_Implementation(
+	bool bCompleted, EGvTInteractionVerb Verb, const FGvTInteractionSpec& Spec)
+{
+	USoundBase* Sfx = bCompleted ? Spec.EndSfx : Spec.CancelSfx;
+	if (Sfx)
+	{
+		UGameplayStatics::PlaySound2D(this, Sfx);
+	}
+}
+
 
 void UGvTInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {

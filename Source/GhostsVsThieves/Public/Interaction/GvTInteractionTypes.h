@@ -53,4 +53,14 @@ struct FGvTInteractionSpec
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Interaction")
 	FGameplayTag InteractionTag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Audio")
+	TObjectPtr<USoundBase> LoopSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Audio")
+	TObjectPtr<USoundBase> EndSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Audio")
+	TObjectPtr<USoundBase> CancelSfx = nullptr;
+
 };

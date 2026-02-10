@@ -17,17 +17,36 @@ AGvTInteractableItem::AGvTInteractableItem()
 
 	InteractNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact"));
 	PhotoNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Photo"));
+	ScanNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Scan"));
 }
 
 void AGvTInteractableItem::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
 {
 	OutSpec = FGvTInteractionSpec{};
-	if (Verb == EGvTInteractionVerb::Photo)
+
+	if (Verb == EGvTInteractionVerb::Scan)
+	{
+		OutSpec.CastTime = ScanCastTime;
+		OutSpec.bLockMovement = true;
+		OutSpec.bLockLook = true;
+		OutSpec.bCancelable = true;
+
+		OutSpec.bEmitNoiseOnCancel = true;
+		OutSpec.CancelNoiseRadius = ScanNoiseRadius * 0.75f;
+		OutSpec.CancelNoiseLoudness = 1.0f;
+		OutSpec.InteractionTag = ScanNoiseTag;
+
+		OutSpec.LoopSfx = ScanLoopSfx;
+		OutSpec.EndSfx = ScanEndSfx;
+		OutSpec.CancelSfx = ScanCancelSfx;
+	}
+	else if (Verb == EGvTInteractionVerb::Photo)
 	{
 		OutSpec.CastTime = PhotoCastTime;
 		OutSpec.bLockMovement = true;
 		OutSpec.bLockLook = true;
 		OutSpec.bCancelable = true;
+
 		OutSpec.bEmitNoiseOnCancel = true;
 		OutSpec.CancelNoiseRadius = PhotoNoiseRadius * 0.75f;
 		OutSpec.CancelNoiseLoudness = 1.0f;
@@ -39,10 +58,15 @@ void AGvTInteractableItem::GetInteractionSpec_Implementation(APawn* InstigatorPa
 		OutSpec.bLockMovement = bLockMoveDuringInteract;
 		OutSpec.bLockLook = bLockLookDuringInteract;
 		OutSpec.bCancelable = true;
+
 		OutSpec.bEmitNoiseOnCancel = true;
 		OutSpec.CancelNoiseRadius = InteractNoiseRadius * 0.75f;
 		OutSpec.CancelNoiseLoudness = 1.0f;
 		OutSpec.InteractionTag = InteractNoiseTag;
+
+		OutSpec.LoopSfx = InteractLoopSfx;
+		OutSpec.EndSfx = InteractEndSfx;
+		OutSpec.CancelSfx = InteractCancelSfx;
 	}
 }
 
@@ -54,7 +78,7 @@ bool AGvTInteractableItem::CanInteract_Implementation(APawn* InstigatorPawn, EGv
 	}
 	if (Verb == EGvTInteractionVerb::Scan)
 	{
-		return !bHasBeenPhotographed;
+		return !bHasBeenScanned && !bIsConsumed;
 	}
 	return true;
 }
@@ -73,29 +97,24 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 
 	if (Verb == EGvTInteractionVerb::Scan)
 	{
-		if (bHasBeenPhotographed || bIsConsumed)
+		if (bHasBeenScanned || bIsConsumed)
 			return;
 
-		bHasBeenPhotographed = true;
+		bHasBeenScanned = true;
 
 		if (InstigatorPawn)
 		{
 			if (UGvTNoiseEmitterComponent* Noise = InstigatorPawn->FindComponentByClass<UGvTNoiseEmitterComponent>())
 			{
-				Noise->EmitNoise(PhotoNoiseTag, PhotoNoiseRadius, 1.0f);
+				Noise->EmitNoise(ScanNoiseTag, ScanNoiseRadius, 1.0f);
 			}
+		}
 
-			AGvTPlayerController* PC = Cast<AGvTPlayerController>(InstigatorPawn->GetController());
-			if (PC)
-			{
-				AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
-				if (PS)
-				{
-					AppraisedValue = FMath::RoundToInt(static_cast<float>(BaseValue) * PhotoMultiplier);
-				}
+		AppraisedValue = FMath::RoundToInt(float(BaseValue) * ScanMultiplier);
 
-				PC->Client_ShowScanResult(this, DisplayName, AppraisedValue);
-			}
+		if (AGvTPlayerController* PC = InstigatorPawn ? Cast<AGvTPlayerController>(InstigatorPawn->GetController()) : nullptr)
+		{
+			PC->Client_ShowScanResult(this, DisplayName, AppraisedValue);
 		}
 
 		return;
@@ -158,10 +177,16 @@ void AGvTInteractableItem::OnRep_HasPhoto()
 	// Placeholder
 }
 
+void AGvTInteractableItem::OnRep_HasBeenScanned()
+{
+	// Optional: update material/outline/UI later
+}
+
 void AGvTInteractableItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AGvTInteractableItem, bIsConsumed);
 	DOREPLIFETIME(AGvTInteractableItem, bHasBeenPhotographed);
 	DOREPLIFETIME(AGvTInteractableItem, AppraisedValue);
+	DOREPLIFETIME(AGvTInteractableItem, bHasBeenScanned);
 }

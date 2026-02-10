@@ -99,6 +99,12 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_InteractionState)
 	FGvTInteractionSpec ActiveSpec;
 
+	UPROPERTY()
+	float LastScanServerTime = -9999.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Interaction")
+	float ScanAttemptCooldownSeconds = 0.25f;
+
 	UFUNCTION()
 	void OnRep_InteractionState();
 
@@ -108,6 +114,9 @@ protected:
 
 	UFUNCTION(Server, Reliable)
 	void Server_CancelInteraction(EGvTInteractionCancelReason Reason);
+
+	UFUNCTION(Client, Reliable)
+	void Client_PlayInteractionFinishSfx(bool bCompleted, EGvTInteractionVerb Verb, const FGvTInteractionSpec& Spec);
 
 	// Server helpers
 	void PerformServerTraceAndTryStart(EGvTInteractionVerb Verb);
@@ -128,4 +137,10 @@ private:
 	FTimerHandle InteractionTimerHandle;
 
 	bool bPrevInteracting_Local = false;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> ActiveLoopAudio = nullptr;
+
+	EGvTInteractionVerb PrevVerb_Local = EGvTInteractionVerb::Interact;
+	FGvTInteractionSpec PrevSpec_Local;
 };

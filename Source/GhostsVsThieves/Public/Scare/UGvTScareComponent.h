@@ -4,12 +4,13 @@
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
 #include "Scare/GvTScareTypes.h"
+#include "Characters/Thieves/GvTThiefCharacter.h"
 #include "UGvTScareComponent.generated.h"
 
 class UGvTScareSubsystem;
 class UGvTGhostProfileAsset;
 
-UCLASS(ClassGroup = (GvT), meta = (BlueprintSpawnableComponent))
+UCLASS(ClassGroup = (GvT), BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class GHOSTSVSTHIEVES_API UGvTScareComponent : public UActorComponent
 {
 	GENERATED_BODY()
@@ -20,7 +21,6 @@ public:
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	// Call from GameMode/GameState when a player dies
 	void Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare")
@@ -41,7 +41,7 @@ private:
 	FGvTScareState ScareState;
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Schedule")
-	float SchedulerIntervalSeconds = 0.10f;
+	float SchedulerIntervalSeconds = 0.50f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Schedule")
 	int32 CooldownStackCap = 5;
@@ -63,18 +63,15 @@ private:
 
 	FTimerHandle SchedulerTimer;
 
-	// Server-only bookkeeping
 	TMap<FGameplayTag, float> LastTagTimeSeconds;
 	bool bPendingSafetySpike = false;
 
 	bool IsServer() const;
 	float GetNowServerSeconds() const;
 
-	// TODO: wire to your PlayerState Panic
 	uint8 GetPanicTier(float& OutPanic01) const;
 
-	// TODO: wire to avg panic + elapsed time (director)
-	float ComputePressure01(float PlayerPanic01) const;
+	float ComputePressure01(float PlayerPanic01, float AvgPanic01, float TimeSinceLastScare01) const;
 
 	void BuildContextTags(FGameplayTagContainer& OutContext) const;
 
@@ -87,4 +84,9 @@ private:
 	FRandomStream MakeStream(float Now) const;
 
 	const UGvTGhostProfileAsset* ResolveGhostProfile(const UGvTScareSubsystem* Subsystem) const;
+	
+	float ComputeAveragePanic01() const;
+	float ComputeTimeSinceLastScare01(float Now) const;
+
+	AGvTThiefCharacter* ChooseTargetThief(FRandomStream& Stream) const;
 };

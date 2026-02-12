@@ -1,10 +1,15 @@
 #include "Scare/UGvTScareComponent.h"
-#include "Net/UnrealNetwork.h"
-#include "GameplayTagsManager.h"
 #include "GameFramework/GameStateBase.h"
-#include "Scare/UGvTScareSubsystem.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "GameplayTagsManager.h"
+#include "GvTPlayerState.h"
+#include "Net/UnrealNetwork.h"
 #include "Scare/GvTScareDefinition.h"
 #include "Scare/UGvTGhostProfileAsset.h"
+#include "Scare/UGvTScareSubsystem.h"
+#include "Systems/Noise/GvTNoiseSubsystem.h"
+#include "Kismet/GameplayStatics.h"
 
 UGvTScareComponent::UGvTScareComponent()
 {
@@ -16,6 +21,11 @@ void UGvTScareComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] BeginPlay. Owner=%s HasAuthority=%d NetMode=%d"),
+		*GetNameSafe(GetOwner()),
+		GetOwner() ? (int32)GetOwner()->HasAuthority() : -1,
+		(int32)GetNetMode());
+
 	if (IsServer())
 	{
 		if (ScareState.Seed == 0)
@@ -26,7 +36,7 @@ void UGvTScareComponent::BeginPlay()
 		}
 
 		const float Now = GetNowServerSeconds();
-		ScareState.NextScareServerTime = Now + 8.f;
+		ScareState.NextScareServerTime = Now + FMath::FRandRange(6.f, 10.f);
 		ScareState.SafetyWindowEndTime = 0.f;
 		ScareState.CooldownStacks = 0;
 		ScareState.LastScareServerTime = 0.f;
@@ -71,28 +81,44 @@ void UGvTScareComponent::OnRep_ScareState()
 	// Optional: client debug / UI
 }
 
-uint8 UGvTScareComponent::GetPanicTier(float& OutPanic01) const
-{
-	// TODO: Replace with your AGvTPlayerState Panic01 once you add it.
-	OutPanic01 = 0.f;
-
-	if (OutPanic01 < 0.20f) return 0;
-	if (OutPanic01 < 0.45f) return 1;
-	if (OutPanic01 < 0.70f) return 2;
-	if (OutPanic01 < 0.90f) return 3;
-	return 4;
-}
-
-float UGvTScareComponent::ComputePressure01(float PlayerPanic01) const
+float UGvTScareComponent::ComputePressure01(float PlayerPanic01, float AvgPanic01, float TimeSinceLastScare01) const
 {
 	const float Elapsed = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
-	const float Elapsed01 = FMath::Clamp(Elapsed / 600.f, 0.f, 1.f); // 10 min ramp
-	return FMath::Clamp(0.65f * PlayerPanic01 + 0.35f * Elapsed01, 0.f, 1.f);
+	const float Elapsed01 = FMath::Clamp(Elapsed / 600.f, 0.f, 1.f);
+
+	const float Pressure =
+		0.45f * PlayerPanic01 +
+		0.25f * AvgPanic01 +
+		0.20f * TimeSinceLastScare01 +
+		0.10f * Elapsed01;
+
+	return FMath::Clamp(Pressure, 0.f, 1.f);
 }
 
 void UGvTScareComponent::BuildContextTags(FGameplayTagContainer& OutContext) const
 {
-	// MVP: empty. Later: alone/group, noisy (noise subsystem), light/dark, phase tags, etc.
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] BuildContextTags running. Owner=%s HasAuthority=%d"),
+		*GetOwner()->GetName(),
+		GetOwner()->HasAuthority() ? 1 : 0);
+
+	UWorld* W = GetWorld();
+	UGameInstance* GI = W ? W->GetGameInstance() : nullptr;
+	if (!GI) return;
+
+	UGvTNoiseSubsystem* Noise = GI->GetSubsystem<UGvTNoiseSubsystem>();
+	if (!Noise) return;
+
+	const FGameplayTag ElectricNoise = FGameplayTag::RequestGameplayTag(TEXT("Noise.Electric"));
+	const FGameplayTag ContextElectricalHigh = FGameplayTag::RequestGameplayTag(TEXT("Context.ElectricalHigh"));
+
+	const int32 ElectricCount = Noise->GetRecentTagCount(ElectricNoise, 25.f);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] ElectricCount=%d (window=25s)"), ElectricCount);
+
+	if (ElectricCount >= 1)
+	{
+		OutContext.AddTag(ContextElectricalHigh);
+	}
 }
 
 bool UGvTScareComponent::Server_CanTriggerNow(float Now) const
@@ -147,6 +173,10 @@ void UGvTScareComponent::Server_SchedulerTick()
 void UGvTScareComponent::Server_TriggerScare(float Now)
 {
 	UGvTScareSubsystem* Subsystem = GetWorld() ? GetWorld()->GetGameInstance()->GetSubsystem<UGvTScareSubsystem>() : nullptr;
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] Gate: Now=%.2f Next=%.2f"),
+		Now, ScareState.NextScareServerTime);
+
 	if (!Subsystem)
 	{
 		ScareState.NextScareServerTime = Now + 8.f;
@@ -154,19 +184,31 @@ void UGvTScareComponent::Server_TriggerScare(float Now)
 	}
 
 	float Panic01 = 0.f;
+
+	const float AvgPanic01 = ComputeAveragePanic01();
+	const float TimeSince01 = ComputeTimeSinceLastScare01(Now);
+
 	const uint8 PanicTier = GetPanicTier(Panic01);
 	ScareState.LastPanicTier = PanicTier;
 
-	const float Pressure01 = ComputePressure01(Panic01);
+	const float Pressure01 = ComputePressure01(Panic01, AvgPanic01, TimeSince01);
 	const float FearScore01 = FMath::Clamp(0.65f * Panic01 + 0.35f * Pressure01, 0.f, 1.f);
 
 	FGameplayTagContainer ContextTags;
 	BuildContextTags(ContextTags);
 
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] ContextTags: %s"), *ContextTags.ToStringSimple());
+
 	const UGvTGhostProfileAsset* GhostProfile = ResolveGhostProfile(Subsystem);
 	FRandomStream Stream = MakeStream(Now);
 
-	const UGvTScareDefinition* Picked = Subsystem->PickScareWeighted(ContextTags, GhostProfile, PanicTier, LastTagTimeSeconds, Now, Stream);
+	TArray<FGvTScareWeightDebugRow> DebugRows;
+	const bool bDebug = UGvTScareSubsystem::IsScareDebugEnabled();
+
+	const UGvTScareDefinition* Picked = bDebug
+		? Subsystem->PickScareWeightedDebug(ContextTags, GhostProfile, PanicTier, LastTagTimeSeconds, Now, Stream, DebugRows)
+		: Subsystem->PickScareWeighted(ContextTags, GhostProfile, PanicTier, LastTagTimeSeconds, Now, Stream);
+
 	if (!Picked)
 	{
 		ScareState.NextScareServerTime = Now + 2.0f;
@@ -197,11 +239,49 @@ void UGvTScareComponent::Server_TriggerScare(float Now)
 	Event.Duration = 1.0f;
 	Event.WorldHint = GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
 	Event.LocalSeed = MakeLocalSeed(Now);
-	Event.bIsGroupScare = false;
 
-	bPendingSafetySpike = false;
+	const float GroupChance = (Picked->bIsGroupEligible ? 0.25f : 0.0f); // TEST VALUE
+	Event.bIsGroupScare = (GroupChance > 0.f) && (Stream.FRand() < GroupChance);
 
-	Client_PlayScare(Event);
+	if (Event.bIsGroupScare)
+	{
+		UWorld* World = GetWorld();
+		if (World)
+		{
+			TArray<AActor*> Thieves;
+			UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+			for (AActor* A : Thieves)
+			{
+				AGvTThiefCharacter* T = Cast<AGvTThiefCharacter>(A);
+				if (!T) continue;
+
+				if (UGvTScareComponent* C = T->FindComponentByClass<UGvTScareComponent>())
+				{
+					C->Client_PlayScare(Event);
+				}
+			}
+		}
+	}
+	else
+	{
+		AGvTThiefCharacter* Target = ChooseTargetThief(Stream);
+		if (Target)
+		{
+			if (UGvTScareComponent* C = Target->FindComponentByClass<UGvTScareComponent>())
+			{
+				C->Client_PlayScare(Event);
+			}
+			else
+			{
+				Client_PlayScare(Event);
+			}
+		}
+		else
+		{
+			Client_PlayScare(Event);
+		}
+	}
 
 	LastTagTimeSeconds.Add(Event.ScareTag, Now);
 
@@ -234,5 +314,89 @@ void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, f
 
 	Client_PlayScare(Event);
 
-	// TODO: Add panic to PlayerState here when your Panic01 exists.
+	if (APawn* Pawn = Cast<APawn>(GetOwner()))
+	{
+		if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+		{
+			if (AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>())
+			{
+				const float PanicDelta = 0.15f * Event.Intensity01;
+				PS->Server_AddPanic(PanicDelta);
+			}
+		}
+	}
+}
+
+uint8 UGvTScareComponent::GetPanicTier(float& OutPanic01) const
+{
+	OutPanic01 = 0.f;
+
+	const APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn) return 0;
+
+	const APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	if (!PC) return 0;
+
+	const AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
+	if (!PS) return 0;
+
+	OutPanic01 = FMath::Clamp(PS->GetPanic01(), 0.f, 1.f);
+
+	if (OutPanic01 < 0.20f) return 0;
+	if (OutPanic01 < 0.45f) return 1;
+	if (OutPanic01 < 0.70f) return 2;
+	if (OutPanic01 < 0.90f) return 3;
+	return 4;
+}
+
+float UGvTScareComponent::ComputeAveragePanic01() const
+{
+	const UWorld* W = GetWorld();
+	const AGameStateBase* GS = W ? W->GetGameState() : nullptr;
+	if (!GS || GS->PlayerArray.Num() == 0) return 0.f;
+
+	float Sum = 0.f;
+	int32 Count = 0;
+
+	for (APlayerState* PS : GS->PlayerArray)
+	{
+		if (const AGvTPlayerState* GvTPS = Cast<AGvTPlayerState>(PS))
+		{
+			Sum += FMath::Clamp(GvTPS->GetPanic01(), 0.f, 1.f);
+			Count++;
+		}
+	}
+
+	return (Count > 0) ? (Sum / float(Count)) : 0.f;
+}
+
+float UGvTScareComponent::ComputeTimeSinceLastScare01(float Now) const
+{
+	if (ScareState.LastScareServerTime <= 0.f) return 1.f;
+	const float Delta = FMath::Max(0.f, Now - ScareState.LastScareServerTime);
+
+	return FMath::Clamp(Delta / 30.f, 0.f, 1.f);
+}
+
+AGvTThiefCharacter* UGvTScareComponent::ChooseTargetThief(FRandomStream& Stream) const
+{
+	UWorld* World = GetWorld();
+	if (!World) return nullptr;
+
+	TArray<AActor*> Thieves;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+	TArray<AGvTThiefCharacter*> Candidates;
+	for (AActor* A : Thieves)
+	{
+		AGvTThiefCharacter* T = Cast<AGvTThiefCharacter>(A);
+		if (!T) continue;
+
+		// MVP rules: alive, has controller, etc. (keep simple)
+		if (T->GetController() != nullptr)
+			Candidates.Add(T);
+	}
+
+	if (Candidates.Num() == 0) return nullptr;
+	return Candidates[Stream.RandRange(0, Candidates.Num() - 1)];
 }

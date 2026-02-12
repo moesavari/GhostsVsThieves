@@ -52,4 +52,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scare")
 	bool bIsGroupEligible = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scare")
+	FGameplayTagContainer BoostContexts;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Scare", meta = (ClampMin = "0.0"))
+	float BoostMultiplier = 1.0f;
 };

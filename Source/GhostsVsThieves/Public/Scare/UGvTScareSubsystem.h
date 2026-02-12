@@ -21,6 +21,22 @@ struct FGvTWeightedScareCandidate
 	float Weight = 0.f;
 };
 
+USTRUCT()
+struct FGvTScareWeightDebugRow
+{
+	GENERATED_BODY()
+
+	UPROPERTY() FGameplayTag Tag;
+	UPROPERTY() float Base = 0.f;
+	UPROPERTY() float TierMult = 1.f;
+	UPROPERTY() float GhostMult = 1.f;
+	UPROPERTY() float ContextMult = 1.f;
+	UPROPERTY() float RepeatMult = 1.f;
+	UPROPERTY() float Final = 0.f;
+
+	UPROPERTY() FString FilterReason;
+};
+
 UCLASS(BlueprintType)
 class GHOSTSVSTHIEVES_API UGvTScareSubsystem : public UGameInstanceSubsystem
 {
@@ -47,6 +63,16 @@ public:
 		FRandomStream& Stream
 	) const;
 
+	const UGvTScareDefinition* PickScareWeightedDebug(
+		const FGameplayTagContainer& ContextTags,
+		const UGvTGhostProfileAsset* GhostProfile,
+		uint8 PanicTier,
+		const TMap<FGameplayTag, float>& LastTagTimeSeconds,
+		float NowSeconds,
+		FRandomStream& Stream,
+		TArray<FGvTScareWeightDebugRow>& OutDebugRows
+	) const;
+
 	float ComputeFinalWeight(
 		const UGvTScareDefinition* Def,
 		const FGameplayTagContainer& ContextTags,
@@ -55,6 +81,8 @@ public:
 		const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 		float NowSeconds
 	) const;
+
+	static bool IsScareDebugEnabled();
 
 private:
 	UPROPERTY()

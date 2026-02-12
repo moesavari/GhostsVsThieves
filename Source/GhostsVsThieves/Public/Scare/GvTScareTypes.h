@@ -9,22 +9,22 @@ struct FGvTScareEvent
 {
 	GENERATED_BODY()
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	FGameplayTag ScareTag;
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
-	float Intensity01 = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	float Intensity01 = 0.f;
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
-	float Duration = 1.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	float Duration = 0.f;
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	FVector WorldHint = FVector::ZeroVector;
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	int32 LocalSeed = 0;
 
-	UPROPERTY(BlueprintReadOnly, EditAnywhere)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	bool bIsGroupScare = false;
 };
 

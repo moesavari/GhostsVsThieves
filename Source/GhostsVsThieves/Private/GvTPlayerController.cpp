@@ -3,7 +3,7 @@
 #include "GvTPlayerState.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Engine/World.h"
-#include "Interaction/GvTInteractable.h"
+#include "Gameplay/Interaction/GvTInteractable.h"
 
 void AGvTPlayerController::BeginPlay()
 {

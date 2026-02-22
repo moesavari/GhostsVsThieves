@@ -4,7 +4,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "GameplayTagContainer.h"
-#include "Interaction/GvTInteractable.h"
+#include "Gameplay/Interaction/GvTInteractable.h"
 #include "GvTDoorActor.generated.h"
 
 class USceneComponent;

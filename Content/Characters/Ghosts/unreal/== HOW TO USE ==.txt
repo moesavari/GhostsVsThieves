@@ -1,0 +1,14 @@
+================
+== HOW TO USE ==
+================
+Copy and paste this folder into your Unreal Engine project files:
+Unreal Projects > [Your Project] > Content > Characters
+
+That's it! When you open your project, you'll find all the Textures, Materials, Animations, and Models ready to use in the "Characters" folder.
+
+===============
+== COMO USAR ==
+===============
+Copia y pega esta capeta en los archivos de tu proyecto de Unreal Engine.
+Unreal Projects > [Tu Proyecto] > Content > Characters
+Y listo, al momento de abrir tu proyecto en la carpeta "Characters" encontraras todas las Texturas, Materiales, Animaciones y Modelos listos para ser usados.

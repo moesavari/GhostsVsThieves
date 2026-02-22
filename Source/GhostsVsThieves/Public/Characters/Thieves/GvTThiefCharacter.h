@@ -116,4 +116,10 @@ protected:
 
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnPhotoPressed();
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_TestMirror;
+
+    UFUNCTION()
+    void OnTestMirrorPressed();
 };

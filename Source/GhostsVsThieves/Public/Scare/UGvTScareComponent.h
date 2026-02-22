@@ -30,11 +30,35 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Scare")
 	void BP_PlayScare(const FGvTScareEvent& Event);
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	bool bEnableReflectScare = true;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	float ReflectTraceDistance = 1500.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	float ReflectSphereRadius = 35.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	float ReflectDotMin = 0.86f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	float ReflectCheckInterval = 0.05f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	float ReflectLifeSeconds = 0.6f;
+
 	UFUNCTION(Client, Reliable)
 	void Client_PlayScare(const FGvTScareEvent& Event);
 
 	UFUNCTION()
 	void OnRep_ScareState();
+
+	UPROPERTY(Transient)
+	TWeakObjectPtr<class AGvTMirrorActor> LastTriggeredMirror;
+
+	UPROPERTY(Transient)
+	float NextAllowedReflectTime = 0.f;
 
 private:
 	UPROPERTY(ReplicatedUsing = OnRep_ScareState)
@@ -62,6 +86,7 @@ private:
 	FGameplayTag DefaultGhostTag;
 
 	FTimerHandle SchedulerTimer;
+	FTimerHandle ReflectCheckTimer;
 
 	TMap<FGameplayTag, float> LastTagTimeSeconds;
 	bool bPendingSafetySpike = false;
@@ -76,6 +101,7 @@ private:
 	void BuildContextTags(FGameplayTagContainer& OutContext) const;
 
 	void Server_SchedulerTick();
+	void Client_ReflectTick();
 	bool Server_CanTriggerNow(float Now) const;
 	void Server_TriggerScare(float Now);
 

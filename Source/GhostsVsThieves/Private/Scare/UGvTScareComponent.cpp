@@ -1,4 +1,5 @@
 #include "Scare/UGvTScareComponent.h"
+#include "Mirror/GvTMirrorActor.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -50,6 +51,99 @@ void UGvTScareComponent::BeginPlay()
 			true
 		);
 	}
+
+	// Client-only mirror reflect checks
+	if (!IsServer() && bEnableReflectScare && GetNetMode() != NM_DedicatedServer)
+	{
+		GetWorld()->GetTimerManager().SetTimer(
+			ReflectCheckTimer,
+			this,
+			&UGvTScareComponent::Client_ReflectTick,
+			ReflectCheckInterval,
+			true
+		);
+	}
+}
+
+void UGvTScareComponent::Client_ReflectTick()
+{
+	if (!bEnableReflectScare)
+	{
+		return;
+	}
+
+	APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	FVector CamLoc;
+	FRotator CamRot;
+	PC->GetPlayerViewPoint(CamLoc, CamRot);
+	const FVector CamFwd = CamRot.Vector();
+
+	const FVector Start = CamLoc;
+	const FVector End = Start + CamFwd * ReflectTraceDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvTReflectTrace), false, Pawn);
+	Params.AddIgnoredActor(Pawn);
+
+	FHitResult Hit;
+	const bool bHit = GetWorld()->SweepSingleByChannel(
+		Hit,
+		Start,
+		End,
+		FQuat::Identity,
+		ECC_Visibility,
+		FCollisionShape::MakeSphere(ReflectSphereRadius),
+		Params);
+
+	if (!bHit)
+	{
+		return;
+	}
+
+	AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
+	if (!Mirror)
+	{
+		return;
+	}
+
+	const FVector ToCam = (CamLoc - Hit.ImpactPoint).GetSafeNormal();
+	const float Dot = FVector::DotProduct(CamFwd, -ToCam);
+
+	if (Dot < ReflectDotMin)
+	{
+		return;
+	}
+
+	const float Intensity01 = FMath::Clamp(
+		(Dot - ReflectDotMin) / FMath::Max(KINDA_SMALL_NUMBER, (1.f - ReflectDotMin)),
+		0.f,
+		1.f);
+
+	const float Now = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
+
+	if (Now < NextAllowedReflectTime)
+	{
+		return;
+	}
+
+	if (LastTriggeredMirror.IsValid() && LastTriggeredMirror.Get() == Mirror)
+	{
+		return;
+	}
+
+	Mirror->TriggerReflectLocal(Intensity01, ReflectLifeSeconds);
+	LastTriggeredMirror = Mirror;
+	NextAllowedReflectTime = Now + ReflectLifeSeconds + 0.25f;
 }
 
 bool UGvTScareComponent::IsServer() const

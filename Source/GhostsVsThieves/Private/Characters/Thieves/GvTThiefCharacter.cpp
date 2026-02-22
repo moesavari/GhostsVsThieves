@@ -11,6 +11,8 @@
 #include "Systems/Noise/GvTNoiseEmitterComponent.h"
 #include "GameplayTagContainer.h"
 #include "Interaction/GvTInteractionComponent.h"
+#include "Mirror/GvTMirrorActor.h"
+#include "Camera/PlayerCameraManager.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -109,6 +111,12 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
     {
         EIC->BindAction(IA_Photo, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnPhotoPressed);
     }
+
+    if (IA_TestMirror)
+    {
+        EIC->BindAction(IA_TestMirror, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnTestMirrorPressed);
+    }
+
 }
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
@@ -222,4 +230,42 @@ void AGvTThiefCharacter::SetInteractionLock(bool bLockMove, bool bLockLook)
         // Hard stop movement immediately
         GetCharacterMovement()->StopMovementImmediately();
     }
+}
+
+void AGvTThiefCharacter::OnTestMirrorPressed()
+{
+    if (!IsLocallyControlled())
+    {
+        return;
+    }
+
+    APlayerController* PC = Cast<APlayerController>(GetController());
+    if (!PC || !PC->PlayerCameraManager)
+    {
+        return;
+    }
+
+    const FVector Start = PC->PlayerCameraManager->GetCameraLocation();
+    const FVector Dir = PC->PlayerCameraManager->GetCameraRotation().Vector();
+    const FVector End = Start + Dir * 2000.f;
+
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(TestMirrorTrace), false, this);
+    FHitResult Hit;
+
+    const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
+    if (!bHit)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] No hit."));
+        return;
+    }
+
+    AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
+    if (!Mirror)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Hit %s, not a mirror."), *GetNameSafe(Hit.GetActor()));
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Triggering mirror %s"), *Mirror->GetName());
+    Mirror->TriggerScare(1.0f, 1.5f); 
 }

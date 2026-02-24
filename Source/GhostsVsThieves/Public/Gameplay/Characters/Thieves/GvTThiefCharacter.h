@@ -95,7 +95,7 @@ protected:
     UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Interaction")
     bool bInteractionLockLook = false;
 
-UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
     UGvTInteractionComponent* InteractionComponent;
 
 protected:

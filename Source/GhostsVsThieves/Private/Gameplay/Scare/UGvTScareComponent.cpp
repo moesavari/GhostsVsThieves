@@ -1,5 +1,6 @@
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
+#include "Gameplay/Ghosts/Crawler/AGvTCrawlerGhost.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -62,6 +63,45 @@ void UGvTScareComponent::BeginPlay()
 			ReflectCheckInterval,
 			true
 		);
+	}
+}
+
+void UGvTScareComponent::StartCrawlerHaunt(AActor* Victim)
+{
+	if (!Victim)
+	{
+		return;
+	}
+
+	Server_StartCrawlerHaunt(Victim);
+}
+
+void UGvTScareComponent::Server_StartCrawlerHaunt_Implementation(AActor* Victim)
+{
+	if (!IsServer() || !Victim || !CrawlerGhostClass)
+	{
+		return;
+	}
+
+	if (!IsValid(ActiveCrawlerGhost))
+	{
+		const FVector VictimLoc = Victim->GetActorLocation();
+		const FVector SpawnLoc = VictimLoc
+			+ (Victim->GetActorForwardVector() * CrawlerSpawnForward)
+			+ FVector(0.f, 0.f, CrawlerSpawnUp);
+
+		const FRotator SpawnRot = (VictimLoc - SpawnLoc).Rotation();
+
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Params.Owner = GetOwner();
+
+		ActiveCrawlerGhost = GetWorld()->SpawnActor<AGvTCrawlerGhost>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
+	}
+
+	if (IsValid(ActiveCrawlerGhost))
+	{
+		ActiveCrawlerGhost->StartHauntChase(Victim);
 	}
 }
 

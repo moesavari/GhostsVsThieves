@@ -9,6 +9,7 @@
 
 class UGvTScareSubsystem;
 class UGvTGhostProfileAsset;
+class AGvTCrawlerGhost;
 
 UCLASS(ClassGroup = (GvT), BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class GHOSTSVSTHIEVES_API UGvTScareComponent : public UActorComponent
@@ -26,7 +27,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare")
 	FGvTScareState GetScareState() const { return ScareState; }
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
+	void StartCrawlerHaunt(AActor* Victim);
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
+	float CrawlerSpawnForward = 800.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
+	float CrawlerSpawnUp = 180.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
+	TSubclassOf<AGvTCrawlerGhost> CrawlerGhostClass;
+
 protected:
+	UFUNCTION(Server, Reliable)
+	void Server_StartCrawlerHaunt(AActor* Victim);
+
+	UPROPERTY(Transient)
+	TObjectPtr<AGvTCrawlerGhost> ActiveCrawlerGhost;
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Scare")
 	void BP_PlayScare(const FGvTScareEvent& Event);
 

@@ -5,10 +5,10 @@
 #include "Systems/EGvTCrawlerGhostState.h"
 #include "AGvTCrawlerGhost.generated.h"
 
-class USkeletalMeshComponent;
 class UCapsuleComponent;
+class USkeletalMeshComponent;
 
-UCLASS()
+UCLASS(BlueprintType)
 class GHOSTSVSTHIEVES_API AGvTCrawlerGhost : public AActor
 {
     GENERATED_BODY()
@@ -16,8 +16,8 @@ class GHOSTSVSTHIEVES_API AGvTCrawlerGhost : public AActor
 public:
     AGvTCrawlerGhost();
 
-    virtual void Tick(float DeltaSeconds) override;
     virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
 
     UFUNCTION(BlueprintCallable, Server, Reliable)
     void Server_StartDropScare(AActor* Victim, const FVector& CeilingWorldPos, const FRotator& FaceRot, bool bVictimOnly);
@@ -28,17 +28,34 @@ public:
     UFUNCTION(BlueprintCallable, Server, Reliable)
     void Server_Vanish();
 
+    UFUNCTION(BlueprintCallable, Category = "Crawler|Haunt")
+    void StartDropScare(AActor* Victim, const FVector& CeilingWorldPos, const FRotator& FaceRot, bool bVictimOnly);
+
+    UFUNCTION(BlueprintCallable, Category = "Crawler|Haunt")
+    void StartHauntChase(AActor* Victim);
+
+    UFUNCTION(BlueprintCallable, Category = "Crawler|Haunt")
+    void Vanish();
+
     UFUNCTION(BlueprintPure, Category = "Crawler")
     EGvTCrawlerGhostState GetState() const { return State; }
 
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Crawler|Anim")
+    float ReplicatedSpeed = 0.f;
+
+    UFUNCTION(BlueprintPure, Category = "Crawler|Anim")
+    float GetReplicatedSpeed() const { return ReplicatedSpeed; }
+
 protected:
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    TObjectPtr<USkeletalMeshComponent> Mesh;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    TObjectPtr<UCapsuleComponent> Capsule = nullptr;
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-    TObjectPtr<UCapsuleComponent> Capsule;
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+    TObjectPtr<USkeletalMeshComponent> Mesh = nullptr;
 
-    UPROPERTY(ReplicatedUsing = OnRep_State, BlueprintReadOnly)
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+    UPROPERTY(ReplicatedUsing = OnRep_State, BlueprintReadOnly, Category = "Crawler")
     EGvTCrawlerGhostState State = EGvTCrawlerGhostState::IdleCeiling;
 
     UFUNCTION()
@@ -46,10 +63,15 @@ protected:
 
     void EnterState(EGvTCrawlerGhostState NewState);
 
-    UPROPERTY(Replicated)
-    TObjectPtr<AActor> TargetVictim;
+    void TryKillVictim();
 
-    // Chase tuning
+    UPROPERTY(Replicated)
+    TObjectPtr<AActor> TargetVictim = nullptr;
+
+    void StartDropScare_Internal(AActor* Victim, const FVector& CeilingWorldPos, const FRotator& FaceRot, bool bVictimOnly);
+    void StartHauntChase_Internal(AActor* Victim);
+    void Vanish_Internal();
+
     UPROPERTY(EditDefaultsOnly, Category = "Chase")
     float LungeInterval = 0.65f;
 
@@ -68,7 +90,6 @@ protected:
     float LungeTimer = 0.f;
     bool bIsLunging = false;
 
-    // Drop scare
     UPROPERTY(EditDefaultsOnly, Category = "DropScare")
     float DropDuration = 0.35f;
 
@@ -79,7 +100,6 @@ protected:
     FVector DropStart = FVector::ZeroVector;
     FVector DropEnd = FVector::ZeroVector;
 
-    void TryKillVictim();
-
-    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+private:
+    FVector PrevLoc = FVector::ZeroVector;
 };

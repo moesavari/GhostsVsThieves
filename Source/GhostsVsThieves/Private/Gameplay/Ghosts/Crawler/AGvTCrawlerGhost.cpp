@@ -24,6 +24,7 @@ AGvTCrawlerGhost::AGvTCrawlerGhost()
 	Mesh->SetupAttachment(RootComponent);
 	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
+	// Skeletal meshes don't replicate; the actor does.
 	Mesh->SetIsReplicated(false);
 }
 
@@ -32,7 +33,6 @@ void AGvTCrawlerGhost::BeginPlay()
 	Super::BeginPlay();
 
 	PrevLoc = GetActorLocation();
-
 	EnterState(State);
 }
 
@@ -45,10 +45,8 @@ void AGvTCrawlerGhost::Tick(float DeltaSeconds)
 		return;
 	}
 
-	const FVector Now = GetActorLocation();
-	const float Dist = FVector::Dist2D(Now, PrevLoc);
-	ReplicatedSpeed = (DeltaSeconds > KINDA_SMALL_NUMBER) ? (Dist / DeltaSeconds) : 0.f;
-	PrevLoc = Now;
+	// Track movement for ReplicatedSpeed (computed AFTER state update so anim matches what happened this frame).
+	const FVector StartLocThisTick = GetActorLocation();
 
 	switch (State)
 	{
@@ -88,6 +86,7 @@ void AGvTCrawlerGhost::Tick(float DeltaSeconds)
 		FVector ToTarget = TargetLoc - MyLoc;
 		ToTarget.Z = 0.f;
 
+		// Face the victim
 		if (!ToTarget.IsNearlyZero())
 		{
 			const FRotator WantRot = ToTarget.Rotation();
@@ -95,24 +94,36 @@ void AGvTCrawlerGhost::Tick(float DeltaSeconds)
 			SetActorRotation(NewRot);
 		}
 
-		LungeTimer += DeltaSeconds;
-		if (LungeTimer >= LungeInterval)
+		// Move
+		if (bUseLungeMovement)
 		{
-			LungeTimer = 0.f;
-			bIsLunging = true;
-		}
-
-		if (bIsLunging)
-		{
-			const FVector Dir = ToTarget.GetSafeNormal();
-			const FVector Step = Dir * (LungeSpeed * DeltaSeconds);
-
-			SetActorLocation(MyLoc + Step, true);
-
-			if (LungeTimer >= 0.12f)
+			LungeTimer += DeltaSeconds;
+			if (LungeTimer >= LungeInterval)
 			{
-				bIsLunging = false;
+				LungeTimer = 0.f;
+				bIsLunging = true;
 			}
+
+			if (bIsLunging)
+			{
+				const FVector Dir = ToTarget.GetSafeNormal();
+				const FVector Step = Dir * (LungeSpeed * DeltaSeconds);
+
+				SetActorLocation(MyLoc + Step, true);
+
+				// Time-window for the burst
+				if (LungeTimer >= LungeDuration)
+				{
+					bIsLunging = false;
+				}
+			}
+		}
+		else
+		{
+			// Smooth continuous crawl
+			const FVector Dir = ToTarget.GetSafeNormal();
+			const FVector Step = Dir * (CrawlSpeed * DeltaSeconds);
+			SetActorLocation(MyLoc + Step, true);
 		}
 
 		TryKillVictim();
@@ -124,6 +135,12 @@ void AGvTCrawlerGhost::Tick(float DeltaSeconds)
 	default:
 		break;
 	}
+
+	// Compute replicated speed from actual movement this tick.
+	const FVector Now = GetActorLocation();
+	const float Dist2D = FVector::Dist2D(Now, StartLocThisTick);
+	ReplicatedSpeed = (DeltaSeconds > KINDA_SMALL_NUMBER) ? (Dist2D / DeltaSeconds) : 0.f;
+	PrevLoc = Now;
 }
 
 void AGvTCrawlerGhost::TryKillVictim()
@@ -244,7 +261,7 @@ void AGvTCrawlerGhost::EnterState(EGvTCrawlerGhostState NewState)
 {
 	const EGvTCrawlerGhostState Prev = State;
 	State = NewState;
-	OnRep_State(Prev); 
+	OnRep_State(Prev);
 }
 
 void AGvTCrawlerGhost::OnRep_State(EGvTCrawlerGhostState /*PrevState*/)

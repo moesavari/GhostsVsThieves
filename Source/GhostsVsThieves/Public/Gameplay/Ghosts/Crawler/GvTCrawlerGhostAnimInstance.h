@@ -7,6 +7,7 @@
 
 /**
  * C++-driven anim instance: reads replicated ghost state/speed and derives a crawl play rate.
+ * If AGvTCrawlerGhost::bUseModeAnimTuning is enabled, tuning comes from the ghost BP (per-mode).
  * AnimBP should stay "dumb": it only blends poses and pipes CrawlPlayRate into the crawl SequencePlayer.
  */
 UCLASS(BlueprintType, Blueprintable)

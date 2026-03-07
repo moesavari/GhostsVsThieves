@@ -19,7 +19,9 @@ public class GhostsVsThieves : ModuleRules
             "UMG",
             "Slate",
             "SlateCore",
-            "NetCore"
+            "NetCore",
+            "NavigationSystem",
+            "AIModule",
         });
         PrivateDependencyModuleNames.AddRange(new string[] {  });
 

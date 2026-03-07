@@ -9,7 +9,8 @@
 
 class UGvTScareSubsystem;
 class UGvTGhostProfileAsset;
-class AGvTCrawlerGhost;
+class AGvTCrawlerGhostCharacter;
+class AGvTMirrorActor;
 
 UCLASS(ClassGroup = (GvT), BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class GHOSTSVSTHIEVES_API UGvTScareComponent : public UActorComponent
@@ -30,41 +31,64 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
 	void StartCrawlerHaunt(AActor* Victim);
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scar|Crawler")
+	void StartCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
+
+	/** TEST: Trace for a mirror in front of the local player and trigger it (server-authoritative). Bind this to a key in BP. */
+	UFUNCTION(BlueprintCallable, Category="GvT|Scare|Test")
+	void Test_MirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
+
+	/** TEST: Spawn (if needed) and start a crawler chasing the provided victim. Bind this to a key in BP. */
+	UFUNCTION(BlueprintCallable, Category="GvT|Scare|Test")
+	void Test_CrawlerChase(APawn* Victim);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
 	float CrawlerSpawnForward = 800.f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
 	float CrawlerSpawnUp = 180.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
+	float OverheadSpawnForward = 80.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
+	float OverheadTraceUp = 800.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
+	float OverheadDropDown = 250.f;
+
 	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
-	TSubclassOf<AGvTCrawlerGhost> CrawlerGhostClass;
+	TSubclassOf<AGvTCrawlerGhostCharacter> CrawlerGhostClass;
 
 protected:
 	UFUNCTION(Server, Reliable)
 	void Server_StartCrawlerHaunt(AActor* Victim);
 
+	UFUNCTION(Server, Reliable)
+	void Server_StartCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
+
 	UPROPERTY(Transient)
-	TObjectPtr<AGvTCrawlerGhost> ActiveCrawlerGhost;
+	TObjectPtr<AGvTCrawlerGhostCharacter> ActiveCrawlerGhost;
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Scare")
 	void BP_PlayScare(const FGvTScareEvent& Event);
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	bool bEnableReflectScare = true;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	float ReflectTraceDistance = 1500.f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	float ReflectSphereRadius = 35.f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	float ReflectDotMin = 0.86f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	float ReflectCheckInterval = 0.05f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Reflect")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	float ReflectLifeSeconds = 0.6f;
 
 	UFUNCTION(Client, Reliable)

@@ -1,0 +1,402 @@
+#include "Gameplay/Ghosts/Crawler/GvTCrawlerGhostCharacter.h"
+
+#include "AIController.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/RootMotionSource.h"
+#include "Components/CapsuleComponent.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "DrawDebugHelpers.h"
+#include "Net/UnrealNetwork.h"
+
+AGvTCrawlerGhostCharacter::AGvTCrawlerGhostCharacter()
+{
+	PrimaryActorTick.bCanEverTick = true;
+
+	bReplicates = true;
+	SetReplicateMovement(true);
+
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	GetCapsuleComponent()->SetCollisionResponseToAllChannels(ECR_Block);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
+
+	bUseControllerRotationYaw = false;
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->bOrientRotationToMovement = true;
+		Move->RotationRate = FRotator(0.f, 720.f, 0.f);
+	}
+}
+
+void AGvTCrawlerGhostCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->MaxWalkSpeed = MaxSpeed;
+		Move->MaxAcceleration = Acceleration;
+		Move->BrakingDecelerationWalking = BrakingDecel;
+	}
+}
+
+void AGvTCrawlerGhostCharacter::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// Overhead scare temporarily overrides chase/nav.
+	if (bOverheadActive)
+	{
+		OverheadTick(DeltaSeconds);
+		return;
+	}
+
+	SetState(IsValid(TargetVictim) ? EGvTCrawlerGhostState::HauntChase : EGvTCrawlerGhostState::IdleCeiling);
+
+	const FVector Vel2D(GetVelocity().X, GetVelocity().Y, 0.f);
+	ReplicatedSpeed = Vel2D.Size();
+	ChaseTick(DeltaSeconds);
+}
+
+void AGvTCrawlerGhostCharacter::Server_StartChase_Implementation(APawn* Victim)
+{
+	TargetVictim = Victim;
+	RepathTimer = RepathInterval;
+}
+
+void AGvTCrawlerGhostCharacter::Server_StartOverheadScare_Implementation(APawn* Victim, bool /*bVictimOnly*/)
+{
+	if (!HasAuthority() || !Victim)
+	{
+		return;
+	}
+
+	StartOverhead_Internal(Victim);
+}
+
+void AGvTCrawlerGhostCharacter::ChaseTick(float DeltaSeconds)
+{
+	if (!IsValid(TargetVictim))
+	{
+		return;
+	}
+
+	const float DistToVictim = FVector::Dist(GetActorLocation(), TargetVictim->GetActorLocation());
+	if (MaxChaseDistance > 0.f && DistToVictim > MaxChaseDistance)
+	{
+		StopAndDie();
+		return;
+	}
+
+	RepathTimer += DeltaSeconds;
+	if (RepathTimer >= RepathInterval)
+	{
+		RepathTimer = 0.f;
+
+		if (AAIController* AIC = Cast<AAIController>(GetController()))
+		{
+			AIC->MoveToActor(TargetVictim, AcceptRadius, /*bStopOnOverlap*/ true, /*bUsePathfinding*/ true);
+		}
+	}
+
+	TryKillVictim();
+}
+
+void AGvTCrawlerGhostCharacter::TryKillVictim()
+{
+	if (!IsValid(TargetVictim))
+	{
+		return;
+	}
+
+	if (KillDistance <= 0.f)
+	{
+		return;
+	}
+
+	if (FVector::Dist(GetActorLocation(), TargetVictim->GetActorLocation()) <= KillDistance)
+	{
+		if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(TargetVictim))
+		{
+			Thief->Server_SetDead(this);
+		}
+
+		StopAndDie();
+	}
+}
+
+void AGvTCrawlerGhostCharacter::StopAndDie()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (AAIController* AIC = Cast<AAIController>(GetController()))
+	{
+		AIC->StopMovement();
+	}
+
+	Destroy();
+}
+
+void AGvTCrawlerGhostCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(AGvTCrawlerGhostCharacter, TargetVictim);
+	DOREPLIFETIME(AGvTCrawlerGhostCharacter, State);
+}
+
+void AGvTCrawlerGhostCharacter::Server_DragStep_Implementation()
+{
+	ApplyDragStep();
+}
+
+void AGvTCrawlerGhostCharacter::ApplyDragStep()
+{
+	if (!GetCharacterMovement() || DragStepDistance <= 1.f || DragStepDuration <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	// Choose direction:
+	FVector Dir = GetActorForwardVector();
+
+	if (bDragStepUseVelocityDir)
+	{
+		const FVector Vel2D = FVector(GetVelocity().X, GetVelocity().Y, 0.f);
+		if (!Vel2D.IsNearlyZero())
+		{
+			Dir = Vel2D.GetSafeNormal();
+		}
+	}
+
+	const FVector Start = GetActorLocation();
+	const FVector Target = Start + Dir * DragStepDistance * DragStepForwardBias;
+
+	// RootMotionSource: MoveToForce = smooth movement with collision/replication.
+	TSharedPtr<FRootMotionSource_MoveToForce> RMS = MakeShared<FRootMotionSource_MoveToForce>();
+	RMS->InstanceName = FName("CrawlerDragStep");
+	RMS->AccumulateMode = ERootMotionAccumulateMode::Override;
+	RMS->Priority = 200; // high priority so it actually pulls
+	RMS->Duration = DragStepDuration;
+	RMS->StartLocation = Start;
+	RMS->TargetLocation = Target;
+
+	GetCharacterMovement()->ApplyRootMotionSource(RMS);
+}
+
+void AGvTCrawlerGhostCharacter::OnCrawlerDragStep()
+{
+	if (!HasAuthority() || !bUseDragStepMovement) return;
+
+	if (!GetCharacterMovement()) return;
+	if (DragStepDistance <= 0.f || DragStepDuration <= KINDA_SMALL_NUMBER) return;
+
+	// Direction: prefer velocity direction if we’re moving, else facing
+	FVector Dir = GetActorForwardVector();
+	const FVector Vel2D(GetVelocity().X, GetVelocity().Y, 0.f);
+	if (!Vel2D.IsNearlyZero())
+	{
+		Dir = Vel2D.GetSafeNormal();
+	}
+
+	const FVector Start = GetActorLocation();
+	const FVector Target = Start + Dir * DragStepDistance;
+
+	TSharedPtr<FRootMotionSource_MoveToForce> RMS = MakeShared<FRootMotionSource_MoveToForce>();
+	RMS->InstanceName = FName("CrawlerDragStep");
+	RMS->AccumulateMode = ERootMotionAccumulateMode::Override;
+	RMS->Priority = 200;
+	RMS->Duration = DragStepDuration;
+	RMS->StartLocation = Start;
+	RMS->TargetLocation = Target;
+
+	GetCharacterMovement()->ApplyRootMotionSource(RMS);
+
+	if (bSnapToGroundInChase)
+	{
+		SnapToGround();
+	}
+}
+
+bool AGvTCrawlerGhostCharacter::GetVictimCamera(FVector& OutCamLoc, FRotator& OutCamRot) const
+{
+	APawn* VictimPawn = Cast<APawn>(TargetVictim);
+	if (!VictimPawn)
+	{
+		return false;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(VictimPawn->GetController());
+	if (!PC)
+	{
+		return false;
+	}
+
+	if (PC->PlayerCameraManager)
+	{
+		OutCamLoc = PC->PlayerCameraManager->GetCameraLocation();
+		OutCamRot = PC->PlayerCameraManager->GetCameraRotation();
+		return true;
+	}
+
+	PC->GetPlayerViewPoint(OutCamLoc, OutCamRot);
+	return true;
+}
+
+void AGvTCrawlerGhostCharacter::StartOverhead_Internal(APawn* Victim)
+{
+	TargetVictim = Victim;
+
+	FVector CamLoc;
+	FRotator CamRot;
+	if (!GetVictimCamera(CamLoc, CamRot))
+	{
+		return;
+	}
+
+	SetState(EGvTCrawlerGhostState::DropScare);
+
+	// Trace upward to find a ceiling above the player's camera.
+	FVector CeilingPos = CamLoc + FVector(0.f, 0.f, OverheadTraceUpDistance);
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_CrawlerOverheadTrace), false, this);
+	Params.AddIgnoredActor(this);
+	Params.AddIgnoredActor(Victim);
+
+	if (GetWorld() && GetWorld()->LineTraceSingleByChannel(
+		Hit,
+		CamLoc,
+		CamLoc + FVector(0.f, 0.f, OverheadTraceUpDistance),
+		ECC_Visibility,
+		Params))
+	{
+		CeilingPos = Hit.ImpactPoint - FVector(0.f, 0.f, OverheadCeilingClearance);
+	}
+
+	// Camera-relative offsets for face-to-face framing.
+	CeilingPos += CamRot.Vector() * OverheadForwardOffset;
+	CeilingPos += CamRot.Vector() * OverheadFaceForward;
+	CeilingPos.Z -= OverheadFaceDown;
+
+	SetActorLocation(CeilingPos, false);
+
+	FRotator NewRot = (CamLoc - CeilingPos).Rotation();
+	NewRot.Pitch = OverheadPitchStartDeg;
+	NewRot.Roll = 180.f;
+	SetActorRotation(NewRot);
+
+	// Freeze movement during overhead.
+	if (AAIController* AIC = Cast<AAIController>(GetController()))
+	{
+		AIC->StopMovement();
+	}
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->StopMovementImmediately();
+		Move->DisableMovement();
+	}
+
+	OverheadStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	bOverheadActive = true;
+	SetState(EGvTCrawlerGhostState::IdleCeiling);
+}
+
+void AGvTCrawlerGhostCharacter::OverheadTick(float DeltaSeconds)
+{
+	FVector CamLoc;
+	FRotator CamRot;
+	if (!GetVictimCamera(CamLoc, CamRot))
+	{
+		EndOverhead();
+		return;
+	}
+
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	const float Alpha = OverheadDuration > KINDA_SMALL_NUMBER
+		? FMath::Clamp((Now - OverheadStartTime) / OverheadDuration, 0.f, 1.f)
+		: 1.f;
+
+	FRotator Desired = (CamLoc - GetActorLocation()).Rotation();
+	Desired.Pitch = FMath::Lerp(OverheadPitchStartDeg, OverheadPitchEndDeg, Alpha);
+	Desired.Roll = 180.f;
+
+	FRotator Current = GetActorRotation();
+	const float YawStep = OverheadTurnSpeedDegPerSec * DeltaSeconds;
+	Current.Yaw = FMath::FixedTurn(Current.Yaw, Desired.Yaw, YawStep);
+	Current.Pitch = Desired.Pitch;
+	Current.Roll = Desired.Roll;
+	SetActorRotation(Current);
+
+	SetState(EGvTCrawlerGhostState::DropScare);
+
+	if (Alpha >= 1.f)
+	{
+		EndOverhead();
+	}
+}
+
+void AGvTCrawlerGhostCharacter::EndOverhead()
+{
+	bOverheadActive = false;
+
+	if (UCharacterMovementComponent* Move = GetCharacterMovement())
+	{
+		Move->SetMovementMode(EMovementMode::MOVE_Walking);
+	}
+
+	APawn* VictimPawn = Cast<APawn>(TargetVictim);
+	if (bOverheadAutoStartChase && VictimPawn)
+	{
+		Server_StartChase(VictimPawn);
+		return;
+	}
+
+	if (bOverheadAutoVanish)
+	{
+		Destroy();
+	}
+
+	SetState(IsValid(TargetVictim) ? EGvTCrawlerGhostState::HauntChase : EGvTCrawlerGhostState::IdleCeiling);
+}
+
+void AGvTCrawlerGhostCharacter::SnapToGround()
+{
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(CrawlerGroundSnap), false, this);
+	Params.AddIgnoredActor(this);
+
+	const FVector Start = GetActorLocation() + FVector(0, 0, GroundTraceUp);
+	const FVector End = GetActorLocation() - FVector(0, 0, GroundTraceDown);
+
+	FHitResult Hit;
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		FVector NewLoc = GetActorLocation();
+		NewLoc.Z = Hit.Location.Z + GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+		SetActorLocation(NewLoc, false, nullptr, ETeleportType::None);
+	}
+}
+
+void AGvTCrawlerGhostCharacter::SetState(EGvTCrawlerGhostState NewState)
+{
+	if (State == NewState) return;
+
+	State = NewState;
+
+	ForceNetUpdate();
+	OnRep_State();
+}
+
+void AGvTCrawlerGhostCharacter::OnRep_State()
+{
+	// Keeping this function for debugging + future hooks.
+}

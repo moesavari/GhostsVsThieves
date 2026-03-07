@@ -1,6 +1,7 @@
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
-#include "Gameplay/Ghosts/Crawler/AGvTCrawlerGhost.h"
+#include "Gameplay/Ghosts/Crawler/GvTCrawlerGhostCharacter.h"
+#include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -66,6 +67,66 @@ void UGvTScareComponent::BeginPlay()
 	}
 }
 
+
+void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	FVector CamLoc;
+	FRotator CamRot;
+	PC->GetPlayerViewPoint(CamLoc, CamRot);
+
+	const FVector Start = CamLoc;
+	const FVector End = Start + (CamRot.Vector() * ReflectTraceDistance);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_MirrorTestTrace), false, OwnerPawn);
+	Params.AddIgnoredActor(OwnerPawn);
+
+	FHitResult Hit;
+	const bool bHit = GetWorld()->SweepSingleByChannel(
+		Hit,
+		Start,
+		End,
+		FQuat::Identity,
+		ECC_Visibility,
+		FCollisionShape::MakeSphere(ReflectSphereRadius),
+		Params);
+
+	if (!bHit)
+	{
+		return;
+	}
+
+	AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
+	if (!Mirror)
+	{
+		return;
+	}
+
+	// Mirror handles server-authoritative trigger internally (RPC + multicast).
+	Mirror->TriggerScare(Intensity01, LifeSeconds);
+}
+
+void UGvTScareComponent::Test_CrawlerChase(APawn* Victim)
+{
+	if (!Victim)
+	{
+		return;
+	}
+
+	StartCrawlerHaunt(Victim);
+}
+
 void UGvTScareComponent::StartCrawlerHaunt(AActor* Victim)
 {
 	if (!Victim)
@@ -88,7 +149,7 @@ void UGvTScareComponent::Server_StartCrawlerHaunt_Implementation(AActor* Victim)
 		const FVector VictimLoc = Victim->GetActorLocation();
 		const FVector SpawnLoc = VictimLoc
 			+ (Victim->GetActorForwardVector() * CrawlerSpawnForward)
-			+ FVector(0.f, 0.f, CrawlerSpawnUp);
+			+ FVector(0.f, 0.f, FMath::Max(CrawlerSpawnUp, 50.f));
 
 		const FRotator SpawnRot = (VictimLoc - SpawnLoc).Rotation();
 
@@ -96,12 +157,56 @@ void UGvTScareComponent::Server_StartCrawlerHaunt_Implementation(AActor* Victim)
 		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		Params.Owner = GetOwner();
 
-		ActiveCrawlerGhost = GetWorld()->SpawnActor<AGvTCrawlerGhost>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
+		ActiveCrawlerGhost = GetWorld()->SpawnActor<AGvTCrawlerGhostCharacter>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
 	}
 
 	if (IsValid(ActiveCrawlerGhost))
 	{
-		ActiveCrawlerGhost->StartHauntChase(Victim);
+		if (APawn* VictimPawn = Cast<APawn>(Victim))
+	{
+		ActiveCrawlerGhost->Server_StartChase(VictimPawn);
+	}
+	}
+}
+
+void UGvTScareComponent::StartCrawlerOverheadScare(AActor* Victim, bool bVictimOnly)
+{
+	if (!Victim)
+	{
+		return;
+	}
+
+	Server_StartCrawlerOverheadScare(Victim, bVictimOnly);
+}
+
+void UGvTScareComponent::Server_StartCrawlerOverheadScare_Implementation(AActor* Victim, bool bVictimOnly)
+{
+	if (!IsServer() || !Victim || !CrawlerGhostClass)
+	{
+		return;
+	}
+
+	if (!IsValid(ActiveCrawlerGhost))
+	{
+		const FVector VictimLoc = Victim->GetActorLocation();
+		const FVector SpawnLoc = VictimLoc + FVector(0.f, 0.f, 50.f);
+		const FRotator SpawnRot = (VictimLoc - SpawnLoc).Rotation();
+
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Params.Owner = GetOwner();
+
+		ActiveCrawlerGhost = GetWorld()->SpawnActor<AGvTCrawlerGhostCharacter>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
+	}
+
+	if (IsValid(ActiveCrawlerGhost))
+	{
+		APawn* VictimPawn = Cast<APawn>(Victim);
+		if (!VictimPawn)
+		{
+			return;
+		}
+		ActiveCrawlerGhost->Server_StartOverheadScare(VictimPawn, bVictimOnly);
 	}
 }
 

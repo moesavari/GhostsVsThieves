@@ -13,6 +13,8 @@
 #include "Gameplay/Scare/UGvTScareSubsystem.h"
 #include "Systems/Noise/GvTNoiseSubsystem.h"
 #include "Kismet/GameplayStatics.h"
+#include "Systems/Light/GvTLightFlickerSubsystem.h"
+#include "Systems/Light/GvTLightFlickerTypes.h"
 
 UGvTScareComponent::UGvTScareComponent()
 {
@@ -125,6 +127,78 @@ void UGvTScareComponent::Test_CrawlerChase(APawn* Victim)
 	}
 
 	StartCrawlerHaunt(Victim);
+}
+
+void UGvTScareComponent::Test_GroupHouseLightFlicker(float Intensity01, float Duration)
+{
+	if (!IsServer())
+	{
+		return;
+	}
+
+	FGvTLightFlickerEvent Event = MakeLightFlickerEvent(Intensity01, Duration, true);
+
+	if (UWorld* World = GetWorld())
+	{
+		TArray<AActor*> Thieves;
+		UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+		for (AActor* A : Thieves)
+		{
+			if (AGvTThiefCharacter* T = Cast<AGvTThiefCharacter>(A))
+			{
+				if (UGvTScareComponent* C = T->FindComponentByClass<UGvTScareComponent>())
+				{
+					C->Client_PlayLightFlicker(Event);
+				}
+			}
+		}
+	}
+}
+
+void UGvTScareComponent::Test_LocalHouseLightFlicker(float Intensity01, float Duration)
+{
+	APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	const FGvTLightFlickerEvent Event = MakeLightFlickerEvent(Intensity01, Duration, true);
+	PlayLocalLightFlicker(Event);
+}
+
+FGvTLightFlickerEvent UGvTScareComponent::MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const
+{
+	FGvTLightFlickerEvent Event;
+	Event.WorldCenter = GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
+	Event.Radius = 8000.f;
+	Event.Duration = Duration;
+	Event.Intensity01 = FMath::Clamp(Intensity01, 0.f, 1.f);
+	Event.bWholeHouse = bWholeHouse;
+	Event.bAllowFullOffBursts = true;
+	Event.MinDimAlpha = 0.10f;
+	Event.MaxDimAlpha = 1.0f;
+	Event.PulseIntervalMin = 0.03f;
+	Event.PulseIntervalMax = 0.09f;
+	Event.Seed = MakeLocalSeed(GetNowServerSeconds());
+	return Event;
+}
+
+void UGvTScareComponent::PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGvTLightFlickerSubsystem* Subsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>())
+		{
+			Subsystem->PlayFlickerEvent(Event);
+		}
+	}
+}
+
+void UGvTScareComponent::Client_PlayLightFlicker_Implementation(const FGvTLightFlickerEvent& Event)
+{
+	PlayLocalLightFlicker(Event);
 }
 
 void UGvTScareComponent::StartCrawlerHaunt(AActor* Victim)
@@ -482,6 +556,14 @@ void UGvTScareComponent::Server_TriggerScare(float Now)
 	const float GroupChance = (Picked->bIsGroupEligible ? 0.25f : 0.0f); // TEST VALUE
 	Event.bIsGroupScare = (GroupChance > 0.f) && (Stream.FRand() < GroupChance);
 
+	static const FGameplayTag LightFlickerTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.LightFlicker"));
+
+	if (Event.ScareTag.MatchesTagExact(LightFlickerTag))
+	{
+		Event.Duration = FMath::Lerp(0.75f, 2.5f, Event.Intensity01);
+	}
+
+
 	if (Event.bIsGroupScare)
 	{
 		UWorld* World = GetWorld();
@@ -533,6 +615,26 @@ void UGvTScareComponent::Server_TriggerScare(float Now)
 
 void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& Event)
 {
+	static const FGameplayTag LightFlickerTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.LightFlicker"));
+
+	if (Event.ScareTag.MatchesTagExact(LightFlickerTag))
+	{
+		FGvTLightFlickerEvent Flicker;
+		Flicker.WorldCenter = Event.WorldHint;
+		Flicker.Radius = 8000.f;
+		Flicker.Duration = FMath::Max(0.15f, Event.Duration);
+		Flicker.Intensity01 = Event.Intensity01;
+		Flicker.bWholeHouse = Event.bIsGroupScare;
+		Flicker.bAllowFullOffBursts = true;
+		Flicker.MinDimAlpha = 0.10f;
+		Flicker.MaxDimAlpha = 1.0f;
+		Flicker.PulseIntervalMin = 0.03f;
+		Flicker.PulseIntervalMax = 0.09f;
+		Flicker.Seed = Event.LocalSeed;
+
+		PlayLocalLightFlicker(Flicker);
+	}
+
 	BP_PlayScare(Event);
 }
 

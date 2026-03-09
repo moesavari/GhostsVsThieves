@@ -5,6 +5,7 @@
 #include "GameplayTagContainer.h"
 #include "Gameplay/Scare/GvTScareTypes.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Systems/Light/GvTLightFlickerTypes.h"
 #include "UGvTScareComponent.generated.h"
 
 class UGvTScareSubsystem;
@@ -41,6 +42,12 @@ public:
 	/** TEST: Spawn (if needed) and start a crawler chasing the provided victim. Bind this to a key in BP. */
 	UFUNCTION(BlueprintCallable, Category="GvT|Scare|Test")
 	void Test_CrawlerChase(APawn* Victim);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
+	void Test_GroupHouseLightFlicker(float Intensity01 = 1.f, float Duration = 2.f);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
+	void Test_LocalHouseLightFlicker(float Intensity01 = 1.f, float Duration = 2.f);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
 	float CrawlerSpawnForward = 800.f;
@@ -93,6 +100,12 @@ protected:
 
 	UFUNCTION(Client, Reliable)
 	void Client_PlayScare(const FGvTScareEvent& Event);
+
+	UFUNCTION(Client, Reliable)
+	void Client_PlayLightFlicker(const FGvTLightFlickerEvent& Event);
+
+	void PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const;
+	FGvTLightFlickerEvent MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const;
 
 	UFUNCTION()
 	void OnRep_ScareState();

@@ -33,6 +33,7 @@ void UGvTCrawlerGhostAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	// Fallback
 	//GhostState = EGvTCrawlerGhostState::IdleCeiling;
 	//Speed = 0.f;
-	CrawlPlayRate = 1.f;
-	SmoothedSpeed = 0.f;
+	const float SafeRef = FMath::Max(1.f, RefCrawlSpeed);
+	const float RawRate = Speed / SafeRef;
+	CrawlPlayRate = FMath::Clamp(RawRate, MinPlayRate, MaxPlayRate);
 }

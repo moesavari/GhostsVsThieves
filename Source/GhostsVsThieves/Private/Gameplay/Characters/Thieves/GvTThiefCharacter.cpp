@@ -1,10 +1,7 @@
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
-
 #include "Camera/CameraComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Net/UnrealNetwork.h"
-
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/PlayerController.h"
@@ -14,8 +11,12 @@
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Net/UnrealNetwork.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Systems/Director/GvTDirectorSubsystem.h"
+#include "Gameplay/Scare/GvTScareTypes.h"
+#include "Gameplay/Scare/GvTScareTags.h"
+#include "Engine/GameInstance.h"
+#include "TimerManager.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -122,6 +123,15 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 }
 
+void AGvTThiefCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+    DOREPLIFETIME(AGvTThiefCharacter, bIsSprinting);
+    DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockMove);
+    DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockLook);
+    DOREPLIFETIME(AGvTThiefCharacter, bIsDead);
+}
+
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
 {
     if (bInteractionLockMove) { return; }
@@ -174,25 +184,6 @@ void AGvTThiefCharacter::StopCrouch()
     UnCrouch();
 }
 
-void AGvTThiefCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
-{
-    bIsSprinting = bNewSprinting;
-
-    if (UCharacterMovementComponent* Move = GetCharacterMovement())
-    {
-        Move->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
-    }
-}
-
-void AGvTThiefCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-    DOREPLIFETIME(AGvTThiefCharacter, bIsSprinting);
-    DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockMove);
-    DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockLook);
-    DOREPLIFETIME(AGvTThiefCharacter, bIsDead);
-}
-
 void AGvTThiefCharacter::TestNoise()
 {
     if (!NoiseEmitter) return;
@@ -219,21 +210,6 @@ void AGvTThiefCharacter::OnPhotoPressed()
 
     //InteractionComponent->TryPhoto();
     InteractionComponent->TryScan();
-}
-
-
-void AGvTThiefCharacter::SetInteractionLock(bool bLockMove, bool bLockLook)
-{
-    // Only the server should replicate authoritative lock flags,
-    // but applying locally keeps input responsive.
-    bInteractionLockMove = bLockMove;
-    bInteractionLockLook = bLockLook;
-
-    if (bInteractionLockMove)
-    {
-        // Hard stop movement immediately
-        GetCharacterMovement()->StopMovementImmediately();
-    }
 }
 
 void AGvTThiefCharacter::OnTestMirrorPressed()
@@ -271,7 +247,73 @@ void AGvTThiefCharacter::OnTestMirrorPressed()
     }
 
     UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Triggering mirror %s"), *Mirror->GetName());
-    Mirror->TriggerScare(1.0f, 1.5f); 
+    Mirror->TriggerScare(1.0f, 1.5f);
+}
+
+void AGvTThiefCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
+{
+    bIsSprinting = bNewSprinting;
+
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        Move->MaxWalkSpeed = bIsSprinting ? SprintSpeed : WalkSpeed;
+    }
+}
+
+void AGvTThiefCharacter::SetInteractionLock(bool bLockMove, bool bLockLook)
+{
+    // Only the server should replicate authoritative lock flags,
+    // but applying locally keeps input responsive.
+    bInteractionLockMove = bLockMove;
+    bInteractionLockLook = bLockLook;
+
+    if (bInteractionLockMove)
+    {
+        // Hard stop movement immediately
+        GetCharacterMovement()->StopMovementImmediately();
+    }
+}
+
+void AGvTThiefCharacter::ApplyScareStun(float Duration)
+{
+    if (Duration <= 0.f)
+    {
+        return;
+    }
+
+    ScareStunCount++;
+
+    if (UCharacterMovementComponent* Move = GetCharacterMovement())
+    {
+        Move->StopMovementImmediately();
+        Move->DisableMovement();
+    }
+
+    GetWorldTimerManager().ClearTimer(TimerHandle_ClearScareStun);
+    GetWorldTimerManager().SetTimer(
+        TimerHandle_ClearScareStun,
+        this,
+        &AGvTThiefCharacter::ClearScareStun,
+        Duration,
+        false
+    );
+
+    UE_LOG(LogTemp, Warning, TEXT("[Scare] ApplyScareStun %.2fs on %s"), Duration, *GetName());
+}
+
+void AGvTThiefCharacter::ClearScareStun()
+{
+    ScareStunCount = FMath::Max(0, ScareStunCount - 1);
+
+    if (ScareStunCount == 0)
+    {
+        if (UCharacterMovementComponent* Move = GetCharacterMovement())
+        {
+            Move->SetMovementMode(MOVE_Walking);
+        }
+
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] ClearScareStun on %s"), *GetName());
+    }
 }
 
 void AGvTThiefCharacter::Server_SetDead_Implementation(AActor* Killer)
@@ -303,5 +345,66 @@ void AGvTThiefCharacter::OnRep_IsDead()
     {
         DisableInput(PC);
         // TODO: show "caught" widget / spectator / respawn flow
+    }
+}
+
+void AGvTThiefCharacter::Debug_RequestMirrorScare()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            FGvTScareEvent Event;
+            Event.ScareTag = GvTScareTags::Mirror();
+            Event.TargetActor = this;
+            Event.Intensity01 = 1.f;
+            Event.Duration = 1.5f;
+            Event.bTriggerLocalFlicker = true;
+            Event.bAffectsPanic = true;
+            Event.PanicAmount = 12.f;
+
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Debug_RequestCrawlerChaseScare()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            FGvTScareEvent Event;
+            Event.ScareTag = GvTScareTags::CrawlerChase();
+            Event.TargetActor = this;
+            Event.Intensity01 = 1.f;
+            Event.Duration = 12.f;
+            Event.bTriggerGroupFlicker = true;
+            Event.bAffectsPanic = true;
+            Event.PanicAmount = 18.f;
+
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            FGvTScareEvent Event;
+            Event.ScareTag = GvTScareTags::CrawlerOverhead();
+            Event.TargetActor = this;
+            Event.Intensity01 = 1.f;
+            Event.Duration = 1.0f;
+            Event.bTriggerLocalFlicker = false;
+            Event.bTriggerGroupFlicker = false;
+            Event.bAffectsPanic = true;
+            Event.PanicAmount = 10.f;
+
+            Director->DispatchScareEvent(Event);
+        }
     }
 }

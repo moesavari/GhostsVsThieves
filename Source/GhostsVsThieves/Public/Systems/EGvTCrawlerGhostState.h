@@ -6,8 +6,8 @@
 UENUM(BlueprintType)
 enum class EGvTCrawlerGhostState : uint8
 {
-    IdleCeiling UMETA(DisplayName = "IdleCeiling"),
-    DropScare   UMETA(DisplayName = "DropScare"),
-    HauntChase  UMETA(DisplayName = "HauntChase"),
-    Vanish      UMETA(DisplayName = "Vanish"),
+    IdleCeiling   UMETA(DisplayName = "IdleCeiling"),
+    OverheadScare UMETA(DisplayName = "OverheadScare"),
+    HauntChase    UMETA(DisplayName = "HauntChase"),
+    Vanish        UMETA(DisplayName = "Vanish"),
 };

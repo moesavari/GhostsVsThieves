@@ -41,24 +41,53 @@ void AGvTPlayerController::Tick(float DeltaSeconds)
 	UpdateHighlight();
 }
 
-
-static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
+void AGvTPlayerController::OnRep_PlayerState()
 {
-	if (!PC || !PC->GetWorld()) return nullptr;
+	Super::OnRep_PlayerState();
+	BindHUDToPlayerState();
+}
 
-	FVector Loc; FRotator Rot;
-	PC->GetPlayerViewPoint(Loc, Rot);
+void AGvTPlayerController::BindHUDToPlayerState()
+{
+	if (!IsLocalController() || !HUDWidget)
+		return;
 
-	FHitResult Hit;
-	const FVector End = Loc + Rot.Vector() * MaxDistance;
+	AGvTPlayerState* PS = GetPlayerState<AGvTPlayerState>();
 
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(DoorDebug), false);
-	if (APawn* P = PC->GetPawn()) Params.AddIgnoredActor(P);
+	if (!PS)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("BindHUDToPlayerState: PS None, retrying..."));
 
-	if (!PC->GetWorld()->LineTraceSingleByChannel(Hit, Loc, End, ECC_Visibility, Params))
-		return nullptr;
+		if (!GetWorldTimerManager().IsTimerActive(TimerHandle_BindHUDRetry))
+		{
+			GetWorldTimerManager().SetTimer(
+				TimerHandle_BindHUDRetry,
+				this,
+				&AGvTPlayerController::BindHUDToPlayerState,
+				0.1f,
+				true
+			);
+		}
+		return;
+	}
 
-	return Cast<AGvTDoorActor>(Hit.GetActor());
+	GetWorldTimerManager().ClearTimer(TimerHandle_BindHUDRetry);
+
+	UE_LOG(LogTemp, Warning, TEXT("BindHUDToPlayerState: SUCCESS PS=%s Loot=%d"),
+		*GetNameSafe(PS), PS->GetLoot());
+
+	HUDWidget->SetLootValue(PS->GetLoot());
+
+	PS->OnLootValueChanged.RemoveDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
+	PS->OnLootValueChanged.AddDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
+}
+
+void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue)
+{
+	if (HUDWidget)
+	{
+		HUDWidget->ShowScanValueNamed(Item, ItemDisplayName, ScannedValue);
+	}
 }
 
 void AGvTPlayerController::DoorLock(float MaxDistance)
@@ -95,6 +124,25 @@ void AGvTPlayerController::DoorForceUnlock(float MaxDistance)
 	{
 		Door->TryUnlock(GetPawn(), EDoorUnlockMethod::Force, true);
 	}
+}
+
+static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
+{
+	if (!PC || !PC->GetWorld()) return nullptr;
+
+	FVector Loc; FRotator Rot;
+	PC->GetPlayerViewPoint(Loc, Rot);
+
+	FHitResult Hit;
+	const FVector End = Loc + Rot.Vector() * MaxDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(DoorDebug), false);
+	if (APawn* P = PC->GetPawn()) Params.AddIgnoredActor(P);
+
+	if (!PC->GetWorld()->LineTraceSingleByChannel(Hit, Loc, End, ECC_Visibility, Params))
+		return nullptr;
+
+	return Cast<AGvTDoorActor>(Hit.GetActor());
 }
 
 void AGvTPlayerController::UpdateHighlight()
@@ -159,54 +207,5 @@ void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
 		{
 			Comp->SetCustomDepthStencilValue(HighlightStencilValue);
 		}
-	}
-}
-
-void AGvTPlayerController::OnRep_PlayerState()
-{
-	Super::OnRep_PlayerState();
-	BindHUDToPlayerState();
-}
-
-void AGvTPlayerController::BindHUDToPlayerState()
-{
-	if (!IsLocalController() || !HUDWidget)
-		return;
-
-	AGvTPlayerState* PS = GetPlayerState<AGvTPlayerState>();
-
-	if (!PS)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("BindHUDToPlayerState: PS None, retrying..."));
-
-		if (!GetWorldTimerManager().IsTimerActive(TimerHandle_BindHUDRetry))
-		{
-			GetWorldTimerManager().SetTimer(
-				TimerHandle_BindHUDRetry,
-				this,
-				&AGvTPlayerController::BindHUDToPlayerState,
-				0.1f,
-				true
-			);
-		}
-		return;
-	}
-
-	GetWorldTimerManager().ClearTimer(TimerHandle_BindHUDRetry);
-
-	UE_LOG(LogTemp, Warning, TEXT("BindHUDToPlayerState: SUCCESS PS=%s Loot=%d"),
-		*GetNameSafe(PS), PS->GetLoot());
-
-	HUDWidget->SetLootValue(PS->GetLoot());
-
-	PS->OnLootValueChanged.RemoveDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
-	PS->OnLootValueChanged.AddDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
-}
-
-void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue)
-{
-	if (HUDWidget)
-	{
-		HUDWidget->ShowScanValueNamed(Item, ItemDisplayName, ScannedValue);
 	}
 }

@@ -38,20 +38,6 @@ void UGvTInteractionComponent::TryInteract()
 
 void UGvTInteractionComponent::TryPhoto()
 {
-	//APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	//if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
-	//{
-	//	return;
-	//}
-
-	//if (bIsInteracting)
-	//{
-	//	TryCancelInteraction(EGvTInteractionCancelReason::UserCanceled);
-	//	return;
-	//}
-
-	//Server_TryInteract(EGvTInteractionVerb::Photo);
-
 	TryScan();
 }
 

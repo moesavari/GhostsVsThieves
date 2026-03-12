@@ -16,10 +16,8 @@ public:
 
     virtual void OnRep_PlayerState() override;
 
-
     UFUNCTION(Client, Reliable)
     void Client_ShowScanResult(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue);
-    //void BindHUDToPlayerState();
 
 protected:
     UFUNCTION(Exec)
@@ -40,18 +38,15 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Highlight")
     int32 HighlightStencilValue = 1;
 
-    TWeakObjectPtr<AActor> CurrentHighlightedActor;
-
-    void UpdateHighlight();
-    void SetActorHighlighted(AActor* Actor, bool bHighlighted);
-
-    UPROPERTY()
-    TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
-
     UPROPERTY(EditDefaultsOnly, Category = "UI")
     TSubclassOf<UGvTHUDWidget> HUDWidgetClass;
 
-    FTimerHandle TimerHandle_BindHUDRetry;
-    UFUNCTION()
+private:
+    void UpdateHighlight();
+    void SetActorHighlighted(AActor* Actor, bool bHighlighted);
     void BindHUDToPlayerState();
+
+    TWeakObjectPtr<AActor> CurrentHighlightedActor;
+    TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
+    FTimerHandle TimerHandle_BindHUDRetry;
 };

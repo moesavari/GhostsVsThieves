@@ -27,17 +27,34 @@ class GHOSTSVSTHIEVES_API AGvTPowerBoxActor : public AActor, public IGvTInteract
 public:
 	AGvTPowerBoxActor();
 
+	virtual void BeginPlay() override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	virtual void GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const override;
 	virtual bool CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const override;
 	virtual void BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
 	virtual void CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
 	virtual void CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason) override;
 
-protected:
-	virtual void BeginPlay() override;
+	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
+	void TogglePower();
 
-public:
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
+	void BlowPowerBox();
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
+	void HandlePlayerInteract(APawn* InstigatorPawn);
+
+protected:
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "GvT|Power")
+	void Server_SetPowerState(EGvTHousePowerState NewState);
+
+	UFUNCTION()
+	void OnRep_PowerState();
+
+	void ApplyPowerState();
+
+	void InitializeIndicatorLights(TObjectPtr<UPointLightComponent> IndicatorLight, FColor Color);
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Power")
 	TObjectPtr<USceneComponent> Root;
@@ -53,15 +70,6 @@ public:
 
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "GvT|Power")
 	TObjectPtr<AActor> HouseActor = nullptr;
-
-	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "GvT|Power")
-	void Server_SetPowerState(EGvTHousePowerState NewState);
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
-	void TogglePower();
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
-	void BlowPowerBox();
 
 	UFUNCTION(BlueprintPure, Category = "GvT|Power")
 	bool IsPowerOn() const { return PowerState == EGvTHousePowerState::On; }
@@ -80,15 +88,4 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power")
 	FGameplayTag PowerInteractNoiseTag;
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
-	void HandlePlayerInteract(APawn* InstigatorPawn);
-
-protected:
-	UFUNCTION()
-	void OnRep_PowerState();
-
-	void ApplyPowerState();
-
-	void InitializeIndicatorLights(TObjectPtr<UPointLightComponent> IndicatorLight, FColor Color);
 };

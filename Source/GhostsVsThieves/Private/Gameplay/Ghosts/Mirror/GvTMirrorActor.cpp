@@ -190,8 +190,21 @@ void AGvTMirrorActor::ApplyMaterialToSlot(UMaterialInterface* Mat)
 
 void AGvTMirrorActor::EnsureGhost()
 {
-	if (GhostInstance || !ReflectGhostClass || !IsLocalClientWorld())
+	if (!IsLocalClientWorld())
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EnsureGhost aborted: not local client world."));
+		return;
+	}
+
+	if (!ReflectGhostClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Mirror] EnsureGhost aborted: ReflectGhostClass is NULL on %s"), *GetName());
+		return;
+	}
+
+	if (GhostInstance)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EnsureGhost skipped: already have GhostInstance=%s"), *GetNameSafe(GhostInstance));
 		return;
 	}
 
@@ -199,11 +212,22 @@ void AGvTMirrorActor::EnsureGhost()
 	Params.Owner = this;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	GhostInstance = GetWorld()->SpawnActor<AGvTReflectGhostActor>(ReflectGhostClass, GetActorLocation(), GetActorRotation(), Params);
+	GhostInstance = GetWorld()->SpawnActor<AGvTReflectGhostActor>(
+		ReflectGhostClass,
+		GetActorLocation(),
+		GetActorRotation(),
+		Params
+	);
+
 	if (GhostInstance)
 	{
 		GhostInstance->StopReflect();
 		EnsureGhostConfiguredForCaptureOnly();
+		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EnsureGhost spawned %s"), *GetNameSafe(GhostInstance));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Mirror] EnsureGhost failed to spawn ghost on %s"), *GetName());
 	}
 }
 
@@ -218,27 +242,35 @@ void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
 
 	if (ScareStartSfx)
 	{
-		UGameplayStatics::PlaySoundAtLocation(
-			this,
-			ScareStartSfx,
-			GetActorLocation(),
-			ScareSfxVolume,
-			ScareSfxPitch
-		);
+		UGameplayStatics::PlaySoundAtLocation(this, ScareStartSfx, GetActorLocation(), ScareSfxVolume, ScareSfxPitch);
 	}
 
 	EnsureGhost();
 
-	if (GhostInstance)
+	if (!GhostInstance)
 	{
-		GhostInstance->StartReflect(Intensity01, LifeSeconds);
+		UE_LOG(LogTemp, Error, TEXT("[Mirror] TriggerReflectLocal failed: GhostInstance is null after EnsureGhost on %s"), *GetName());
 
-		MirrorCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
-		MirrorCapture->ClearShowOnlyComponents();
-		MirrorCapture->ShowOnlyActorComponents(GhostInstance);
+		// Don't leave the player with a cursed black rectangle.
+		SetScarePlaneVisible(false);
 
-		StartScareCapture(LifeSeconds);
+		if (RenderTarget)
+		{
+			UKismetRenderingLibrary::ClearRenderTarget2D(this, RenderTarget, FLinearColor::Black);
+		}
+		return;
 	}
+
+	GhostInstance->StartReflect(Intensity01, LifeSeconds);
+
+	MirrorCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
+	MirrorCapture->ClearShowOnlyComponents();
+	MirrorCapture->ShowOnlyActorComponents(GhostInstance);
+
+	StartScareCapture(LifeSeconds);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Mirror] TriggerReflectLocal Mirror=%s Intensity=%.2f Life=%.2f LocalWorld=%d"),
+		*GetName(), Intensity01, LifeSeconds, IsLocalClientWorld() ? 1 : 0);
 }
 
 void AGvTMirrorActor::TriggerScare(float Intensity01, float LifeSeconds)
@@ -327,6 +359,11 @@ void AGvTMirrorActor::StartScareCapture(float LifeSeconds)
 		const float FinalLife = (LifeSeconds <= 0.f) ? 1.0f : LifeSeconds;
 		GetWorldTimerManager().SetTimer(StopTimer, this, &AGvTMirrorActor::StopScareCapture, FinalLife, false);
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Mirror] StartScareCapture FPS=%.2f RT=%s Ghost=%s"),
+		CaptureFPS,
+		*GetNameSafe(RenderTarget),
+		*GetNameSafe(GhostInstance));
 }
 
 void AGvTMirrorActor::StopScareCapture()
@@ -382,6 +419,10 @@ void AGvTMirrorActor::CaptureOnce()
 
 	UpdateGhostForCaptureCamera();
 	MirrorCapture->CaptureScene();
+
+	UE_LOG(LogTemp, VeryVerbose, TEXT("[Mirror] CaptureOnce RT=%s Capture=%s"),
+		*GetNameSafe(RenderTarget),
+		*GetNameSafe(MirrorCapture));
 }
 
 void AGvTMirrorActor::ApplyNormalMaterial(UMaterialInterface* Mat)

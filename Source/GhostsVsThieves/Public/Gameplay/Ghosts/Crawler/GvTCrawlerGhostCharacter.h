@@ -17,21 +17,39 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	UFUNCTION(BlueprintCallable, Server, Reliable, Category="GvT|Crawler|Chase")
+
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "GvT|Crawler|Chase")
 	void Server_StartChase(APawn* Victim);
 
-	/** Server-only: spawn over victim's head (camera-relative), upside down, then rotate/pitch toward victim while playing overhead anim. */
-	UFUNCTION(BlueprintCallable, Server, Reliable, Category="GvT|Crawler|Overhead")
+	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "GvT|Crawler|Overhead")
 	void Server_StartOverheadScare(APawn* Victim, bool bVictimOnly = true);
-
-	UFUNCTION(BlueprintCallable, Category="GvT|Crawler|Chase")
-	void StopAndDie();
-
-	UFUNCTION(BlueprintCallable, Category="GvT|Crawler|Chase")
-	APawn* GetTargetVictim() const { return TargetVictim; }
 
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void Server_DragStep();
+
+
+
+	void StartLocalOverheadScare(APawn* Victim);
+
+	void StopAndDie();
+
+	void OnCrawlerDragStep();
+
+protected:
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	void OnRep_State();
+
+	void SetState(EGvTCrawlerGhostState NewState);
+	void StartOverhead_Internal(APawn* Victim);
+	void EndOverhead();
+
+
+	void SnapToGround();
+	void OverheadTick(float DeltaSeconds);
+	bool GetVictimCamera(FVector& OutCamLoc, FRotator& OutCamRot) const;
+
+	UFUNCTION(BlueprintCallable, Category="GvT|Crawler|Chase")
+	APawn* GetTargetVictim() const { return TargetVictim; }
 
 	UFUNCTION(BlueprintPure, Category = "Crawler")
 	EGvTCrawlerGhostState GetState() const { return State; }
@@ -39,9 +57,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Crawler|Anim")
 	float GetReplicatedSpeed() const { return ReplicatedSpeed; }
 
-	void OnCrawlerDragStep();
 
-protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Crawler|Chase")
 	TObjectPtr<APawn> TargetVictim;
 
@@ -141,26 +157,15 @@ protected:
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Crawler|Anim")
 	float ReplicatedSpeed = 0.f;
 
-	UFUNCTION()
-	void OnRep_State();
-
-	void SetState(EGvTCrawlerGhostState NewState);
-
-	void SnapToGround();
-
-	void OverheadTick(float DeltaSeconds);
-	bool GetVictimCamera(FVector& OutCamLoc, FRotator& OutCamRot) const;
-	void StartOverhead_Internal(APawn* Victim);
-	void EndOverhead();
-
 private:
-	float RepathTimer = 0.f;
-	bool bOverheadActive = false;
-	float OverheadStartTime = 0.f;
-
 	void ChaseTick(float DeltaSeconds);
 	void TryKillVictim();
 	void ApplyDragStep();
 
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	float RepathTimer = 0.f;
+	bool bOverheadActive = false;
+	float OverheadStartTime = 0.f;
+
+	bool bLocalOverheadOnly = false;
+	bool bDisableOverheadVictimTracking = false;
 };

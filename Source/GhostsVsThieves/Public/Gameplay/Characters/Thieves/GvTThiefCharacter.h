@@ -11,6 +11,7 @@ class UInputMappingContext;
 class UInputAction;
 class UGvTNoiseEmitterComponent;
 class UGvTInteractionComponent;
+class UGvTDirectorSubsystem;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -20,20 +21,23 @@ class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
 public:
     AGvTThiefCharacter();
 
-public:
-    // Interaction lock-in (cast-time interactions)
-    UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+    UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     void SetInteractionLock(bool bLockMove, bool bLockLook);
 
-    UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+    UFUNCTION(BlueprintCallable, Category = "GvT|Scare")
+    void ApplyScareStun(float Duration);
+
+    UFUNCTION(BlueprintPure, Category = "GvT|Death")
+    bool IsDead() const { return bIsDead; }
+
+    UFUNCTION(BlueprintPure, Category = "GvT|Scare")
+    bool IsScareStunned() const { return ScareStunCount > 0; }
+
+    UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
 
-    UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+    UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionLookLocked() const { return bInteractionLockLook; }
-
-    // --- Death / caught state ---
-    UPROPERTY(ReplicatedUsing = OnRep_IsDead, BlueprintReadOnly, Category = "GvT|Death")
-    bool bIsDead = false;
 
     UFUNCTION()
     void OnRep_IsDead();
@@ -41,29 +45,39 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_SetDead(AActor* Killer);
 
-    UFUNCTION(BlueprintPure, Category = "GvT|Death")
-    bool IsDead() const { return bIsDead; }
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestMirrorScare();
+
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestCrawlerChaseScare();
+
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestCrawlerOverheadScare();
 
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
     void OnMove(const FInputActionValue& Value);
     void OnLook(const FInputActionValue& Value);
-
     void StartSprint();
     void StopSprint();
-
     void StartCrouch();
     void StopCrouch();
-
     void TestNoise();
-
     void OnInteractPressed();
-
     void OnPhotoPressed();
+    void OnTestMirrorPressed();
 
-protected:
+    UFUNCTION(Server, Reliable)
+    void ServerSetSprinting(bool bNewSprinting);
+
+    UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
+    void BP_OnInteractPressed();
+    UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
+    void BP_OnPhotoPressed();
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Camera")
     USpringArmComponent* SpringArm;
 
@@ -82,23 +96,21 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Noise")
     UGvTNoiseEmitterComponent* NoiseEmitter;
 
-    UFUNCTION(Server, Reliable)
-    void ServerSetSprinting(bool bNewSprinting);
+    UPROPERTY(ReplicatedUsing = OnRep_IsDead, BlueprintReadOnly, Category = "GvT|Death")
+    bool bIsDead = false;
 
-    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-
-    
-protected:
-    UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Interaction")
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Interaction")
     bool bInteractionLockMove = false;
 
-    UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Interaction")
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Interaction")
     bool bInteractionLockLook = false;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
     UGvTInteractionComponent* InteractionComponent;
 
-protected:
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Scare")
+    int32 ScareStunCount = 0;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputMappingContext* DefaultMappingContext;
 
@@ -120,18 +132,14 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_Interact;
 
-    UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
-    void BP_OnInteractPressed();
-
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_Photo;
-
-    UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
-    void BP_OnPhotoPressed();
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_TestMirror;
 
-    UFUNCTION()
-    void OnTestMirrorPressed();
+private:
+    void ClearScareStun();
+
+    FTimerHandle TimerHandle_ClearScareStun;
 };

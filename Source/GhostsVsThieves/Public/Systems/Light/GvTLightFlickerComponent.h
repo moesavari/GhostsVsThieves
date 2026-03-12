@@ -66,7 +66,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|LightFlicker")
 	TArray<TObjectPtr<ULightComponent>> ExplicitLights;
 
-private:
 	UPROPERTY(Transient)
 	TArray<FGvTLightDefaultState> CachedLights;
 
@@ -76,6 +75,7 @@ private:
 	UPROPERTY(Transient)
 	TMap<FName, bool> ZonePowerOverrides;
 
+private:
 	bool bIsFlickering = false;
 	float FlickerEndTime = 0.f;
 	float NextPulseTime = 0.f;

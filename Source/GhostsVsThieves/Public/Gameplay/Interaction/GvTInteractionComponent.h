@@ -118,6 +118,7 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void Client_PlayInteractionFinishSfx(bool bCompleted, EGvTInteractionVerb Verb, const FGvTInteractionSpec& Spec);
 
+private:
 	// Server helpers
 	void PerformServerTraceAndTryStart(EGvTInteractionVerb Verb);
 	bool GetViewTrace(FVector& OutStart, FVector& OutEnd) const;
@@ -130,10 +131,8 @@ protected:
 	void ClearLockIn();
 
 	AGvTThiefCharacter* GetOwnerThief() const;
-
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-private:
 	FTimerHandle InteractionTimerHandle;
 
 	bool bPrevInteracting_Local = false;

@@ -27,16 +27,6 @@ class GHOSTSVSTHIEVES_API AGvTDoorActor : public AActor, public IGvTInteractable
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintPure, Category = "Door|Lock")
-	bool IsLocked() const { return bIsLocked; }
-
-	UFUNCTION(BlueprintCallable, Category = "Door|Lock")
-	void SetLocked(bool bNewLocked);
-
-	UFUNCTION(BlueprintCallable, Category = "Door|Lock")
-	bool TryUnlock(APawn* InstigatorPawn, EDoorUnlockMethod Method, bool bAutoOpenOnSuccess = true);
-
-public:
 	AGvTDoorActor();
 
 	virtual void GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const override;
@@ -47,6 +37,15 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
+
+	UFUNCTION(BlueprintPure, Category = "Door|Lock")
+	bool IsLocked() const { return bIsLocked; }
+
+	UFUNCTION(BlueprintCallable, Category = "Door|Lock")
+	void SetLocked(bool bNewLocked);
+
+	UFUNCTION(BlueprintCallable, Category = "Door|Lock")
+	bool TryUnlock(APawn* InstigatorPawn, EDoorUnlockMethod Method, bool bAutoOpenOnSuccess = true);
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Door")

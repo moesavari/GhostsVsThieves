@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameplayTagContainer.h"
+#include "GameFramework/Actor.h"
 #include "GvTScareTypes.generated.h"
 
 USTRUCT(BlueprintType)
@@ -26,6 +27,21 @@ struct FGvTScareEvent
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	bool bIsGroupScare = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	TObjectPtr<AActor> TargetActor = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	bool bTriggerLocalFlicker = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	bool bTriggerGroupFlicker = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	bool bAffectsPanic = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	float PanicAmount = 0.f;
 };
 
 USTRUCT(BlueprintType)

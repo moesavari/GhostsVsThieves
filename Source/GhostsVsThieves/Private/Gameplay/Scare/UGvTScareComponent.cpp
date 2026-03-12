@@ -1,7 +1,6 @@
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 #include "Gameplay/Ghosts/Crawler/GvTCrawlerGhostCharacter.h"
-#include "Kismet/GameplayStatics.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -15,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Systems/Light/GvTLightFlickerSubsystem.h"
 #include "Systems/Light/GvTLightFlickerTypes.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 
 UGvTScareComponent::UGvTScareComponent()
 {
@@ -69,6 +69,122 @@ void UGvTScareComponent::BeginPlay()
 	}
 }
 
+void UGvTScareComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(UGvTScareComponent, ScareState);
+	DOREPLIFETIME(UGvTScareComponent, Panic);
+}
+
+void UGvTScareComponent::OnRep_Panic()
+{
+	UpdatePanicBand();
+	UE_LOG(LogTemp, Warning, TEXT("[Panic] Owner=%s Panic=%.1f Band=%d"),
+		*GetNameSafe(GetOwner()),
+		Panic,
+		(int32)CachedPanicBand);
+}
+
+void UGvTScareComponent::OnRep_ScareState()
+{
+	// Optional: client debug / UI
+}
+
+
+
+void UGvTScareComponent::RequestMirrorScare(float Intensity01, float LifeSeconds)
+{
+	if (IsServer())
+	{
+		Client_PlayMirrorScare(Intensity01, LifeSeconds);
+	}
+	else
+	{
+		Test_MirrorScare(Intensity01, LifeSeconds);
+	}
+}
+
+void UGvTScareComponent::RequestCrawlerChaseFromEvent(AActor* Victim)
+{
+	RequestCrawlerChaseScare(Victim);
+}
+
+void UGvTScareComponent::RequestCrawlerOverheadFromEvent(const FGvTScareEvent& Event)
+{
+	AActor* Victim = Event.TargetActor;
+	if (!Victim)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead scare failed: No victim."));
+		return;
+	}
+
+	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Victim);
+	if (!Thief)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead scare failed: victim is not a thief."));
+		return;
+	}
+
+	Client_StartCrawlerOverheadScare(Event);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead routed to victim-only local crawler scare for %s"), *GetNameSafe(Victim));
+}
+
+void UGvTScareComponent::RequestCrawlerChaseScare(AActor* Victim)
+{
+	if (!Victim)
+	{
+		return;
+	}
+
+	Server_RequestCrawlerChaseScare(Victim);
+}
+
+void UGvTScareComponent::RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly)
+{
+	if (!Victim)
+	{
+		return;
+	}
+
+	Server_RequestCrawlerOverheadScare(Victim, bVictimOnly);
+}
+
+void UGvTScareComponent::AddPanic(float Amount)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Panic = FMath::Clamp(Panic + Amount, 0.f, PanicMax);
+	UpdatePanicBand();
+	OnRep_Panic();
+}
+
+void UGvTScareComponent::ReducePanic(float Amount)
+{
+	if (GetOwnerRole() != ROLE_Authority)
+	{
+		return;
+	}
+
+	Panic = FMath::Clamp(Panic - Amount, 0.f, PanicMax);
+	UpdatePanicBand();
+	OnRep_Panic();
+}
+
+float UGvTScareComponent::GetPanicNormalized() const
+{
+	return (PanicMax > 0.f) ? (Panic / PanicMax) : 0.f;
+}
+
+EGvTPanicBand UGvTScareComponent::GetPanicBand() const
+{
+	return CachedPanicBand;
+}
+
+
 
 void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
 {
@@ -119,17 +235,17 @@ void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
 	Mirror->TriggerScare(Intensity01, LifeSeconds);
 }
 
-void UGvTScareComponent::Test_CrawlerChase(APawn* Victim)
+void UGvTScareComponent::Debug_RequestCrawlerChase(APawn* Victim)
 {
 	if (!Victim)
 	{
 		return;
 	}
 
-	StartCrawlerHaunt(Victim);
+	RequestCrawlerChaseScare(Victim);
 }
 
-void UGvTScareComponent::Test_GroupHouseLightFlicker(float Intensity01, float Duration)
+void UGvTScareComponent::Debug_RequestGroupHouseLightFlicker(float Intensity01, float Duration)
 {
 	if (!IsServer())
 	{
@@ -156,7 +272,7 @@ void UGvTScareComponent::Test_GroupHouseLightFlicker(float Intensity01, float Du
 	}
 }
 
-void UGvTScareComponent::Test_LocalHouseLightFlicker(float Intensity01, float Duration)
+void UGvTScareComponent::Debug_RequestLocalHouseLightFlicker(float Intensity01, float Duration)
 {
 	APawn* Pawn = Cast<APawn>(GetOwner());
 	if (!Pawn || !Pawn->IsLocallyControlled())
@@ -168,32 +284,61 @@ void UGvTScareComponent::Test_LocalHouseLightFlicker(float Intensity01, float Du
 	PlayLocalLightFlicker(Event);
 }
 
-FGvTLightFlickerEvent UGvTScareComponent::MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const
+
+
+void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01, float LifeSeconds)
 {
-	FGvTLightFlickerEvent Event;
-	Event.WorldCenter = GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
-	Event.Radius = 8000.f;
-	Event.Duration = Duration;
-	Event.Intensity01 = FMath::Clamp(Intensity01, 0.f, 1.f);
-	Event.bWholeHouse = bWholeHouse;
-	Event.bAllowFullOffBursts = true;
-	Event.MinDimAlpha = 0.10f;
-	Event.MaxDimAlpha = 1.0f;
-	Event.PulseIntervalMin = 0.03f;
-	Event.PulseIntervalMax = 0.09f;
-	Event.Seed = MakeLocalSeed(GetNowServerSeconds());
-	return Event;
+	Test_MirrorScare(Intensity01, LifeSeconds);
 }
 
-void UGvTScareComponent::PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const
+void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& Event)
 {
-	if (UWorld* World = GetWorld())
+	static const FGameplayTag LightFlickerTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.LightFlicker"));
+
+	if (Event.ScareTag.MatchesTagExact(LightFlickerTag))
 	{
-		if (UGvTLightFlickerSubsystem* Subsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>())
-		{
-			Subsystem->PlayFlickerEvent(Event);
-		}
+		FGvTLightFlickerEvent Flicker;
+		Flicker.WorldCenter = Event.WorldHint;
+		Flicker.Radius = 8000.f;
+		Flicker.Duration = FMath::Max(0.15f, Event.Duration);
+		Flicker.Intensity01 = Event.Intensity01;
+		Flicker.bWholeHouse = Event.bIsGroupScare;
+		Flicker.bAllowFullOffBursts = true;
+		Flicker.MinDimAlpha = 0.10f;
+		Flicker.MaxDimAlpha = 1.0f;
+		Flicker.PulseIntervalMin = 0.03f;
+		Flicker.PulseIntervalMax = 0.09f;
+		Flicker.Seed = Event.LocalSeed;
+
+		PlayLocalLightFlicker(Flicker);
 	}
+
+	BP_PlayScare(Event);
+}
+
+void UGvTScareComponent::Client_StartCrawlerOverheadScare_Implementation(const FGvTScareEvent& Event)
+{
+	APawn* VictimPawn = Cast<APawn>(GetOwner());
+	if (!VictimPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare failed: component owner is not a pawn."));
+		return;
+	}
+
+	if (!VictimPawn->IsLocallyControlled())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare ignored: owner is not locally controlled (%s)"), *GetNameSafe(VictimPawn));
+		return;
+	}
+
+	if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(VictimPawn))
+	{
+		Thief->ApplyScareStun(0.6f);
+	}
+
+	SpawnLocalCrawlerOverheadGhost(VictimPawn);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare local victim = %s"), *GetNameSafe(VictimPawn));
 }
 
 void UGvTScareComponent::Client_PlayLightFlicker_Implementation(const FGvTLightFlickerEvent& Event)
@@ -201,17 +346,7 @@ void UGvTScareComponent::Client_PlayLightFlicker_Implementation(const FGvTLightF
 	PlayLocalLightFlicker(Event);
 }
 
-void UGvTScareComponent::StartCrawlerHaunt(AActor* Victim)
-{
-	if (!Victim)
-	{
-		return;
-	}
-
-	Server_StartCrawlerHaunt(Victim);
-}
-
-void UGvTScareComponent::Server_StartCrawlerHaunt_Implementation(AActor* Victim)
+void UGvTScareComponent::Server_RequestCrawlerChaseScare_Implementation(AActor* Victim)
 {
 	if (!IsServer() || !Victim || !CrawlerGhostClass)
 	{
@@ -236,24 +371,16 @@ void UGvTScareComponent::Server_StartCrawlerHaunt_Implementation(AActor* Victim)
 
 	if (IsValid(ActiveCrawlerGhost))
 	{
+		ActiveCrawlerGhost->SpawnDefaultController();
+
 		if (APawn* VictimPawn = Cast<APawn>(Victim))
-	{
-		ActiveCrawlerGhost->Server_StartChase(VictimPawn);
-	}
+		{
+			ActiveCrawlerGhost->Server_StartChase(VictimPawn);
+		}
 	}
 }
 
-void UGvTScareComponent::StartCrawlerOverheadScare(AActor* Victim, bool bVictimOnly)
-{
-	if (!Victim)
-	{
-		return;
-	}
-
-	Server_StartCrawlerOverheadScare(Victim, bVictimOnly);
-}
-
-void UGvTScareComponent::Server_StartCrawlerOverheadScare_Implementation(AActor* Victim, bool bVictimOnly)
+void UGvTScareComponent::Server_RequestCrawlerOverheadScare_Implementation(AActor* Victim, bool bVictimOnly)
 {
 	if (!IsServer() || !Victim || !CrawlerGhostClass)
 	{
@@ -284,85 +411,106 @@ void UGvTScareComponent::Server_StartCrawlerOverheadScare_Implementation(AActor*
 	}
 }
 
-void UGvTScareComponent::Client_ReflectTick()
+void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01)
 {
-	if (!bEnableReflectScare)
+	if (!IsServer() || !GetOwner()) return;
+
+	const float Dist = FVector::Dist(GetOwner()->GetActorLocation(), DeathLocation);
+	if (Dist > Radius) return;
+
+	FGvTScareEvent Event;
+	Event.ScareTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.DeathRipple"));
+	Event.Intensity01 = FMath::Clamp(BaseIntensity01, 0.f, 1.f);
+	Event.Duration = 1.0f;
+	Event.WorldHint = DeathLocation;
+	Event.LocalSeed = MakeLocalSeed(GetNowServerSeconds());
+	Event.bIsGroupScare = true;
+
+	Client_PlayScare(Event);
+
+	if (APawn* Pawn = Cast<APawn>(GetOwner()))
+	{
+		if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+		{
+			if (AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>())
+			{
+				const float PanicDelta = 0.15f * Event.Intensity01;
+				PS->Server_AddPanic(PanicDelta);
+			}
+		}
+	}
+}
+
+
+
+void UGvTScareComponent::SpawnLocalCrawlerOverheadGhost(APawn* Victim)
+{
+	if (!Victim || !CrawlerGhostClass || !GetWorld())
 	{
 		return;
 	}
 
-	APawn* Pawn = Cast<APawn>(GetOwner());
-	if (!Pawn || !Pawn->IsLocallyControlled())
+	// Clean up any prior local-only overhead ghost on this client instance.
+	if (IsValid(ActiveCrawlerGhost) && !ActiveCrawlerGhost->HasAuthority())
 	{
+		ActiveCrawlerGhost->Destroy();
+		ActiveCrawlerGhost = nullptr;
+	}
+
+	const FVector VictimLoc = Victim->GetActorLocation();
+	const FVector SpawnLoc = VictimLoc + FVector(0.f, 0.f, 50.f);
+	const FRotator SpawnRot = FRotator::ZeroRotator;
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	Params.Owner = GetOwner();
+
+	AGvTCrawlerGhostCharacter* LocalGhost =
+		GetWorld()->SpawnActor<AGvTCrawlerGhostCharacter>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
+
+	if (!LocalGhost)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] Failed to spawn local crawler overhead ghost."));
 		return;
 	}
 
-	APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
-	if (!PC)
+	LocalGhost->SetReplicates(false);
+	LocalGhost->SetReplicateMovement(false);
+
+	ActiveCrawlerGhost = LocalGhost;
+	LocalGhost->StartLocalOverheadScare(Victim);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] Spawned local-only crawler overhead ghost %s for victim %s"),
+		*GetNameSafe(LocalGhost),
+		*GetNameSafe(Victim));
+}
+
+void UGvTScareComponent::PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const
+{
+	if (UWorld* World = GetWorld())
 	{
-		return;
+		if (UGvTLightFlickerSubsystem* Subsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>())
+		{
+			Subsystem->PlayFlickerEvent(Event);
+		}
 	}
+}
 
-	FVector CamLoc;
-	FRotator CamRot;
-	PC->GetPlayerViewPoint(CamLoc, CamRot);
-	const FVector CamFwd = CamRot.Vector();
-
-	const FVector Start = CamLoc;
-	const FVector End = Start + CamFwd * ReflectTraceDistance;
-
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvTReflectTrace), false, Pawn);
-	Params.AddIgnoredActor(Pawn);
-
-	FHitResult Hit;
-	const bool bHit = GetWorld()->SweepSingleByChannel(
-		Hit,
-		Start,
-		End,
-		FQuat::Identity,
-		ECC_Visibility,
-		FCollisionShape::MakeSphere(ReflectSphereRadius),
-		Params);
-
-	if (!bHit)
-	{
-		return;
-	}
-
-	AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
-	if (!Mirror)
-	{
-		return;
-	}
-
-	const FVector ToCam = (CamLoc - Hit.ImpactPoint).GetSafeNormal();
-	const float Dot = FVector::DotProduct(CamFwd, -ToCam);
-
-	if (Dot < ReflectDotMin)
-	{
-		return;
-	}
-
-	const float Intensity01 = FMath::Clamp(
-		(Dot - ReflectDotMin) / FMath::Max(KINDA_SMALL_NUMBER, (1.f - ReflectDotMin)),
-		0.f,
-		1.f);
-
-	const float Now = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
-
-	if (Now < NextAllowedReflectTime)
-	{
-		return;
-	}
-
-	if (LastTriggeredMirror.IsValid() && LastTriggeredMirror.Get() == Mirror)
-	{
-		return;
-	}
-
-	Mirror->TriggerReflectLocal(Intensity01, ReflectLifeSeconds);
-	LastTriggeredMirror = Mirror;
-	NextAllowedReflectTime = Now + ReflectLifeSeconds + 0.25f;
+FGvTLightFlickerEvent UGvTScareComponent::MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const
+{
+	FGvTLightFlickerEvent Event;
+	Event.WorldCenter = GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
+	Event.Radius = 8000.f;
+	Event.Duration = Duration;
+	Event.Intensity01 = FMath::Clamp(Intensity01, 0.f, 1.f);
+	Event.bWholeHouse = bWholeHouse;
+	Event.bAllowFullOffBursts = true;
+	Event.MinDimAlpha = 0.10f;
+	Event.MaxDimAlpha = 1.0f;
+	Event.PulseIntervalMin = 0.03f;
+	Event.PulseIntervalMax = 0.09f;
+	Event.Seed = MakeLocalSeed(GetNowServerSeconds());
+	return Event;
 }
 
 bool UGvTScareComponent::IsServer() const
@@ -383,89 +531,6 @@ float UGvTScareComponent::GetNowServerSeconds() const
 	return 0.f;
 }
 
-void UGvTScareComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
-{
-	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
-	DOREPLIFETIME(UGvTScareComponent, ScareState);
-}
-
-void UGvTScareComponent::OnRep_ScareState()
-{
-	// Optional: client debug / UI
-}
-
-float UGvTScareComponent::ComputePressure01(float PlayerPanic01, float AvgPanic01, float TimeSinceLastScare01) const
-{
-	const float Elapsed = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
-	const float Elapsed01 = FMath::Clamp(Elapsed / 600.f, 0.f, 1.f);
-
-	const float Pressure =
-		0.45f * PlayerPanic01 +
-		0.25f * AvgPanic01 +
-		0.20f * TimeSinceLastScare01 +
-		0.10f * Elapsed01;
-
-	return FMath::Clamp(Pressure, 0.f, 1.f);
-}
-
-void UGvTScareComponent::BuildContextTags(FGameplayTagContainer& OutContext) const
-{
-	UE_LOG(LogTemp, Warning, TEXT("[Scare] BuildContextTags running. Owner=%s HasAuthority=%d"),
-		*GetOwner()->GetName(),
-		GetOwner()->HasAuthority() ? 1 : 0);
-
-	UWorld* W = GetWorld();
-	UGameInstance* GI = W ? W->GetGameInstance() : nullptr;
-	if (!GI) return;
-
-	UGvTNoiseSubsystem* Noise = GI->GetSubsystem<UGvTNoiseSubsystem>();
-	if (!Noise) return;
-
-	const FGameplayTag ElectricNoise = FGameplayTag::RequestGameplayTag(TEXT("Noise.Electric"));
-	const FGameplayTag ContextElectricalHigh = FGameplayTag::RequestGameplayTag(TEXT("Context.ElectricalHigh"));
-
-	const int32 ElectricCount = Noise->GetRecentTagCount(ElectricNoise, 25.f);
-
-	UE_LOG(LogTemp, Warning, TEXT("[Scare] ElectricCount=%d (window=25s)"), ElectricCount);
-
-	if (ElectricCount >= 1)
-	{
-		OutContext.AddTag(ContextElectricalHigh);
-	}
-}
-
-bool UGvTScareComponent::Server_CanTriggerNow(float Now) const
-{
-	if (Now < ScareState.NextScareServerTime) return false;
-	if (ScareState.SafetyWindowEndTime > Now) return false;
-	return true;
-}
-
-float UGvTScareComponent::ComputeCooldownSeconds(float FearScore01) const
-{
-	const float Base = FMath::Lerp(BaseCooldownMax, BaseCooldownMin, FearScore01);
-	const float StackPenalty = float(ScareState.CooldownStacks) * CooldownStackPenaltySeconds;
-	return FMath::Clamp(Base + StackPenalty, 4.f, 30.f);
-}
-
-int32 UGvTScareComponent::MakeLocalSeed(float Now) const
-{
-	const int32 Bucket = int32(FMath::FloorToInt(Now / 5.f));
-	return ScareState.Seed ^ (Bucket * 196613) ^ (ScareState.CooldownStacks * 834927);
-}
-
-FRandomStream UGvTScareComponent::MakeStream(float Now) const
-{
-	return FRandomStream(MakeLocalSeed(Now));
-}
-
-const UGvTGhostProfileAsset* UGvTScareComponent::ResolveGhostProfile(const UGvTScareSubsystem* Subsystem) const
-{
-	if (!Subsystem) return nullptr;
-	const FGameplayTag GhostTag = DefaultGhostTag.IsValid() ? DefaultGhostTag : FGameplayTag();
-	return GhostTag.IsValid() ? Subsystem->GetGhostProfile(GhostTag) : nullptr;
-}
-
 void UGvTScareComponent::Server_SchedulerTick()
 {
 	if (!IsServer()) return;
@@ -481,6 +546,13 @@ void UGvTScareComponent::Server_SchedulerTick()
 
 	if (!Server_CanTriggerNow(Now)) return;
 	Server_TriggerScare(Now);
+}
+
+bool UGvTScareComponent::Server_CanTriggerNow(float Now) const
+{
+	if (Now < ScareState.NextScareServerTime) return false;
+	if (ScareState.SafetyWindowEndTime > Now) return false;
+	return true;
 }
 
 void UGvTScareComponent::Server_TriggerScare(float Now)
@@ -613,59 +685,174 @@ void UGvTScareComponent::Server_TriggerScare(float Now)
 	ScareState.NextScareServerTime = Now + Cooldown;
 }
 
-void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& Event)
+AGvTThiefCharacter* UGvTScareComponent::ChooseTargetThief(FRandomStream& Stream) const
 {
-	static const FGameplayTag LightFlickerTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.LightFlicker"));
+	UWorld* World = GetWorld();
+	if (!World) return nullptr;
 
-	if (Event.ScareTag.MatchesTagExact(LightFlickerTag))
+	TArray<AActor*> Thieves;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+	TArray<AGvTThiefCharacter*> Candidates;
+	for (AActor* A : Thieves)
 	{
-		FGvTLightFlickerEvent Flicker;
-		Flicker.WorldCenter = Event.WorldHint;
-		Flicker.Radius = 8000.f;
-		Flicker.Duration = FMath::Max(0.15f, Event.Duration);
-		Flicker.Intensity01 = Event.Intensity01;
-		Flicker.bWholeHouse = Event.bIsGroupScare;
-		Flicker.bAllowFullOffBursts = true;
-		Flicker.MinDimAlpha = 0.10f;
-		Flicker.MaxDimAlpha = 1.0f;
-		Flicker.PulseIntervalMin = 0.03f;
-		Flicker.PulseIntervalMax = 0.09f;
-		Flicker.Seed = Event.LocalSeed;
+		AGvTThiefCharacter* T = Cast<AGvTThiefCharacter>(A);
+		if (!T) continue;
 
-		PlayLocalLightFlicker(Flicker);
+		// MVP rules: alive, has controller, etc. (keep simple)
+		if (T->GetController() != nullptr)
+			Candidates.Add(T);
 	}
 
-	BP_PlayScare(Event);
+	if (Candidates.Num() == 0) return nullptr;
+	return Candidates[Stream.RandRange(0, Candidates.Num() - 1)];
 }
 
-void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01)
+
+void UGvTScareComponent::Client_ReflectTick()
 {
-	if (!IsServer() || !GetOwner()) return;
-
-	const float Dist = FVector::Dist(GetOwner()->GetActorLocation(), DeathLocation);
-	if (Dist > Radius) return;
-
-	FGvTScareEvent Event;
-	Event.ScareTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.DeathRipple"));
-	Event.Intensity01 = FMath::Clamp(BaseIntensity01, 0.f, 1.f);
-	Event.Duration = 1.0f;
-	Event.WorldHint = DeathLocation;
-	Event.LocalSeed = MakeLocalSeed(GetNowServerSeconds());
-	Event.bIsGroupScare = true;
-
-	Client_PlayScare(Event);
-
-	if (APawn* Pawn = Cast<APawn>(GetOwner()))
+	if (!bEnableReflectScare)
 	{
-		if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
-		{
-			if (AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>())
-			{
-				const float PanicDelta = 0.15f * Event.Intensity01;
-				PS->Server_AddPanic(PanicDelta);
-			}
-		}
+		return;
 	}
+
+	APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	FVector CamLoc;
+	FRotator CamRot;
+	PC->GetPlayerViewPoint(CamLoc, CamRot);
+	const FVector CamFwd = CamRot.Vector();
+
+	const FVector Start = CamLoc;
+	const FVector End = Start + CamFwd * ReflectTraceDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvTReflectTrace), false, Pawn);
+	Params.AddIgnoredActor(Pawn);
+
+	FHitResult Hit;
+	const bool bHit = GetWorld()->SweepSingleByChannel(
+		Hit,
+		Start,
+		End,
+		FQuat::Identity,
+		ECC_Visibility,
+		FCollisionShape::MakeSphere(ReflectSphereRadius),
+		Params);
+
+	if (!bHit)
+	{
+		return;
+	}
+
+	AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
+	if (!Mirror)
+	{
+		return;
+	}
+
+	const FVector ToCam = (CamLoc - Hit.ImpactPoint).GetSafeNormal();
+	const float Dot = FVector::DotProduct(CamFwd, -ToCam);
+
+	if (Dot < ReflectDotMin)
+	{
+		return;
+	}
+
+	const float Intensity01 = FMath::Clamp(
+		(Dot - ReflectDotMin) / FMath::Max(KINDA_SMALL_NUMBER, (1.f - ReflectDotMin)),
+		0.f,
+		1.f);
+
+	const float Now = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
+
+	if (Now < NextAllowedReflectTime)
+	{
+		return;
+	}
+
+	if (LastTriggeredMirror.IsValid() && LastTriggeredMirror.Get() == Mirror)
+	{
+		return;
+	}
+
+	Mirror->TriggerScare(Intensity01, ReflectLifeSeconds);
+	LastTriggeredMirror = Mirror;
+	NextAllowedReflectTime = Now + ReflectLifeSeconds + 0.25f;
+}
+
+float UGvTScareComponent::ComputePressure01(float PlayerPanic01, float AvgPanic01, float TimeSinceLastScare01) const
+{
+	const float Elapsed = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
+	const float Elapsed01 = FMath::Clamp(Elapsed / 600.f, 0.f, 1.f);
+
+	const float Pressure =
+		0.45f * PlayerPanic01 +
+		0.25f * AvgPanic01 +
+		0.20f * TimeSinceLastScare01 +
+		0.10f * Elapsed01;
+
+	return FMath::Clamp(Pressure, 0.f, 1.f);
+}
+
+void UGvTScareComponent::BuildContextTags(FGameplayTagContainer& OutContext) const
+{
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] BuildContextTags running. Owner=%s HasAuthority=%d"),
+		*GetOwner()->GetName(),
+		GetOwner()->HasAuthority() ? 1 : 0);
+
+	UWorld* W = GetWorld();
+	UGameInstance* GI = W ? W->GetGameInstance() : nullptr;
+	if (!GI) return;
+
+	UGvTNoiseSubsystem* Noise = GI->GetSubsystem<UGvTNoiseSubsystem>();
+	if (!Noise) return;
+
+	const FGameplayTag ElectricNoise = FGameplayTag::RequestGameplayTag(TEXT("Noise.Electric"));
+	const FGameplayTag ContextElectricalHigh = FGameplayTag::RequestGameplayTag(TEXT("Context.ElectricalHigh"));
+
+	const int32 ElectricCount = Noise->GetRecentTagCount(ElectricNoise, 25.f);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] ElectricCount=%d (window=25s)"), ElectricCount);
+
+	if (ElectricCount >= 1)
+	{
+		OutContext.AddTag(ContextElectricalHigh);
+	}
+}
+
+float UGvTScareComponent::ComputeCooldownSeconds(float FearScore01) const
+{
+	const float Base = FMath::Lerp(BaseCooldownMax, BaseCooldownMin, FearScore01);
+	const float StackPenalty = float(ScareState.CooldownStacks) * CooldownStackPenaltySeconds;
+	return FMath::Clamp(Base + StackPenalty, 4.f, 30.f);
+}
+
+int32 UGvTScareComponent::MakeLocalSeed(float Now) const
+{
+	const int32 Bucket = int32(FMath::FloorToInt(Now / 5.f));
+	return ScareState.Seed ^ (Bucket * 196613) ^ (ScareState.CooldownStacks * 834927);
+}
+
+FRandomStream UGvTScareComponent::MakeStream(float Now) const
+{
+	return FRandomStream(MakeLocalSeed(Now));
+}
+
+const UGvTGhostProfileAsset* UGvTScareComponent::ResolveGhostProfile(const UGvTScareSubsystem* Subsystem) const
+{
+	if (!Subsystem) return nullptr;
+	const FGameplayTag GhostTag = DefaultGhostTag.IsValid() ? DefaultGhostTag : FGameplayTag();
+	return GhostTag.IsValid() ? Subsystem->GetGhostProfile(GhostTag) : nullptr;
 }
 
 uint8 UGvTScareComponent::GetPanicTier(float& OutPanic01) const
@@ -719,25 +906,14 @@ float UGvTScareComponent::ComputeTimeSinceLastScare01(float Now) const
 	return FMath::Clamp(Delta / 30.f, 0.f, 1.f);
 }
 
-AGvTThiefCharacter* UGvTScareComponent::ChooseTargetThief(FRandomStream& Stream) const
+void UGvTScareComponent::UpdatePanicBand()
 {
-	UWorld* World = GetWorld();
-	if (!World) return nullptr;
+	const float N = GetPanicNormalized();
 
-	TArray<AActor*> Thieves;
-	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
-
-	TArray<AGvTThiefCharacter*> Candidates;
-	for (AActor* A : Thieves)
-	{
-		AGvTThiefCharacter* T = Cast<AGvTThiefCharacter>(A);
-		if (!T) continue;
-
-		// MVP rules: alive, has controller, etc. (keep simple)
-		if (T->GetController() != nullptr)
-			Candidates.Add(T);
-	}
-
-	if (Candidates.Num() == 0) return nullptr;
-	return Candidates[Stream.RandRange(0, Candidates.Num() - 1)];
+	if (N >= 0.90f) CachedPanicBand = EGvTPanicBand::Critical;
+	else if (N >= 0.70f) CachedPanicBand = EGvTPanicBand::Terrified;
+	else if (N >= 0.45f) CachedPanicBand = EGvTPanicBand::Shaken;
+	else if (N >= 0.20f) CachedPanicBand = EGvTPanicBand::Unsettled;
+	else CachedPanicBand = EGvTPanicBand::Calm;
 }
+

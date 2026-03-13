@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
+#include "Gameplay/Scare/GvTScareTypes.h"
 #include "GvTThiefCharacter.generated.h"
 
 class UCameraComponent;
@@ -33,6 +34,12 @@ public:
     UFUNCTION(BlueprintPure, Category = "GvT|Scare")
     bool IsScareStunned() const { return ScareStunCount > 0; }
 
+    UFUNCTION(Client, Reliable)
+    void Client_PlayLocalScareStun(float Duration);
+
+    UFUNCTION(Client, Reliable)
+    void Client_PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event);
+
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
 
@@ -53,6 +60,15 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestCrawlerOverheadScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestMirrorScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestCrawlerChaseScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestCrawlerOverheadScare();
 
 protected:
     virtual void BeginPlay() override;

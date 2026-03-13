@@ -90,6 +90,25 @@ void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, co
 	}
 }
 
+static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
+{
+	if (!PC || !PC->GetWorld()) return nullptr;
+
+	FVector Loc; FRotator Rot;
+	PC->GetPlayerViewPoint(Loc, Rot);
+
+	FHitResult Hit;
+	const FVector End = Loc + Rot.Vector() * MaxDistance;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(DoorDebug), false);
+	if (APawn* P = PC->GetPawn()) Params.AddIgnoredActor(P);
+
+	if (!PC->GetWorld()->LineTraceSingleByChannel(Hit, Loc, End, ECC_Visibility, Params))
+		return nullptr;
+
+	return Cast<AGvTDoorActor>(Hit.GetActor());
+}
+
 void AGvTPlayerController::DoorLock(float MaxDistance)
 {
 	if (!HasAuthority()) return;
@@ -124,25 +143,6 @@ void AGvTPlayerController::DoorForceUnlock(float MaxDistance)
 	{
 		Door->TryUnlock(GetPawn(), EDoorUnlockMethod::Force, true);
 	}
-}
-
-static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
-{
-	if (!PC || !PC->GetWorld()) return nullptr;
-
-	FVector Loc; FRotator Rot;
-	PC->GetPlayerViewPoint(Loc, Rot);
-
-	FHitResult Hit;
-	const FVector End = Loc + Rot.Vector() * MaxDistance;
-
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(DoorDebug), false);
-	if (APawn* P = PC->GetPawn()) Params.AddIgnoredActor(P);
-
-	if (!PC->GetWorld()->LineTraceSingleByChannel(Hit, Loc, End, ECC_Visibility, Params))
-		return nullptr;
-
-	return Cast<AGvTDoorActor>(Hit.GetActor());
 }
 
 void AGvTPlayerController::UpdateHighlight()

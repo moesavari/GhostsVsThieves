@@ -44,15 +44,11 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
 	void RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
 
-
-
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestCrawlerChaseFromEvent(AActor* Victim);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestCrawlerOverheadFromEvent(const FGvTScareEvent& Event);
-
-
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
 	void Test_MirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
@@ -66,8 +62,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
 	void Debug_RequestLocalHouseLightFlicker(float Intensity01 = 1.f, float Duration = 2.f);
 
-
-
 	UFUNCTION(BlueprintCallable, Category = "Panic")
 	void AddPanic(float Amount);
 
@@ -80,7 +74,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Panic")
 	EGvTPanicBand GetPanicBand() const;
 
-
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
+	void PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event);
 
 	void Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01);
 
@@ -91,12 +86,11 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void Server_RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
 
-
+	UFUNCTION(Server, Reliable)
+	void Server_RequestMirrorActorScare(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Scare")
 	void BP_PlayScare(const FGvTScareEvent& Event);
-
-
 
 	UFUNCTION(Client, Reliable)
 	void Client_PlayScare(const FGvTScareEvent& Event);
@@ -110,14 +104,11 @@ protected:
 	UFUNCTION(Client, Reliable)
 	void Client_StartCrawlerOverheadScare(const FGvTScareEvent& Event);
 
-
-
 	UFUNCTION()
 	void OnRep_ScareState();
 
 	UFUNCTION()
 	void OnRep_Panic();
-
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
 	float CrawlerSpawnForward = 800.f;
@@ -137,8 +128,6 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
 	TSubclassOf<AGvTCrawlerGhostCharacter> CrawlerGhostClass;
 
-
-
 	UFUNCTION(BlueprintPure, Category = "Panic")
 	bool IsCriticalPanic() const { return Panic >= CriticalThreshold; }
 
@@ -154,11 +143,8 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Panic")
 	EGvTPanicBand CachedPanicBand = EGvTPanicBand::Calm;
 
-
 	UPROPERTY(Transient)
 	TObjectPtr<AGvTCrawlerGhostCharacter> ActiveCrawlerGhost;
-
-
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	bool bEnableReflectScare = true;
@@ -177,7 +163,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	float ReflectLifeSeconds = 0.6f;
-
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<class AGvTMirrorActor> LastTriggeredMirror;
@@ -214,18 +199,12 @@ private:
 	void PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const;
 	FGvTLightFlickerEvent MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const;
 
-
-
 	void UpdatePanicBand();
 	bool IsServer() const;
 	float GetNowServerSeconds() const;
 
-
-
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare")
 	FGvTScareState GetScareState() const { return ScareState; }
-
-
 
 	uint8 GetPanicTier(float& OutPanic01) const;
 	float ComputePressure01(float PlayerPanic01, float AvgPanic01, float TimeSinceLastScare01) const;
@@ -237,7 +216,6 @@ private:
 	float ComputeAveragePanic01() const;
 	float ComputeTimeSinceLastScare01(float Now) const;
 	AGvTThiefCharacter* ChooseTargetThief(FRandomStream& Stream) const;
-
 
 	void Server_SchedulerTick();
 	void Client_ReflectTick();

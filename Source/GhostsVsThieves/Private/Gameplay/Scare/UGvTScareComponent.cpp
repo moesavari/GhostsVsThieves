@@ -114,20 +114,41 @@ void UGvTScareComponent::RequestCrawlerOverheadFromEvent(const FGvTScareEvent& E
 	AActor* Victim = Event.TargetActor;
 	if (!Victim)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead scare failed: No victim."));
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead failed: No victim."));
+		return;
+	}
+
+	if (GetOwner() != Victim)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead aborted: component owner %s does not match victim %s"),
+			*GetNameSafe(GetOwner()),
+			*GetNameSafe(Victim));
 		return;
 	}
 
 	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Victim);
 	if (!Thief)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead scare failed: victim is not a thief."));
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead failed: victim is not a thief."));
 		return;
 	}
 
-	Client_StartCrawlerOverheadScare(Event);
+	if (!IsServer())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead ignored: RequestCrawlerOverheadFromEvent must run on server."));
+		return;
+	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead routed to victim-only local crawler scare for %s"), *GetNameSafe(Victim));
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead routing via victim actor RPC. ComponentOwner=%s Victim=%s"),
+		*GetNameSafe(GetOwner()),
+		*GetNameSafe(Victim));
+
+	// Authoritative gameplay stun.
+	Thief->ApplyScareStun(0.6f);
+
+	// Victim-only local presentation on the owning client.
+	Thief->Client_PlayLocalScareStun(0.6f);
+	Thief->Client_PlayLocalCrawlerOverheadScare(Event);
 }
 
 void UGvTScareComponent::RequestCrawlerChaseScare(AActor* Victim)
@@ -184,7 +205,48 @@ EGvTPanicBand UGvTScareComponent::GetPanicBand() const
 	return CachedPanicBand;
 }
 
+void UGvTScareComponent::PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event)
+{
+	APawn* VictimPawn = Cast<APawn>(GetOwner());
+	APawn* EventVictimPawn = Cast<APawn>(Event.TargetActor);
 
+	if (!VictimPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare failed: component owner is not a pawn."));
+		return;
+	}
+
+	if (VictimPawn != EventVictimPawn)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: owner %s != event victim %s"),
+			*GetNameSafe(VictimPawn),
+			*GetNameSafe(EventVictimPawn));
+		return;
+	}
+
+	if (!VictimPawn->IsLocallyControlled())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] PlayLocalCrawlerOverheadScare ignored: owner is not locally controlled (%s)"),
+			*GetNameSafe(VictimPawn));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Scare] PlayLocalCrawlerOverheadScare begin Owner=%s NetMode=%d LocalRole=%d RemoteRole=%d LocallyControlled=%d VictimLoc=%s"),
+		*GetNameSafe(VictimPawn),
+		(int32)VictimPawn->GetNetMode(),
+		(int32)VictimPawn->GetLocalRole(),
+		(int32)VictimPawn->GetRemoteRole(),
+		VictimPawn->IsLocallyControlled() ? 1 : 0,
+		*VictimPawn->GetActorLocation().ToCompactString());
+
+	SpawnLocalCrawlerOverheadGhost(VictimPawn);
+
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare local victim = %s"),
+		*GetNameSafe(VictimPawn));
+}
 
 void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
 {
@@ -231,8 +293,16 @@ void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
 		return;
 	}
 
-	// Mirror handles server-authoritative trigger internally (RPC + multicast).
-	Mirror->TriggerScare(Intensity01, LifeSeconds);
+	UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Triggering mirror %s"), *Mirror->GetName());
+
+	if (IsServer())
+	{
+		Mirror->TriggerScare(Intensity01, LifeSeconds);
+	}
+	else
+	{
+		Server_RequestMirrorActorScare(Mirror, Intensity01, LifeSeconds);
+	}
 }
 
 void UGvTScareComponent::Debug_RequestCrawlerChase(APawn* Victim)
@@ -318,27 +388,7 @@ void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& E
 
 void UGvTScareComponent::Client_StartCrawlerOverheadScare_Implementation(const FGvTScareEvent& Event)
 {
-	APawn* VictimPawn = Cast<APawn>(GetOwner());
-	if (!VictimPawn)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare failed: component owner is not a pawn."));
-		return;
-	}
-
-	if (!VictimPawn->IsLocallyControlled())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare ignored: owner is not locally controlled (%s)"), *GetNameSafe(VictimPawn));
-		return;
-	}
-
-	if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(VictimPawn))
-	{
-		Thief->ApplyScareStun(0.6f);
-	}
-
-	SpawnLocalCrawlerOverheadGhost(VictimPawn);
-
-	UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare local victim = %s"), *GetNameSafe(VictimPawn));
+	UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_StartCrawlerOverheadScare is deprecated. Use victim actor RPC path instead."));
 }
 
 void UGvTScareComponent::Client_PlayLightFlicker_Implementation(const FGvTLightFlickerEvent& Event)
@@ -411,6 +461,19 @@ void UGvTScareComponent::Server_RequestCrawlerOverheadScare_Implementation(AActo
 	}
 }
 
+void UGvTScareComponent::Server_RequestMirrorActorScare_Implementation(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds)
+{
+	if (!Mirror)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Server_RequestMirrorActorScare failed: Mirror is null."));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Server triggering mirror %s"), *Mirror->GetName());
+
+	Mirror->TriggerScare(Intensity01, LifeSeconds);
+}
+
 void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01)
 {
 	if (!IsServer() || !GetOwner()) return;
@@ -441,8 +504,6 @@ void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, f
 	}
 }
 
-
-
 void UGvTScareComponent::SpawnLocalCrawlerOverheadGhost(APawn* Victim)
 {
 	if (!Victim || !CrawlerGhostClass || !GetWorld())
@@ -467,6 +528,15 @@ void UGvTScareComponent::SpawnLocalCrawlerOverheadGhost(APawn* Victim)
 
 	AGvTCrawlerGhostCharacter* LocalGhost =
 		GetWorld()->SpawnActor<AGvTCrawlerGhostCharacter>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Scare] OverheadSpawn Victim=%s VictimLoc=%s Ghost=%s GhostLoc=%s Hidden=%d Collision=%d"),
+		*GetNameSafe(Victim),
+		*Victim->GetActorLocation().ToCompactString(),
+		*GetNameSafe(LocalGhost),
+		*LocalGhost->GetActorLocation().ToCompactString(),
+		LocalGhost->IsHidden() ? 1 : 0,
+		LocalGhost->GetActorEnableCollision() ? 1 : 0);
 
 	if (!LocalGhost)
 	{

@@ -9,6 +9,18 @@
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
 
+static const TCHAR* GvTNetModeToString(ENetMode NetMode)
+{
+	switch (NetMode)
+	{
+	case NM_Standalone:      return TEXT("Standalone");
+	case NM_DedicatedServer: return TEXT("DedicatedServer");
+	case NM_ListenServer:    return TEXT("ListenServer");
+	case NM_Client:          return TEXT("Client");
+	default:                 return TEXT("Unknown");
+	}
+}
+
 void UGvTDirectorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
@@ -31,8 +43,15 @@ void UGvTDirectorSubsystem::Deinitialize()
 
 void UGvTDirectorSubsystem::StartDirector()
 {
-	if (!GetWorld())
+	UWorld* World = GetWorld();
+	if (!World)
 	{
+		return;
+	}
+
+	if (World->GetNetMode() == NM_Client)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[Director] Skipping auto-haunt loop on client world."));
 		return;
 	}
 
@@ -41,7 +60,7 @@ void UGvTDirectorSubsystem::StartDirector()
 		return;
 	}
 
-	GetWorld()->GetTimerManager().SetTimer(
+	World->GetTimerManager().SetTimer(
 		TimerHandle_DirectorTick,
 		this,
 		&UGvTDirectorSubsystem::TickDirector,
@@ -77,6 +96,12 @@ void UGvTDirectorSubsystem::TickDirector()
 
 	UWorld* World = GetWorld();
 	if (!World)
+	{
+		return;
+	}
+
+	// Server / listen-server authority only.
+	if (World->GetNetMode() == NM_Client)
 	{
 		return;
 	}
@@ -219,7 +244,13 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch CrawlerOverhead to %s"), *GetNameSafe(Target));
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Director] Dispatch CrawlerOverhead to %s NetMode=%s LocalRole=%d RemoteRole=%d"),
+			*GetNameSafe(Target),
+			GvTNetModeToString(Target->GetNetMode()),
+			(int32)Target->GetLocalRole(),
+			(int32)Target->GetRemoteRole());
+
 		ScareComp->RequestCrawlerOverheadFromEvent(Event);
 		return true;
 	}

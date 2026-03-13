@@ -27,7 +27,11 @@ public:
 	UFUNCTION(BlueprintCallable, Server, Reliable)
 	void Server_DragStep();
 
+	UFUNCTION(BlueprintPure, Category = "Crawler")
+	EGvTCrawlerGhostState GetState() const { return State; }
 
+	UFUNCTION(BlueprintPure, Category = "Crawler|Anim")
+	float GetReplicatedSpeed() const { return ReplicatedSpeed; }
 
 	void StartLocalOverheadScare(APawn* Victim);
 
@@ -50,13 +54,6 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Category="GvT|Crawler|Chase")
 	APawn* GetTargetVictim() const { return TargetVictim; }
-
-	UFUNCTION(BlueprintPure, Category = "Crawler")
-	EGvTCrawlerGhostState GetState() const { return State; }
-
-	UFUNCTION(BlueprintPure, Category = "Crawler|Anim")
-	float GetReplicatedSpeed() const { return ReplicatedSpeed; }
-
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Crawler|Chase")
 	TObjectPtr<APawn> TargetVictim;

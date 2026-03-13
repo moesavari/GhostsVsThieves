@@ -17,6 +17,7 @@
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Engine/GameInstance.h"
 #include "TimerManager.h"
+#include "Gameplay/Scare/UGvTScareComponent.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -134,7 +135,7 @@ void AGvTThiefCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
 {
-    if (bInteractionLockMove) { return; }
+    if (bInteractionLockMove || IsScareStunned()) { return; }
 
     if (!Controller) return;
 
@@ -151,7 +152,7 @@ void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)
 
 void AGvTThiefCharacter::OnLook(const FInputActionValue& Value)
 {
-    if (bInteractionLockLook) { return; }
+    if (bInteractionLockLook || IsScareStunned()) { return; }
 
     const FVector2D Look = Value.Get<FVector2D>();
     AddControllerYawInput(Look.X);
@@ -274,6 +275,46 @@ void AGvTThiefCharacter::SetInteractionLock(bool bLockMove, bool bLockLook)
     }
 }
 
+void AGvTThiefCharacter::Client_PlayLocalScareStun_Implementation(float Duration)
+{
+    if (!IsLocallyControlled())
+    {
+        return;
+    }
+
+    if (GetNetMode() != NM_Client)
+    {
+        return;
+    }
+
+    if (GetLocalRole() != ROLE_AutonomousProxy)
+    {
+        return;
+    }
+
+    ApplyScareStun(Duration);
+}
+
+void AGvTThiefCharacter::Client_PlayLocalCrawlerOverheadScare_Implementation(const FGvTScareEvent& Event)
+{
+    if (!IsLocallyControlled())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare ignored: %s is not locally controlled"), *GetName());
+        return;
+    }
+
+    UGvTScareComponent* ScareComp = FindComponentByClass<UGvTScareComponent>();
+    if (!ScareComp)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare failed: %s has no scare component"), *GetName());
+        return;
+    }
+
+    ScareComp->PlayLocalCrawlerOverheadScare(Event);
+
+    UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare executed on %s"), *GetName());
+}
+
 void AGvTThiefCharacter::ApplyScareStun(float Duration)
 {
     if (Duration <= 0.f)
@@ -350,6 +391,39 @@ void AGvTThiefCharacter::OnRep_IsDead()
 
 void AGvTThiefCharacter::Debug_RequestMirrorScare()
 {
+    if (HasAuthority())
+    {
+        Server_DebugRequestMirrorScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestMirrorScare();
+}
+
+void AGvTThiefCharacter::Debug_RequestCrawlerChaseScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestCrawlerChaseScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestCrawlerChaseScare();
+}
+
+void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestCrawlerOverheadScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestCrawlerOverheadScare();
+}
+
+void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
+{
     if (UGameInstance* GI = GetGameInstance())
     {
         if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
@@ -363,12 +437,13 @@ void AGvTThiefCharacter::Debug_RequestMirrorScare()
             Event.bAffectsPanic = true;
             Event.PanicAmount = 12.f;
 
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server mirror scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }
 }
 
-void AGvTThiefCharacter::Debug_RequestCrawlerChaseScare()
+void AGvTThiefCharacter::Server_DebugRequestCrawlerChaseScare_Implementation()
 {
     if (UGameInstance* GI = GetGameInstance())
     {
@@ -383,12 +458,13 @@ void AGvTThiefCharacter::Debug_RequestCrawlerChaseScare()
             Event.bAffectsPanic = true;
             Event.PanicAmount = 18.f;
 
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server crawler chase scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }
 }
 
-void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
+void AGvTThiefCharacter::Server_DebugRequestCrawlerOverheadScare_Implementation()
 {
     if (UGameInstance* GI = GetGameInstance())
     {
@@ -404,6 +480,7 @@ void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
             Event.bAffectsPanic = true;
             Event.PanicAmount = 10.f;
 
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server crawler overhead scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }

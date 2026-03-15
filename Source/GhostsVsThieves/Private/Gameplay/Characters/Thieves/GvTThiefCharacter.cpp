@@ -317,43 +317,87 @@ void AGvTThiefCharacter::Client_PlayLocalCrawlerOverheadScare_Implementation(con
 
 void AGvTThiefCharacter::ApplyScareStun(float Duration)
 {
-    if (Duration <= 0.f)
+    UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+    if (!MoveComp)
     {
         return;
     }
 
     ScareStunCount++;
 
-    if (UCharacterMovementComponent* Move = GetCharacterMovement())
-    {
-        Move->StopMovementImmediately();
-        Move->DisableMovement();
-    }
+    bInteractionLockMove = true;
+    bInteractionLockLook = true;
 
-    GetWorldTimerManager().ClearTimer(TimerHandle_ClearScareStun);
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Scare] ApplyScareStun %.2fs on %s Count=%d ModeBefore=%d"),
+        Duration,
+        *GetName(),
+        ScareStunCount,
+        (int32)MoveComp->MovementMode);
+
+    MoveComp->StopMovementImmediately();
+    MoveComp->DisableMovement();
+
+    const int32 ScheduledCount = ScareStunCount;
+
+    FTimerDelegate ClearDelegate;
+    ClearDelegate.BindLambda([this, ScheduledCount]()
+        {
+            ClearScareStun(ScheduledCount);
+        });
+
     GetWorldTimerManager().SetTimer(
         TimerHandle_ClearScareStun,
-        this,
-        &AGvTThiefCharacter::ClearScareStun,
-        Duration,
-        false
-    );
-
-    UE_LOG(LogTemp, Warning, TEXT("[Scare] ApplyScareStun %.2fs on %s"), Duration, *GetName());
+        ClearDelegate,
+        FMath::Max(0.01f, Duration),
+        false);
 }
 
 void AGvTThiefCharacter::ClearScareStun()
 {
+    ClearScareStun(ScareStunCount);
+}
+
+void AGvTThiefCharacter::ClearScareStun(int32 ClearCountAtScheduleTime)
+{
+    if (ScareStunCount <= 0)
+    {
+        return;
+    }
+
+    if (ClearCountAtScheduleTime != ScareStunCount)
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[Scare] ClearScareStun ignored on %s ScheduledCount=%d CurrentCount=%d"),
+            *GetName(),
+            ClearCountAtScheduleTime,
+            ScareStunCount);
+        return;
+    }
+
     ScareStunCount = FMath::Max(0, ScareStunCount - 1);
 
     if (ScareStunCount == 0)
     {
         if (UCharacterMovementComponent* Move = GetCharacterMovement())
         {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Scare] ClearScareStun restoring movement on %s ModeBefore=%d"),
+                *GetName(),
+                (int32)Move->MovementMode);
+
             Move->SetMovementMode(MOVE_Walking);
+
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Scare] ClearScareStun restored movement on %s ModeAfter=%d"),
+                *GetName(),
+                (int32)Move->MovementMode);
         }
 
-        UE_LOG(LogTemp, Warning, TEXT("[Scare] ClearScareStun on %s"), *GetName());
+        bInteractionLockMove = false;
+        bInteractionLockLook = false;
+
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] ClearScareStun complete on %s"), *GetName());
     }
 }
 
@@ -428,16 +472,9 @@ void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
     {
         if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
         {
-            FGvTScareEvent Event;
-            Event.ScareTag = GvTScareTags::Mirror();
-            Event.TargetActor = this;
-            Event.Intensity01 = 1.f;
-            Event.Duration = 1.5f;
-            Event.bTriggerLocalFlicker = true;
-            Event.bAffectsPanic = true;
-            Event.PanicAmount = 12.f;
+            const FGvTScareEvent Event = Director->MakeMirrorEvent(this);
 
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server mirror scare requested for %s"), *GetName());
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server Mirror scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }
@@ -449,16 +486,9 @@ void AGvTThiefCharacter::Server_DebugRequestCrawlerChaseScare_Implementation()
     {
         if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
         {
-            FGvTScareEvent Event;
-            Event.ScareTag = GvTScareTags::CrawlerChase();
-            Event.TargetActor = this;
-            Event.Intensity01 = 1.f;
-            Event.Duration = 12.f;
-            Event.bTriggerGroupFlicker = true;
-            Event.bAffectsPanic = true;
-            Event.PanicAmount = 18.f;
+            const FGvTScareEvent Event = Director->MakeCrawlerChaseEvent(this);
 
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server crawler chase scare requested for %s"), *GetName());
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerChase scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }
@@ -470,17 +500,9 @@ void AGvTThiefCharacter::Server_DebugRequestCrawlerOverheadScare_Implementation(
     {
         if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
         {
-            FGvTScareEvent Event;
-            Event.ScareTag = GvTScareTags::CrawlerOverhead();
-            Event.TargetActor = this;
-            Event.Intensity01 = 1.f;
-            Event.Duration = 1.0f;
-            Event.bTriggerLocalFlicker = false;
-            Event.bTriggerGroupFlicker = false;
-            Event.bAffectsPanic = true;
-            Event.PanicAmount = 10.f;
+            const FGvTScareEvent Event = Director->MakeCrawlerOverheadEvent(this);
 
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server crawler overhead scare requested for %s"), *GetName());
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerOverhead scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }

@@ -136,21 +136,23 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 	FGvTScareEvent Event;
 	Event.TargetActor = Target;
 	Event.Intensity01 = 1.0f;
-	Event.Duration = 1.5f;
 	Event.bAffectsPanic = true;
 
 	if (Roll < 0.50f)
 	{
 		Event.ScareTag = GvTScareTags::Mirror();
-		Event.bTriggerLocalFlicker = true;
-		Event.PanicAmount = 12.f;
+		Event.Duration = MirrorDuration;
+		Event.bTriggerLocalFlicker = bMirrorTriggersLocalFlicker;
+		Event.bTriggerGroupFlicker = false;
+		Event.PanicAmount = MirrorPanicAmount;
 	}
 	else
 	{
 		Event.ScareTag = GvTScareTags::CrawlerOverhead();
-		Event.bTriggerLocalFlicker = false;
+		Event.Duration = CrawlerOverheadDuration;
+		Event.bTriggerLocalFlicker = bCrawlerOverheadTriggersLocalFlicker;
 		Event.bTriggerGroupFlicker = false;
-		Event.PanicAmount = 10.f;
+		Event.PanicAmount = CrawlerOverheadPanicAmount;
 	}
 
 	const bool bDispatched = DispatchScareEvent(Event);
@@ -192,7 +194,10 @@ AActor* UGvTDirectorSubsystem::ChooseBestTarget() const
 		// Only target living/active player pawns that actually have a scare component.
 		if (UGvTScareComponent* ScareComp = Pawn->FindComponentByClass<UGvTScareComponent>())
 		{
-			ValidTargets.Add(Pawn);
+			if (!ScareComp->IsScareBusy())
+			{
+				ValidTargets.Add(Pawn);
+			}
 		}
 	}
 
@@ -287,4 +292,46 @@ bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event,
 	}
 
 	return false;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeMirrorEvent(AActor* Target) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::Mirror();
+	Event.TargetActor = Target;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = MirrorDuration;
+	Event.bTriggerLocalFlicker = bMirrorTriggersLocalFlicker;
+	Event.bTriggerGroupFlicker = false;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = MirrorPanicAmount;
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeCrawlerOverheadEvent(AActor* Target) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::CrawlerOverhead();
+	Event.TargetActor = Target;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = CrawlerOverheadDuration;
+	Event.bTriggerLocalFlicker = bCrawlerOverheadTriggersLocalFlicker;
+	Event.bTriggerGroupFlicker = false;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = CrawlerOverheadPanicAmount;
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeCrawlerChaseEvent(AActor* Target) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::CrawlerChase();
+	Event.TargetActor = Target;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = CrawlerChaseDuration;
+	Event.bTriggerLocalFlicker = false;
+	Event.bTriggerGroupFlicker = bCrawlerChaseTriggersGroupFlicker;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = CrawlerChasePanicAmount;
+	return Event;
 }

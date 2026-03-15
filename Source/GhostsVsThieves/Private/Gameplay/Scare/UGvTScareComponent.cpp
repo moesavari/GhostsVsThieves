@@ -67,6 +67,10 @@ void UGvTScareComponent::BeginPlay()
 			true
 		);
 	}
+
+	LifecycleState = EGvTScareLifecycleState::Idle;
+	LocalScareActiveEndTime = 0.f;
+	LocalScareRecoveryEndTime = 0.f;
 }
 
 void UGvTScareComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -74,6 +78,12 @@ void UGvTScareComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(UGvTScareComponent, ScareState);
 	DOREPLIFETIME(UGvTScareComponent, Panic);
+}
+
+void UGvTScareComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	ClearLifecycleTimers();
+	Super::EndPlay(EndPlayReason);
 }
 
 void UGvTScareComponent::OnRep_Panic()
@@ -90,10 +100,125 @@ void UGvTScareComponent::OnRep_ScareState()
 	// Optional: client debug / UI
 }
 
+bool UGvTScareComponent::IsScareActive() const
+{
+	return LifecycleState == EGvTScareLifecycleState::Active;
+}
 
+bool UGvTScareComponent::IsScareRecovering() const
+{
+	return LifecycleState == EGvTScareLifecycleState::Recovering;
+}
+
+bool UGvTScareComponent::IsScareBusy() const
+{
+	return LifecycleState != EGvTScareLifecycleState::Idle;
+}
+
+bool UGvTScareComponent::CanStartNewScare() const
+{
+	return LifecycleState == EGvTScareLifecycleState::Idle;
+}
+
+void UGvTScareComponent::ClearLifecycleTimers()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TimerHandle_ScareActiveFinish);
+		World->GetTimerManager().ClearTimer(TimerHandle_ScareRecoveryFinish);
+	}
+}
+
+void UGvTScareComponent::BeginLocalScareLifecycle(float ActiveDuration, float RecoveryDuration)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	ClearLifecycleTimers();
+
+	const float Now = World->GetTimeSeconds();
+	LifecycleState = EGvTScareLifecycleState::Active;
+	LocalScareActiveEndTime = Now + FMath::Max(0.01f, ActiveDuration);
+	LocalScareRecoveryEndTime = LocalScareActiveEndTime + FMath::Max(0.01f, RecoveryDuration);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ScareLifecycle] Begin Active Owner=%s ActiveDur=%.2f RecoveryDur=%.2f"),
+		*GetNameSafe(GetOwner()),
+		ActiveDuration,
+		RecoveryDuration);
+
+	World->GetTimerManager().SetTimer(
+		TimerHandle_ScareActiveFinish,
+		this,
+		&UGvTScareComponent::HandleLifecycleActiveFinished,
+		FMath::Max(0.01f, ActiveDuration),
+		false);
+}
+
+void UGvTScareComponent::HandleLifecycleActiveFinished()
+{
+	EnterRecoveryState();
+}
+
+void UGvTScareComponent::EnterRecoveryState()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	if (LifecycleState != EGvTScareLifecycleState::Active)
+	{
+		return;
+	}
+
+	LifecycleState = EGvTScareLifecycleState::Recovering;
+
+	const float RemainingRecovery = FMath::Max(0.01f, LocalScareRecoveryEndTime - World->GetTimeSeconds());
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ScareLifecycle] Enter Recovery Owner=%s Remaining=%.2f"),
+		*GetNameSafe(GetOwner()),
+		RemainingRecovery);
+
+	World->GetTimerManager().SetTimer(
+		TimerHandle_ScareRecoveryFinish,
+		this,
+		&UGvTScareComponent::HandleLifecycleRecoveryFinished,
+		RemainingRecovery,
+		false);
+}
+
+void UGvTScareComponent::HandleLifecycleRecoveryFinished()
+{
+	EndScareLifecycle();
+}
+
+void UGvTScareComponent::EndScareLifecycle()
+{
+	ClearLifecycleTimers();
+
+	LifecycleState = EGvTScareLifecycleState::Idle;
+	LocalScareActiveEndTime = 0.f;
+	LocalScareRecoveryEndTime = 0.f;
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ScareLifecycle] End Idle Owner=%s"),
+		*GetNameSafe(GetOwner()));
+}
 
 void UGvTScareComponent::RequestMirrorScare(float Intensity01, float LifeSeconds)
 {
+	if (!CanStartNewScare())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Mirror request ignored: owner %s is busy"), *GetNameSafe(GetOwner()));
+		return;
+	}
+
 	if (IsServer())
 	{
 		Client_PlayMirrorScare(Intensity01, LifeSeconds);
@@ -106,6 +231,17 @@ void UGvTScareComponent::RequestMirrorScare(float Intensity01, float LifeSeconds
 
 void UGvTScareComponent::RequestCrawlerChaseFromEvent(AActor* Victim)
 {
+	if (!Victim)
+	{
+		return;
+	}
+
+	if (Victim == GetOwner() && !CanStartNewScare())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Chase ignored: Owner=%s already busy"), *GetNameSafe(GetOwner()));
+		return;
+	}
+
 	RequestCrawlerChaseScare(Victim);
 }
 
@@ -133,6 +269,25 @@ void UGvTScareComponent::RequestCrawlerOverheadFromEvent(const FGvTScareEvent& E
 		return;
 	}
 
+	UGvTScareComponent* VictimScare = Thief->FindComponentByClass<UGvTScareComponent>();
+
+	if (VictimScare && VictimScare->IsScareBusy())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] CrawlerOverhead skipped: victim %s is busy"), *GetNameSafe(Victim));
+		return;
+	}
+	if (VictimScare && VictimScare->IsScareBusy())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] CrawlerOverhead skipped: victim %s is busy"), *GetNameSafe(Victim));
+		return;
+	}
+
+	if (!Thief)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead failed: victim is not a thief."));
+		return;
+	}
+
 	if (!IsServer())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead ignored: RequestCrawlerOverheadFromEvent must run on server."));
@@ -147,7 +302,6 @@ void UGvTScareComponent::RequestCrawlerOverheadFromEvent(const FGvTScareEvent& E
 	Thief->ApplyScareStun(0.6f);
 
 	// Victim-only local presentation on the owning client.
-	Thief->Client_PlayLocalScareStun(0.6f);
 	Thief->Client_PlayLocalCrawlerOverheadScare(Event);
 }
 
@@ -218,8 +372,7 @@ void UGvTScareComponent::PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Eve
 
 	if (VictimPawn != EventVictimPawn)
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: owner %s != event victim %s"),
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: owner %s != event victim %s"),
 			*GetNameSafe(VictimPawn),
 			*GetNameSafe(EventVictimPawn));
 		return;
@@ -227,20 +380,20 @@ void UGvTScareComponent::PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Eve
 
 	if (!VictimPawn->IsLocallyControlled())
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("[Scare] PlayLocalCrawlerOverheadScare ignored: owner is not locally controlled (%s)"),
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare ignored: owner is not locally controlled (%s)"),
 			*GetNameSafe(VictimPawn));
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning,
-		TEXT("[Scare] PlayLocalCrawlerOverheadScare begin Owner=%s NetMode=%d LocalRole=%d RemoteRole=%d LocallyControlled=%d VictimLoc=%s"),
-		*GetNameSafe(VictimPawn),
-		(int32)VictimPawn->GetNetMode(),
-		(int32)VictimPawn->GetLocalRole(),
-		(int32)VictimPawn->GetRemoteRole(),
-		VictimPawn->IsLocallyControlled() ? 1 : 0,
-		*VictimPawn->GetActorLocation().ToCompactString());
+	if (!CanStartNewScare())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Overhead ignored: Owner=%s already busy"),
+			*GetNameSafe(VictimPawn));
+		return;
+	}
+
+	const float ActiveDuration = Event.Duration > 0.f ? Event.Duration : 0.6f;
+	BeginLocalScareLifecycle(ActiveDuration, OverheadRecoveryDuration);
 
 	SpawnLocalCrawlerOverheadGhost(VictimPawn);
 
@@ -354,10 +507,15 @@ void UGvTScareComponent::Debug_RequestLocalHouseLightFlicker(float Intensity01, 
 	PlayLocalLightFlicker(Event);
 }
 
-
-
 void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01, float LifeSeconds)
 {
+	if (!CanStartNewScare())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Mirror ignored: Owner=%s already busy"), *GetNameSafe(GetOwner()));
+		return;
+	}
+
+	BeginLocalScareLifecycle(LifeSeconds, MirrorRecoveryDuration);
 	Test_MirrorScare(Intensity01, LifeSeconds);
 }
 
@@ -425,6 +583,11 @@ void UGvTScareComponent::Server_RequestCrawlerChaseScare_Implementation(AActor* 
 
 		if (APawn* VictimPawn = Cast<APawn>(Victim))
 		{
+			if (Victim == GetOwner())
+			{
+				BeginLocalScareLifecycle(CrawlerChaseActiveDuration, ChaseRecoveryDuration);
+			}
+
 			ActiveCrawlerGhost->Server_StartChase(VictimPawn);
 		}
 	}

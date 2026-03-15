@@ -156,6 +156,7 @@ protected:
 
 private:
     void ClearScareStun();
+    void ClearScareStun(int32 ClearCountAtScheduleTime);
 
     FTimerHandle TimerHandle_ClearScareStun;
 };

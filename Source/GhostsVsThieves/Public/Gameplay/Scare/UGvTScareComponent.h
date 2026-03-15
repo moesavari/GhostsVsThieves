@@ -24,6 +24,14 @@ enum class EGvTPanicBand : uint8
 	Critical
 };
 
+UENUM(BlueprintType)
+enum class EGvTScareLifecycleState : uint8
+{
+	Idle,
+	Active,
+	Recovering
+};
+
 UCLASS(ClassGroup = (GvT), BlueprintType, Blueprintable, meta = (BlueprintSpawnableComponent))
 class GHOSTSVSTHIEVES_API UGvTScareComponent : public UActorComponent
 {
@@ -34,6 +42,7 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestMirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
@@ -78,6 +87,15 @@ public:
 	void PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event);
 
 	void Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01);
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Scare|Lifecycle")
+	bool IsScareActive() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Scare|Lifecycle")
+	bool IsScareRecovering() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Scare|Lifecycle")
+	bool IsScareBusy() const;
 
 protected:
 	UFUNCTION(Server, Reliable)
@@ -194,6 +212,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Schedule")
 	FGameplayTag DefaultGhostTag;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
+	float CrawlerChaseActiveDuration = 12.0f;
+
 private:
 	void SpawnLocalCrawlerOverheadGhost(APawn* Victim);
 	void PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const;
@@ -227,4 +248,38 @@ private:
 
 	TMap<FGameplayTag, float> LastTagTimeSeconds;
 	bool bPendingSafetySpike = false;
+
+	void BeginLocalScareLifecycle(float ActiveDuration, float RecoveryDuration);
+	void EnterRecoveryState();
+	void EndScareLifecycle();
+
+	void HandleLifecycleActiveFinished();
+	void HandleLifecycleRecoveryFinished();
+
+	bool CanStartNewScare() const;
+	void ClearLifecycleTimers();
+
+	UPROPERTY(VisibleInstanceOnly, Category = "GvT|Scare|Lifecycle")
+	EGvTScareLifecycleState LifecycleState = EGvTScareLifecycleState::Idle;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
+	float DefaultRecoveryDuration = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
+	float MirrorRecoveryDuration = 0.75f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
+	float OverheadRecoveryDuration = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
+	float ChaseRecoveryDuration = 2.0f;
+
+	UPROPERTY(VisibleInstanceOnly, Category = "GvT|Scare|Lifecycle")
+	float LocalScareActiveEndTime = 0.f;
+
+	UPROPERTY(VisibleInstanceOnly, Category = "GvT|Scare|Lifecycle")
+	float LocalScareRecoveryEndTime = 0.f;
+
+	FTimerHandle TimerHandle_ScareActiveFinish;
+	FTimerHandle TimerHandle_ScareRecoveryFinish;
 };

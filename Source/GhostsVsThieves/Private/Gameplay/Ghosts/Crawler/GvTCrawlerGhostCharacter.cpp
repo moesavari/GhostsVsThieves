@@ -1,5 +1,7 @@
 #include "Gameplay/Ghosts/Crawler/GvTCrawlerGhostCharacter.h"
-
+#include "Components/AudioComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 #include "AIController.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -8,6 +10,22 @@
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "DrawDebugHelpers.h"
 #include "Net/UnrealNetwork.h"
+#include "Systems/Audio/GvTAmbientAudioDirector.h"
+#include "Gameplay/Scare/GvTScareTags.h"
+
+namespace
+{
+	static AGvTAmbientAudioDirector* FindAmbientAudioDirector(const UObject* WorldContextObject)
+	{
+		if (!WorldContextObject)
+		{
+			return nullptr;
+		}
+
+		return Cast<AGvTAmbientAudioDirector>(
+			UGameplayStatics::GetActorOfClass(WorldContextObject, AGvTAmbientAudioDirector::StaticClass()));
+	}
+}
 
 AGvTCrawlerGhostCharacter::AGvTCrawlerGhostCharacter()
 {
@@ -118,6 +136,9 @@ void AGvTCrawlerGhostCharacter::Server_StartChase_Implementation(APawn* Victim)
 		SnapToGround();
 	}
 
+	PlayScareAudioStart(ChaseAudio, true);
+	StartScareAudioSustain(ChaseAudio, true);
+
 	RepathTimer = 0.f;
 
 	if (bUseDragStepMovement)
@@ -186,6 +207,13 @@ void AGvTCrawlerGhostCharacter::StopAndDie()
 	if (AAIController* AIC = Cast<AAIController>(GetController()))
 	{
 		AIC->StopMovement();
+	}
+
+	StopCurrentScareAudio(true, &ChaseAudio, true);
+
+	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+	{
+		AmbientDirector->HandleScareEnded(GvTScareTags::CrawlerChase(), GetActorLocation(), 1.0f);
 	}
 
 	Destroy();
@@ -414,6 +442,9 @@ void AGvTCrawlerGhostCharacter::StartOverhead_Internal(APawn* Victim)
 
 	OverheadStartTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
 	bOverheadActive = true;
+	PlayScareAudioStart(OverheadAudio, true);
+	StartScareAudioSustain(OverheadAudio, true);
+
 	SetState(EGvTCrawlerGhostState::IdleCeiling);
 }
 
@@ -481,6 +512,16 @@ void AGvTCrawlerGhostCharacter::EndOverhead()
 	}
 
 	SetState(IsValid(TargetVictim) ? EGvTCrawlerGhostState::HauntChase : EGvTCrawlerGhostState::IdleCeiling);
+
+	if (HasAuthority())
+	{
+		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+		{
+			AmbientDirector->HandleScareEnded(GvTScareTags::CrawlerOverhead(), GetActorLocation(), 1.0f);
+		}
+	}
+
+	StopCurrentScareAudio(true, &OverheadAudio, true);
 }
 
 void AGvTCrawlerGhostCharacter::SnapToGround()
@@ -500,3 +541,137 @@ void AGvTCrawlerGhostCharacter::SnapToGround()
 	}
 }
 
+void AGvTCrawlerGhostCharacter::PlayScareAudioStart(const FGvTScareAudioSet& AudioSet, bool bAttachToActor)
+{
+	if (!AudioSet.StartSfx) return;
+
+	if (bAttachToActor)
+	{
+		UGameplayStatics::SpawnSoundAttached(
+			AudioSet.StartSfx,
+			GetRootComponent(),
+			NAME_None,
+			FVector::ZeroVector,
+			EAttachLocation::KeepRelativeOffset,
+			false,
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier
+		);
+	}
+	else
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			AudioSet.StartSfx,
+			GetActorLocation(),
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier
+		);
+	}
+}
+
+void AGvTCrawlerGhostCharacter::StartScareAudioSustain(const FGvTScareAudioSet& AudioSet, bool bAttachToActor)
+{
+	if (!AudioSet.SustainLoopSfx) return;
+
+	if (ActiveSustainAudio)
+	{
+		ActiveSustainAudio->Stop();
+		ActiveSustainAudio = nullptr;
+	}
+
+	if (AudioSet.bSustainIs2D)
+	{
+		ActiveSustainAudio = UGameplayStatics::SpawnSound2D(
+			this,
+			AudioSet.SustainLoopSfx,
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier
+		);
+	}
+	else if (bAttachToActor)
+	{
+		ActiveSustainAudio = UGameplayStatics::SpawnSoundAttached(
+			AudioSet.SustainLoopSfx,
+			GetRootComponent(),
+			NAME_None,
+			FVector::ZeroVector,
+			EAttachLocation::KeepRelativeOffset,
+			true,
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier
+		);
+	}
+	else
+	{
+		ActiveSustainAudio = UGameplayStatics::SpawnSoundAtLocation(
+			this,
+			AudioSet.SustainLoopSfx,
+			GetActorLocation(),
+			GetActorRotation(),
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier,
+			0.f,
+			nullptr,
+			nullptr,
+			true
+		);
+	}
+}
+
+void AGvTCrawlerGhostCharacter::StopScareAudioSustain(const FGvTScareAudioSet& AudioSet)
+{
+	if (!ActiveSustainAudio) return;
+
+	if (AudioSet.SustainFadeOutSeconds > 0.f)
+	{
+		ActiveSustainAudio->FadeOut(AudioSet.SustainFadeOutSeconds, 0.f);
+	}
+	else
+	{
+		ActiveSustainAudio->Stop();
+	}
+
+	ActiveSustainAudio = nullptr;
+}
+
+void AGvTCrawlerGhostCharacter::PlayScareAudioEnd(const FGvTScareAudioSet& AudioSet, bool bAttachToActor)
+{
+	if (!AudioSet.EndSfx) return;
+
+	if (bAttachToActor)
+	{
+		UGameplayStatics::SpawnSoundAttached(
+			AudioSet.EndSfx,
+			GetRootComponent(),
+			NAME_None,
+			FVector::ZeroVector,
+			EAttachLocation::KeepRelativeOffset,
+			false,
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier
+		);
+	}
+	else
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			AudioSet.EndSfx,
+			GetActorLocation(),
+			AudioSet.VolumeMultiplier,
+			AudioSet.PitchMultiplier
+		);
+	}
+}
+
+void AGvTCrawlerGhostCharacter::StopCurrentScareAudio(bool bPlayEnd, const FGvTScareAudioSet* AudioSet, bool bAttachToActor)
+{
+	if (!AudioSet) return;
+
+	StopScareAudioSustain(*AudioSet);
+
+	if (bPlayEnd)
+	{
+		PlayScareAudioEnd(*AudioSet, bAttachToActor);
+	}
+}

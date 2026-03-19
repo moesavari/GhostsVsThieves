@@ -14,7 +14,23 @@
 #include "Kismet/GameplayStatics.h"
 #include "Systems/Light/GvTLightFlickerSubsystem.h"
 #include "Systems/Light/GvTLightFlickerTypes.h"
+#include "Systems/Audio/GvTAmbientAudioDirector.h"
+#include "Gameplay/Scare/GvTScareTags.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+
+namespace
+{
+	static AGvTAmbientAudioDirector* FindAmbientAudioDirector(const UObject* WorldContextObject)
+	{
+		if (!WorldContextObject)
+		{
+			return nullptr;
+		}
+
+		return Cast<AGvTAmbientAudioDirector>(
+			UGameplayStatics::GetActorOfClass(WorldContextObject, AGvTAmbientAudioDirector::StaticClass()));
+	}
+}
 
 UGvTScareComponent::UGvTScareComponent()
 {
@@ -588,6 +604,11 @@ void UGvTScareComponent::Server_RequestCrawlerChaseScare_Implementation(AActor* 
 				BeginLocalScareLifecycle(CrawlerChaseActiveDuration, ChaseRecoveryDuration);
 			}
 
+			if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+			{
+				AmbientDirector->HandleScareStarted(GvTScareTags::CrawlerChase(), VictimPawn->GetActorLocation(), 1.0f);
+			}
+
 			ActiveCrawlerGhost->Server_StartChase(VictimPawn);
 		}
 	}
@@ -620,6 +641,11 @@ void UGvTScareComponent::Server_RequestCrawlerOverheadScare_Implementation(AActo
 		{
 			return;
 		}
+
+		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+		{
+			AmbientDirector->HandleScareStarted(GvTScareTags::CrawlerOverhead(), VictimPawn->GetActorLocation(), 1.0f);
+		}
 		ActiveCrawlerGhost->Server_StartOverheadScare(VictimPawn, bVictimOnly);
 	}
 }
@@ -634,6 +660,10 @@ void UGvTScareComponent::Server_RequestMirrorActorScare_Implementation(AGvTMirro
 
 	UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Server triggering mirror %s"), *Mirror->GetName());
 
+	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+	{
+		AmbientDirector->HandleScareStarted(GvTScareTags::Mirror(), Mirror->GetActorLocation(), Intensity01);
+	}
 	Mirror->TriggerScare(Intensity01, LifeSeconds);
 }
 

@@ -4,7 +4,11 @@
 #include "GameFramework/Character.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/EGvTCrawlerGhostState.h"
+#include "Systems/Noise/GvTScareAudioTypes.h"
 #include "GvTCrawlerGhostCharacter.generated.h"
+
+class UAudioComponent;
+class USoundBase;
 
 UCLASS(BlueprintType)
 class GHOSTSVSTHIEVES_API AGvTCrawlerGhostCharacter : public ACharacter
@@ -153,6 +157,21 @@ protected:
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Crawler|Anim")
 	float ReplicatedSpeed = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Crawler|Audio")
+	FGvTScareAudioSet OverheadAudio;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Crawler|Audio")
+	FGvTScareAudioSet ChaseAudio;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> ActiveSustainAudio = nullptr;
+
+	void PlayScareAudioStart(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
+	void StartScareAudioSustain(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
+	void StopScareAudioSustain(const FGvTScareAudioSet& AudioSet);
+	void PlayScareAudioEnd(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
+	void StopCurrentScareAudio(bool bPlayEnd, const FGvTScareAudioSet* AudioSet, bool bAttachToActor);
 
 private:
 	void ChaseTick(float DeltaSeconds);

@@ -1,8 +1,8 @@
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
-
 #include "Gameplay/Ghosts/Mirror/GvTReflectGhostActor.h"
 #include "Kismet/KismetRenderingLibrary.h"
-
+#include "Components/AudioComponent.h"
+#include "Sound/SoundBase.h"
 #include "Components/StaticMeshComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -11,6 +11,22 @@
 #include "Camera/PlayerCameraManager.h"
 #include "UObject/ConstructorHelpers.h"
 #include "Components/StaticMeshComponent.h"
+#include "Systems/Audio/GvTAmbientAudioDirector.h"
+#include "Gameplay/Scare/GvTScareTags.h"
+
+namespace
+{
+	static AGvTAmbientAudioDirector* FindAmbientAudioDirector(const UObject* WorldContextObject)
+	{
+		if (!WorldContextObject)
+		{
+			return nullptr;
+		}
+
+		return Cast<AGvTAmbientAudioDirector>(
+			UGameplayStatics::GetActorOfClass(WorldContextObject, AGvTAmbientAudioDirector::StaticClass()));
+	}
+}
 
 AGvTMirrorActor::AGvTMirrorActor()
 {
@@ -240,10 +256,13 @@ void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
 
 	SetScarePlaneVisible(true);
 
-	if (ScareStartSfx)
-	{
-		UGameplayStatics::PlaySoundAtLocation(this, ScareStartSfx, GetActorLocation(), ScareSfxVolume, ScareSfxPitch);
-	}
+	//if (ScareStartSfx)
+	//{
+	//	UGameplayStatics::PlaySoundAtLocation(this, ScareStartSfx, GetActorLocation(), ScareSfxVolume, ScareSfxPitch);
+	//}
+
+	PlayMirrorStartAudio();
+	StartMirrorSustainAudio();
 
 	EnsureGhost();
 
@@ -384,15 +403,15 @@ void AGvTMirrorActor::StopScareCapture()
 		GhostInstance = nullptr;
 	}
 
-	if (ScareEndSfx)
+	StopMirrorSustainAudio();
+	PlayMirrorEndAudio();
+
+	if (HasAuthority())
 	{
-		UGameplayStatics::PlaySoundAtLocation(
-			this,
-			ScareEndSfx,
-			GetActorLocation(),
-			ScareSfxVolume,
-			ScareSfxPitch
-		);
+		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+		{
+			AmbientDirector->HandleScareEnded(GvTScareTags::Mirror(), GetActorLocation(), 1.0f);
+		}
 	}
 
 	if (MirrorCapture)
@@ -494,4 +513,68 @@ void AGvTMirrorActor::AlignMirrorSurfaceToMesh()
 		*LocalPos.ToString(),
 		*MirrorSurface->GetRelativeScale3D().ToString(),
 		*MirrorSurface->GetRelativeRotation().ToString());
+}
+
+void AGvTMirrorActor::PlayMirrorStartAudio()
+{
+	if (!MirrorAudio.StartSfx) return;
+
+	UGameplayStatics::PlaySoundAtLocation(
+		this,
+		MirrorAudio.StartSfx,
+		GetActorLocation(),
+		MirrorAudio.VolumeMultiplier,
+		MirrorAudio.PitchMultiplier
+	);
+}
+
+void AGvTMirrorActor::StartMirrorSustainAudio()
+{
+	if (!MirrorAudio.SustainLoopSfx) return;
+
+	if (ActiveMirrorSustainAudio)
+	{
+		ActiveMirrorSustainAudio->Stop();
+		ActiveMirrorSustainAudio = nullptr;
+	}
+
+	ActiveMirrorSustainAudio = UGameplayStatics::SpawnSoundAttached(
+		MirrorAudio.SustainLoopSfx,
+		GetRootComponent(),
+		NAME_None,
+		FVector::ZeroVector,
+		EAttachLocation::KeepRelativeOffset,
+		true,
+		MirrorAudio.VolumeMultiplier,
+		MirrorAudio.PitchMultiplier
+	);
+}
+
+void AGvTMirrorActor::StopMirrorSustainAudio()
+{
+	if (!ActiveMirrorSustainAudio) return;
+
+	if (MirrorAudio.SustainFadeOutSeconds > 0.f)
+	{
+		ActiveMirrorSustainAudio->FadeOut(MirrorAudio.SustainFadeOutSeconds, 0.f);
+	}
+	else
+	{
+		ActiveMirrorSustainAudio->Stop();
+	}
+
+	ActiveMirrorSustainAudio = nullptr;
+}
+
+void AGvTMirrorActor::PlayMirrorEndAudio()
+{
+	if (!MirrorAudio.EndSfx) return;
+
+	UGameplayStatics::PlaySoundAtLocation(
+		this,
+		MirrorAudio.EndSfx,
+		GetActorLocation(),
+		MirrorAudio.VolumeMultiplier,
+		MirrorAudio.PitchMultiplier
+	);
 }

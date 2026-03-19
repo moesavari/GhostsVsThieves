@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Systems/Noise/GvTScareAudioTypes.h"
 #include "GvTMirrorActor.generated.h"
 
 class UStaticMeshComponent;
@@ -108,16 +109,15 @@ protected:
 	float SurfaceScalePadding = 0.98f; 
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Audio")
-	TObjectPtr<USoundBase> ScareStartSfx = nullptr;
+	FGvTScareAudioSet MirrorAudio;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Audio")
-	TObjectPtr<USoundBase> ScareEndSfx = nullptr;
+	UPROPERTY(Transient)
+	TObjectPtr<UAudioComponent> ActiveMirrorSustainAudio = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Audio")
-	float ScareSfxVolume = 1.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Audio")
-	float ScareSfxPitch = 1.0f;
+	void PlayMirrorStartAudio();
+	void StartMirrorSustainAudio();
+	void StopMirrorSustainAudio();
+	void PlayMirrorEndAudio();
 
 private:
 	TObjectPtr<UMaterialInstanceDynamic> MirrorMID;

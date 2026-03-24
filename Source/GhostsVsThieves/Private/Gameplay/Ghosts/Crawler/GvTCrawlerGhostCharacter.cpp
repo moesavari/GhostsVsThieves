@@ -15,7 +15,7 @@
 
 namespace
 {
-	static AGvTAmbientAudioDirector* FindAmbientAudioDirector(const UObject* WorldContextObject)
+	static AGvTAmbientAudioDirector* FindAmbientAudioDirector_Crawler(const UObject* WorldContextObject)
 	{
 		if (!WorldContextObject)
 		{
@@ -211,7 +211,7 @@ void AGvTCrawlerGhostCharacter::StopAndDie()
 
 	StopCurrentScareAudio(true, &ChaseAudio, true);
 
-	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Crawler(this))
 	{
 		AmbientDirector->HandleScareEnded(GvTScareTags::CrawlerChase(), GetActorLocation(), 1.0f);
 	}
@@ -515,7 +515,7 @@ void AGvTCrawlerGhostCharacter::EndOverhead()
 
 	if (HasAuthority())
 	{
-		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Crawler(this))
 		{
 			AmbientDirector->HandleScareEnded(GvTScareTags::CrawlerOverhead(), GetActorLocation(), 1.0f);
 		}

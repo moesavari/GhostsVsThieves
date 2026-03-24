@@ -19,6 +19,12 @@ public:
     UFUNCTION(Client, Reliable)
     void Client_ShowScanResult(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue);
 
+    UFUNCTION()
+    void HandlePanicChanged(float NewPanic01);
+
+    UFUNCTION()
+    void HandleHauntPressureChanged(float NewPressure01);
+
 protected:
     UFUNCTION(Exec)
     void DoorLock(float MaxDistance = 500.f);

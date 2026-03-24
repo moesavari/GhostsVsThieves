@@ -16,7 +16,7 @@
 
 namespace
 {
-	static AGvTAmbientAudioDirector* FindAmbientAudioDirector(const UObject* WorldContextObject)
+	static AGvTAmbientAudioDirector* FindAmbientAudioDirector_Mirror(const UObject* WorldContextObject) 
 	{
 		if (!WorldContextObject)
 		{
@@ -408,7 +408,7 @@ void AGvTMirrorActor::StopScareCapture()
 
 	if (HasAuthority())
 	{
-		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Mirror(this))
 		{
 			AmbientDirector->HandleScareEnded(GvTScareTags::Mirror(), GetActorLocation(), 1.0f);
 		}

@@ -18,4 +18,7 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "UI")
 	void ShowScanValueNamed(AActor* Item, const FText& DisplayName, int32 Value);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|HUD")
+	void UpdatePanicDisplay(float NewPanic01);
 };

@@ -80,6 +80,15 @@ void AGvTPlayerController::BindHUDToPlayerState()
 
 	PS->OnLootValueChanged.RemoveDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
 	PS->OnLootValueChanged.AddDynamic(HUDWidget, &UGvTHUDWidget::HandleLootChanged);
+
+	PS->OnPanicChanged.RemoveDynamic(this, &AGvTPlayerController::HandlePanicChanged);
+	PS->OnPanicChanged.AddDynamic(this, &AGvTPlayerController::HandlePanicChanged);
+
+	PS->OnHauntPressureChanged.RemoveDynamic(this, &AGvTPlayerController::HandleHauntPressureChanged);
+	PS->OnHauntPressureChanged.AddDynamic(this, &AGvTPlayerController::HandleHauntPressureChanged);
+
+	// Push current value immediately so HUD is correct right away.
+	HandlePanicChanged(PS->GetPanic01());
 }
 
 void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue)
@@ -208,4 +217,24 @@ void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
 			Comp->SetCustomDepthStencilValue(HighlightStencilValue);
 		}
 	}
+}
+
+void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
+{
+	if (!HUDWidget)
+	{
+		return;
+	}
+
+	if (UGvTHUDWidget* GvTHUD = Cast<UGvTHUDWidget>(HUDWidget))
+	{
+		GvTHUD->UpdatePanicDisplay(NewPanic01);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[HUD] Panic display updated: %.2f"), NewPanic01);
+}
+
+void AGvTPlayerController::HandleHauntPressureChanged(float NewPressure01)
+{
+	// Optional later for pressure on the HUD.
 }

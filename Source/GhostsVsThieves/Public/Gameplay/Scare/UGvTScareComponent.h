@@ -212,6 +212,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Schedule")
 	FGameplayTag DefaultGhostTag;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Schedule")
+	bool bEnableLegacyAutoScheduler = false;
+
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
 	float CrawlerChaseActiveDuration = 12.0f;
 

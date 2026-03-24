@@ -297,6 +297,12 @@ void AGvTThiefCharacter::Client_PlayLocalScareStun_Implementation(float Duration
 
 void AGvTThiefCharacter::Client_PlayLocalCrawlerOverheadScare_Implementation(const FGvTScareEvent& Event)
 {
+    UE_LOG(LogTemp, Warning,
+        TEXT("[ScareRPC] Client_PlayLocalCrawlerOverheadScare this=%s local=%d incomingTarget=%s"),
+        *GetNameSafe(this),
+        IsLocallyControlled() ? 1 : 0,
+        *GetNameSafe(Event.TargetActor));
+
     if (!IsLocallyControlled())
     {
         UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare ignored: %s is not locally controlled"), *GetName());
@@ -310,9 +316,15 @@ void AGvTThiefCharacter::Client_PlayLocalCrawlerOverheadScare_Implementation(con
         return;
     }
 
-    ScareComp->PlayLocalCrawlerOverheadScare(Event);
+    FGvTScareEvent LocalEvent = Event;
+    LocalEvent.TargetActor = this; // force victim identity from the RPC receiver
 
-    UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare executed on %s"), *GetName());
+    ScareComp->PlayLocalCrawlerOverheadScare(LocalEvent);
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare executed on %s finalTarget=%s"),
+        *GetNameSafe(this),
+        *GetNameSafe(LocalEvent.TargetActor));
 }
 
 void AGvTThiefCharacter::ApplyScareStun(float Duration)

@@ -1,9 +1,11 @@
 #include "Systems/Director/GvTDirectorSubsystem.h"
-
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
-
+#include "GvTPlayerState.h"
+#include "GvTGameStateBase.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/Pawn.h"
 #include "Engine/GameInstance.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
@@ -13,11 +15,11 @@ static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
 	switch (NetMode)
 	{
-	case NM_Standalone:      return TEXT("Standalone");
-	case NM_DedicatedServer: return TEXT("DedicatedServer");
-	case NM_ListenServer:    return TEXT("ListenServer");
-	case NM_Client:          return TEXT("Client");
-	default:                 return TEXT("Unknown");
+		case NM_Standalone:      return TEXT("Standalone");
+		case NM_DedicatedServer: return TEXT("DedicatedServer");
+		case NM_ListenServer:    return TEXT("ListenServer");
+		case NM_Client:          return TEXT("Client");
+		default:                 return TEXT("Unknown");
 	}
 }
 
@@ -106,9 +108,22 @@ void UGvTDirectorSubsystem::TickDirector()
 		return;
 	}
 
+	UpdateHouseTension(DirectorTickInterval);
+
 	const float Now = World->GetTimeSeconds();
-	if ((Now - LastGlobalHauntTime) < GlobalHauntCooldown)
+	const float CurrentCooldown = GetCurrentGlobalHauntCooldown();
+
+	if ((Now - LastGlobalHauntTime) < CurrentCooldown)
 	{
+		if (bLogHouseTension)
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[DirectorCooldown] Tension=%.2f Cooldown=%.2f Elapsed=%.2f Remaining=%.2f"),
+				HouseTension01,
+				CurrentCooldown,
+				Now - LastGlobalHauntTime,
+				CurrentCooldown - (Now - LastGlobalHauntTime));
+		}
 		return;
 	}
 
@@ -158,8 +173,15 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 	const bool bDispatched = DispatchScareEvent(Event);
 	if (bDispatched && GetWorld())
 	{
+		if (APawn* TargetPawn = Cast<APawn>(Target))
+		{
+			RememberTarget(TargetPawn);
+		}
+
 		LastGlobalHauntTime = GetWorld()->GetTimeSeconds();
 	}
+
+	ApplyHouseTensionImpulse(GetDispatchTensionImpulse(Event));
 
 	return bDispatched;
 }
@@ -175,39 +197,71 @@ AActor* UGvTDirectorSubsystem::ChooseBestTarget() const
 	TArray<AActor*> Thieves;
 	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
 
-	TArray<AActor*> ValidTargets;
-	ValidTargets.Reserve(Thieves.Num());
+	struct FTargetCandidate
+	{
+		APawn* Pawn = nullptr;
+		float Score = 0.f;
+	};
+
+	TArray<FTargetCandidate> Candidates;
+	float BestScore = -FLT_MAX;
 
 	for (AActor* Actor : Thieves)
 	{
-		if (!IsValid(Actor))
-		{
-			continue;
-		}
-
 		APawn* Pawn = Cast<APawn>(Actor);
 		if (!Pawn)
 		{
 			continue;
 		}
 
-		// Only target living/active player pawns that actually have a scare component.
-		if (UGvTScareComponent* ScareComp = Pawn->FindComponentByClass<UGvTScareComponent>())
+		const float Score = ScoreTarget(Pawn);
+		if (Score <= 0.f)
 		{
-			if (!ScareComp->IsScareBusy())
-			{
-				ValidTargets.Add(Pawn);
-			}
+			continue;
 		}
+
+		FTargetCandidate& C = Candidates.AddDefaulted_GetRef();
+		C.Pawn = Pawn;
+		C.Score = Score;
+
+		BestScore = FMath::Max(BestScore, Score);
 	}
 
-	if (ValidTargets.Num() == 0)
+	if (Candidates.Num() == 0)
 	{
 		return nullptr;
 	}
 
-	const int32 Index = FMath::RandRange(0, ValidTargets.Num() - 1);
-	return ValidTargets[Index];
+	TArray<FTargetCandidate> TopCandidates;
+	float TotalWeight = 0.f;
+
+	for (const FTargetCandidate& C : Candidates)
+	{
+		if (C.Score >= (BestScore - TopScoreWindow))
+		{
+			TopCandidates.Add(C);
+			TotalWeight += C.Score;
+		}
+	}
+
+	if (TopCandidates.Num() == 0)
+	{
+		return Candidates[0].Pawn;
+	}
+
+	const float Roll = FMath::FRandRange(0.f, TotalWeight);
+	float Running = 0.f;
+
+	for (const FTargetCandidate& C : TopCandidates)
+	{
+		Running += C.Score;
+		if (Roll <= Running)
+		{
+			return C.Pawn;
+		}
+	}
+
+	return TopCandidates.Last().Pawn;
 }
 
 bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
@@ -228,9 +282,57 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	TriggerRequestedFlicker(Event, ScareComp);
 
-	if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
+	APawn* Pawn = Cast<APawn>(Target);
+	APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
+	AGvTPlayerState* PS = PC ? Cast<AGvTPlayerState>(PC->PlayerState) : nullptr;
+
+	if (PS)
 	{
-		ScareComp->AddPanic(Event.PanicAmount);
+		if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
+		{
+			PS->AddPanicAuthority(Event.PanicAmount / 100.f);
+		}
+
+		float PressureGain01 = 0.f;
+
+		if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
+		{
+			PressureGain01 = 0.35f;
+		}
+		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+		{
+			PressureGain01 = 0.22f;
+		}
+		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
+		{
+			PressureGain01 = 0.18f;
+		}
+		else
+		{
+			PressureGain01 = Event.bTriggerLocalFlicker ? 0.08f : 0.04f;
+		}
+
+		if (PressureGain01 > 0.f)
+		{
+			PS->AddHauntPressureAuthority(PressureGain01);
+		}
+
+		UE_LOG(LogTemp, Log,
+			TEXT("[DirectorDispatch] Target=%s Tag=%s Panic=%.2f Pressure=%.2f (+%.2f)"),
+			*GetNameSafe(Target),
+			*Event.ScareTag.ToString(),
+			PS->GetPanic01(),
+			PS->GetRecentHauntPressure01(),
+			PressureGain01
+		);
+	}
+	else
+	{
+		// Fallback so existing behavior doesn't die if PS isn't found for some reason.
+		if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
+		{
+			ScareComp->AddPanic(Event.PanicAmount);
+		}
 	}
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
@@ -334,4 +436,299 @@ FGvTScareEvent UGvTDirectorSubsystem::MakeCrawlerChaseEvent(AActor* Target) cons
 	Event.bAffectsPanic = true;
 	Event.PanicAmount = CrawlerChasePanicAmount;
 	return Event;
+}
+
+float UGvTDirectorSubsystem::GetHauntPressureForPawn(const APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return 0.f;
+	}
+
+	const APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	const AGvTPlayerState* PS = PC ? Cast<AGvTPlayerState>(PC->PlayerState) : nullptr;
+	return PS ? FMath::Clamp(PS->GetRecentHauntPressure01(), 0.f, 1.f) : 0.f;
+}
+
+float UGvTDirectorSubsystem::ScoreTarget(APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return -1.f;
+	}
+
+	const UGvTScareComponent* ScareComp = Pawn->FindComponentByClass<UGvTScareComponent>();
+	if (!ScareComp)
+	{
+		return -1.f;
+	}
+
+	const APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	const AGvTPlayerState* PS = PC ? Cast<AGvTPlayerState>(PC->PlayerState) : nullptr;
+	if (!PS)
+	{
+		return -1.f;
+	}
+
+	const float Panic01 = FMath::Clamp(PS->GetPanic01(), 0.f, 1.f);
+	const float Pressure01 = FMath::Clamp(PS->GetRecentHauntPressure01(), 0.f, 1.f);
+	const float Isolation01 = ComputeIsolationScore(Pawn);
+	const float Noise01 = 0.f;
+	const float RecentTargetPenalty01 = ComputeRecentTargetPenalty01(Pawn);
+	const float BusyPenalty01 = ScareComp->IsScareBusy() ? 1.f : 0.f;
+
+	float Score = BaseTargetScore;
+	Score += Panic01 * PanicTargetWeight;
+	Score += Isolation01 * IsolationTargetWeight;
+	Score += Noise01 * NearbyNoiseTargetWeight;
+	Score -= Pressure01 * HauntPressurePenaltyWeight;
+	Score -= RecentTargetPenalty01 * RecentTargetPenaltyWeight;
+	Score -= BusyPenalty01 * BusyTargetPenalty;
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[DirectorScore] Target=%s Panic=%.2f Isolation=%.2f Noise=%.2f Pressure=%.2f RecentPenalty=%.2f Busy=%.2f Final=%.2f"),
+		*GetNameSafe(Pawn),
+		Panic01,
+		Isolation01,
+		Noise01,
+		Pressure01,
+		RecentTargetPenalty01,
+		BusyPenalty01,
+		Score
+	);
+
+	return FMath::Max(0.01f, Score);
+}
+
+float UGvTDirectorSubsystem::ComputeIsolationScore(const APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return 0.f;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0.f;
+	}
+
+	TArray<AActor*> Thieves;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+	float NearestDistSq = TNumericLimits<float>::Max();
+	const FVector MyLoc = Pawn->GetActorLocation();
+
+	for (AActor* Actor : Thieves)
+	{
+		const APawn* OtherPawn = Cast<APawn>(Actor);
+		if (!OtherPawn || OtherPawn == Pawn)
+		{
+			continue;
+		}
+
+		const float DistSq = FVector::DistSquared(MyLoc, OtherPawn->GetActorLocation());
+		NearestDistSq = FMath::Min(NearestDistSq, DistSq);
+	}
+
+	if (NearestDistSq == TNumericLimits<float>::Max())
+	{
+		return 1.f; // alone? congrats, haunted.
+	}
+
+	const float NearestDist = FMath::Sqrt(NearestDistSq);
+
+	// 300uu = not isolated, 2000uu = very isolated
+	return FMath::Clamp((NearestDist - 300.f) / 1700.f, 0.f, 1.f);
+}
+
+float UGvTDirectorSubsystem::ComputeRecentTargetPenalty01(const APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return 0.f;
+	}
+
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0.f;
+	}
+
+	const TWeakObjectPtr<APawn> Key(const_cast<APawn*>(Pawn));
+	const float* LastTimePtr = LastTargetedTimeSeconds.Find(Key);
+	if (!LastTimePtr)
+	{
+		return 0.f;
+	}
+
+	const float Elapsed = World->GetTimeSeconds() - *LastTimePtr;
+	if (Elapsed >= RecentTargetMemorySeconds)
+	{
+		return 0.f;
+	}
+
+	return 1.f - FMath::Clamp(Elapsed / RecentTargetMemorySeconds, 0.f, 1.f);
+}
+
+void UGvTDirectorSubsystem::RememberTarget(APawn* Pawn)
+{
+	if (!Pawn || !GetWorld())
+	{
+		return;
+	}
+
+	LastTargetedTimeSeconds.Add(Pawn, GetWorld()->GetTimeSeconds());
+
+	TArray<TWeakObjectPtr<APawn>> KeysToRemove;
+	for (const TPair<TWeakObjectPtr<APawn>, float>& Pair : LastTargetedTimeSeconds)
+	{
+		if (!Pair.Key.IsValid())
+		{
+			KeysToRemove.Add(Pair.Key);
+			continue;
+		}
+
+		if ((GetWorld()->GetTimeSeconds() - Pair.Value) > (RecentTargetMemorySeconds * 2.f))
+		{
+			KeysToRemove.Add(Pair.Key);
+		}
+	}
+
+	for (const TWeakObjectPtr<APawn>& Key : KeysToRemove)
+	{
+		LastTargetedTimeSeconds.Remove(Key);
+	}
+}
+
+float UGvTDirectorSubsystem::ComputeAveragePlayerPanic01() const
+{
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GS = World ? World->GetGameState() : nullptr;
+	if (!GS || GS->PlayerArray.Num() == 0)
+	{
+		return 0.f;
+	}
+
+	float Sum = 0.f;
+	int32 Count = 0;
+
+	for (APlayerState* PSBase : GS->PlayerArray)
+	{
+		const AGvTPlayerState* PS = Cast<AGvTPlayerState>(PSBase);
+		if (!PS)
+		{
+			continue;
+		}
+
+		Sum += FMath::Clamp(PS->GetPanic01(), 0.f, 1.f);
+		Count++;
+	}
+
+	return (Count > 0) ? (Sum / float(Count)) : 0.f;
+}
+
+float UGvTDirectorSubsystem::ComputeAveragePlayerPressure01() const
+{
+	const UWorld* World = GetWorld();
+	const AGameStateBase* GS = World ? World->GetGameState() : nullptr;
+	if (!GS || GS->PlayerArray.Num() == 0)
+	{
+		return 0.f;
+	}
+
+	float Sum = 0.f;
+	int32 Count = 0;
+
+	for (APlayerState* PSBase : GS->PlayerArray)
+	{
+		const AGvTPlayerState* PS = Cast<AGvTPlayerState>(PSBase);
+		if (!PS)
+		{
+			continue;
+		}
+
+		Sum += FMath::Clamp(PS->GetRecentHauntPressure01(), 0.f, 1.f);
+		Count++;
+	}
+
+	return (Count > 0) ? (Sum / float(Count)) : 0.f;
+}
+
+void UGvTDirectorSubsystem::UpdateHouseTension(float DeltaSeconds)
+{
+	const float AvgPanic01 = ComputeAveragePlayerPanic01();
+	const float AvgPressure01 = ComputeAveragePlayerPressure01();
+
+	const float TargetTension =
+		FMath::Clamp(
+			(AvgPanic01 * AvgPanicToTensionWeight) +
+			(AvgPressure01 * AvgPressureToTensionWeight),
+			0.f,
+			1.f);
+
+	HouseTension01 = FMath::FInterpTo(
+		HouseTension01,
+		TargetTension,
+		DeltaSeconds,
+		FMath::Max(0.01f, HouseTensionDecayPerSecond * 10.f));
+
+	HouseTension01 = FMath::Clamp(
+		HouseTension01 - (HouseTensionDecayPerSecond * DeltaSeconds * 0.25f),
+		0.f,
+		1.f);
+
+	if (bLogHouseTension)
+	{
+		const TCHAR* Band =
+			(HouseTension01 < 0.25f) ? TEXT("Low") :
+			(HouseTension01 < 0.60f) ? TEXT("Mid") :
+			TEXT("High");
+
+		UE_LOG(LogTemp, Log,
+			TEXT("[HouseTension] AvgPanic=%.2f AvgPressure=%.2f Target=%.2f Final=%.2f Band=%s"),
+			AvgPanic01,
+			AvgPressure01,
+			TargetTension,
+			HouseTension01,
+			Band);
+	}
+}
+
+float UGvTDirectorSubsystem::GetDispatchTensionImpulse(const FGvTScareEvent& Event) const
+{
+	if (Event.ScareTag == GvTScareTags::Mirror())
+	{
+		return MirrorDispatchTensionImpulse;
+	}
+
+	if (Event.ScareTag == GvTScareTags::CrawlerOverhead())
+	{
+		return CrawlerOverheadDispatchTensionImpulse;
+	}
+
+	if (Event.ScareTag == GvTScareTags::CrawlerChase())
+	{
+		return CrawlerChaseDispatchTensionImpulse;
+	}
+
+	return GenericDispatchTensionImpulse;
+}
+
+void UGvTDirectorSubsystem::ApplyHouseTensionImpulse(float Delta01)
+{
+	HouseTension01 = FMath::Clamp(HouseTension01 + FMath::Max(0.f, Delta01), 0.f, 1.f);
+
+	if (bLogHouseTension)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[HouseTension] Impulse=%.2f NewTension=%.2f"),
+			Delta01,
+			HouseTension01);
+	}
+}
+
+float UGvTDirectorSubsystem::GetCurrentGlobalHauntCooldown() const
+{
+	return FMath::Lerp(GlobalHauntCooldownMax, GlobalHauntCooldownMin, HouseTension01);
 }

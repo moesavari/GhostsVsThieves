@@ -20,7 +20,7 @@
 
 namespace
 {
-	static AGvTAmbientAudioDirector* FindAmbientAudioDirector(const UObject* WorldContextObject)
+	static AGvTAmbientAudioDirector* FindAmbientAudioDirector_Scare(const UObject* WorldContextObject) 
 	{
 		if (!WorldContextObject)
 		{
@@ -63,13 +63,28 @@ void UGvTScareComponent::BeginPlay()
 		ScareState.LastScareServerTime = 0.f;
 		ScareState.LastPanicTier = 0;
 
-		GetWorld()->GetTimerManager().SetTimer(
-			SchedulerTimer,
-			this,
-			&UGvTScareComponent::Server_SchedulerTick,
-			SchedulerIntervalSeconds,
-			true
-		);
+		// Kill any old timer first, just in case PIE or stale BP defaults try funny business.
+		if (GetWorld())
+		{
+			GetWorld()->GetTimerManager().ClearTimer(SchedulerTimer);
+		}
+
+		if (bEnableLegacyAutoScheduler)
+		{
+			GetWorld()->GetTimerManager().SetTimer(
+				SchedulerTimer,
+				this,
+				&UGvTScareComponent::Server_SchedulerTick,
+				SchedulerIntervalSeconds,
+				true
+			);
+
+			UE_LOG(LogTemp, Warning, TEXT("[Scare] Legacy scheduler ENABLED for %s"), *GetNameSafe(GetOwner()));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Scare] Legacy scheduler DISABLED for %s"), *GetNameSafe(GetOwner()));
+		}
 	}
 
 	// Client-only mirror reflect checks
@@ -153,29 +168,64 @@ void UGvTScareComponent::BeginLocalScareLifecycle(float ActiveDuration, float Re
 		return;
 	}
 
+	UE_LOG(LogTemp, Warning,
+		TEXT("[LifecycleTrace] Func=BeginLocalScareLifecycle Owner=%s State=%d ActiveEnd=%.2f RecoveryEnd=%.2f"),
+		*GetNameSafe(GetOwner()),
+		(int32)LifecycleState,
+		LocalScareActiveEndTime,
+		LocalScareRecoveryEndTime);
+
+	if (LifecycleState != EGvTScareLifecycleState::Idle)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareLifecycle] Begin ignored: Owner=%s is not idle (State=%d)"),
+			*GetNameSafe(GetOwner()),
+			(int32)LifecycleState);
+		return;
+	}
+
 	ClearLifecycleTimers();
 
+	const float SafeActiveDuration = FMath::Max(0.01f, ActiveDuration);
+	const float SafeRecoveryDuration = FMath::Max(0.01f, RecoveryDuration);
 	const float Now = World->GetTimeSeconds();
+
 	LifecycleState = EGvTScareLifecycleState::Active;
-	LocalScareActiveEndTime = Now + FMath::Max(0.01f, ActiveDuration);
-	LocalScareRecoveryEndTime = LocalScareActiveEndTime + FMath::Max(0.01f, RecoveryDuration);
+	LocalScareActiveEndTime = Now + SafeActiveDuration;
+	LocalScareRecoveryEndTime = LocalScareActiveEndTime + SafeRecoveryDuration;
 
 	UE_LOG(LogTemp, Warning,
-		TEXT("[ScareLifecycle] Begin Active Owner=%s ActiveDur=%.2f RecoveryDur=%.2f"),
+		TEXT("[ScareLifecycle] Begin Active Owner=%s ActiveDur=%.2f RecoveryDur=%.2f ActiveEnd=%.2f RecoveryEnd=%.2f"),
 		*GetNameSafe(GetOwner()),
-		ActiveDuration,
-		RecoveryDuration);
+		SafeActiveDuration,
+		SafeRecoveryDuration,
+		LocalScareActiveEndTime,
+		LocalScareRecoveryEndTime);
 
 	World->GetTimerManager().SetTimer(
 		TimerHandle_ScareActiveFinish,
 		this,
 		&UGvTScareComponent::HandleLifecycleActiveFinished,
-		FMath::Max(0.01f, ActiveDuration),
+		SafeActiveDuration,
 		false);
 }
 
 void UGvTScareComponent::HandleLifecycleActiveFinished()
 {
+	UE_LOG(LogTemp, Warning,
+		TEXT("[LifecycleTrace] Func=HandleLifecycleActiveFinished Owner=%s State=%d"),
+		*GetNameSafe(GetOwner()),
+		(int32)LifecycleState);
+
+	if (LifecycleState != EGvTScareLifecycleState::Active)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareLifecycle] Active finish ignored: Owner=%s State=%d"),
+			*GetNameSafe(GetOwner()),
+			(int32)LifecycleState);
+		return;
+	}
+
 	EnterRecoveryState();
 }
 
@@ -187,19 +237,34 @@ void UGvTScareComponent::EnterRecoveryState()
 		return;
 	}
 
+	UE_LOG(LogTemp, Warning,
+		TEXT("[LifecycleTrace] Func=EnterRecoveryState Owner=%s State=%d Now=%.2f ActiveEnd=%.2f RecoveryEnd=%.2f"),
+		*GetNameSafe(GetOwner()),
+		(int32)LifecycleState,
+		World->GetTimeSeconds(),
+		LocalScareActiveEndTime,
+		LocalScareRecoveryEndTime);
+
 	if (LifecycleState != EGvTScareLifecycleState::Active)
 	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareLifecycle] EnterRecovery ignored: Owner=%s State=%d"),
+			*GetNameSafe(GetOwner()),
+			(int32)LifecycleState);
 		return;
 	}
+
+	World->GetTimerManager().ClearTimer(TimerHandle_ScareActiveFinish);
 
 	LifecycleState = EGvTScareLifecycleState::Recovering;
 
 	const float RemainingRecovery = FMath::Max(0.01f, LocalScareRecoveryEndTime - World->GetTimeSeconds());
 
 	UE_LOG(LogTemp, Warning,
-		TEXT("[ScareLifecycle] Enter Recovery Owner=%s Remaining=%.2f"),
+		TEXT("[ScareLifecycle] Begin Recovery Owner=%s Remaining=%.2f RecoveryEnd=%.2f"),
 		*GetNameSafe(GetOwner()),
-		RemainingRecovery);
+		RemainingRecovery,
+		LocalScareRecoveryEndTime);
 
 	World->GetTimerManager().SetTimer(
 		TimerHandle_ScareRecoveryFinish,
@@ -211,11 +276,38 @@ void UGvTScareComponent::EnterRecoveryState()
 
 void UGvTScareComponent::HandleLifecycleRecoveryFinished()
 {
+	UE_LOG(LogTemp, Warning,
+		TEXT("[LifecycleTrace] Func=HandleLifecycleRecoveryFinished Owner=%s State=%d"),
+		*GetNameSafe(GetOwner()),
+		(int32)LifecycleState);
+
+	if (LifecycleState != EGvTScareLifecycleState::Recovering)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareLifecycle] Recovery finish ignored: Owner=%s State=%d"),
+			*GetNameSafe(GetOwner()),
+			(int32)LifecycleState);
+		return;
+	}
+
 	EndScareLifecycle();
 }
 
 void UGvTScareComponent::EndScareLifecycle()
 {
+	UE_LOG(LogTemp, Warning,
+		TEXT("[LifecycleTrace] Func=EndScareLifecycle Owner=%s State=%d"),
+		*GetNameSafe(GetOwner()),
+		(int32)LifecycleState);
+
+	if (LifecycleState == EGvTScareLifecycleState::Idle)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareLifecycle] End ignored: Owner=%s already idle"),
+			*GetNameSafe(GetOwner()));
+		return;
+	}
+
 	ClearLifecycleTimers();
 
 	LifecycleState = EGvTScareLifecycleState::Idle;
@@ -263,62 +355,47 @@ void UGvTScareComponent::RequestCrawlerChaseFromEvent(AActor* Victim)
 
 void UGvTScareComponent::RequestCrawlerOverheadFromEvent(const FGvTScareEvent& Event)
 {
-	AActor* Victim = Event.TargetActor;
-	if (!Victim)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead failed: No victim."));
-		return;
-	}
-
-	if (GetOwner() != Victim)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead aborted: component owner %s does not match victim %s"),
-			*GetNameSafe(GetOwner()),
-			*GetNameSafe(Victim));
-		return;
-	}
-
-	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Victim);
-	if (!Thief)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead failed: victim is not a thief."));
-		return;
-	}
-
-	UGvTScareComponent* VictimScare = Thief->FindComponentByClass<UGvTScareComponent>();
-
-	if (VictimScare && VictimScare->IsScareBusy())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] CrawlerOverhead skipped: victim %s is busy"), *GetNameSafe(Victim));
-		return;
-	}
-	if (VictimScare && VictimScare->IsScareBusy())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] CrawlerOverhead skipped: victim %s is busy"), *GetNameSafe(Victim));
-		return;
-	}
-
-	if (!Thief)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead failed: victim is not a thief."));
-		return;
-	}
-
 	if (!IsServer())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead ignored: RequestCrawlerOverheadFromEvent must run on server."));
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[Scare] CrawlerOverhead routing via victim actor RPC. ComponentOwner=%s Victim=%s"),
+	AGvTThiefCharacter* VictimThief = Cast<AGvTThiefCharacter>(Event.TargetActor);
+	if (!VictimThief)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] CrawlerOverhead failed: Event.TargetActor %s is not a thief."),
+			*GetNameSafe(Event.TargetActor));
+		return;
+	}
+
+	UGvTScareComponent* VictimScare = VictimThief->FindComponentByClass<UGvTScareComponent>();
+	if (!VictimScare)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] CrawlerOverhead failed: victim %s has no scare component."),
+			*GetNameSafe(VictimThief));
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ScareRoute] RequestOwner=%s Victim=%s VictimScareOwner=%s VictimLocal=%d"),
 		*GetNameSafe(GetOwner()),
-		*GetNameSafe(Victim));
+		*GetNameSafe(VictimThief),
+		*GetNameSafe(VictimScare->GetOwner()),
+		VictimThief->IsLocallyControlled() ? 1 : 0);
 
-	// Authoritative gameplay stun.
-	Thief->ApplyScareStun(0.6f);
+	if (VictimScare->IsScareBusy())
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareLifecycle] CrawlerOverhead skipped: victim %s is busy"),
+			*GetNameSafe(VictimThief));
+		return;
+	}
 
-	// Victim-only local presentation on the owning client.
-	Thief->Client_PlayLocalCrawlerOverheadScare(Event);
+	VictimThief->ApplyScareStun(0.6f);
+	VictimThief->Client_PlayLocalCrawlerOverheadScare(Event);
 }
 
 void UGvTScareComponent::RequestCrawlerChaseScare(AActor* Victim)
@@ -377,44 +454,51 @@ EGvTPanicBand UGvTScareComponent::GetPanicBand() const
 
 void UGvTScareComponent::PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event)
 {
-	APawn* VictimPawn = Cast<APawn>(GetOwner());
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	APawn* EventVictimPawn = Cast<APawn>(Event.TargetActor);
 
-	if (!VictimPawn)
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ScareVictimCheck] Owner=%s EventVictim=%s OwnerLocal=%d"),
+		*GetNameSafe(OwnerPawn),
+		*GetNameSafe(EventVictimPawn),
+		OwnerPawn ? (int32)OwnerPawn->IsLocallyControlled() : -1);
+
+	if (!OwnerPawn || !EventVictimPawn)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare failed: component owner is not a pawn."));
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: invalid owner/victim"));
 		return;
 	}
 
-	if (VictimPawn != EventVictimPawn)
+	if (OwnerPawn != EventVictimPawn)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: owner %s != event victim %s"),
-			*GetNameSafe(VictimPawn),
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: Owner=%s does not match EventVictim=%s"),
+			*GetNameSafe(OwnerPawn),
 			*GetNameSafe(EventVictimPawn));
 		return;
 	}
 
-	if (!VictimPawn->IsLocallyControlled())
+	if (!OwnerPawn->IsLocallyControlled())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare ignored: owner is not locally controlled (%s)"),
-			*GetNameSafe(VictimPawn));
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] PlayLocalCrawlerOverheadScare aborted: %s is not locally controlled"),
+			*GetNameSafe(OwnerPawn));
 		return;
 	}
 
 	if (!CanStartNewScare())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Overhead ignored: Owner=%s already busy"),
-			*GetNameSafe(VictimPawn));
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] CrawlerOverhead ignored: Owner=%s already busy"), *GetNameSafe(GetOwner()));
 		return;
 	}
 
 	const float ActiveDuration = Event.Duration > 0.f ? Event.Duration : 0.6f;
 	BeginLocalScareLifecycle(ActiveDuration, OverheadRecoveryDuration);
 
-	SpawnLocalCrawlerOverheadGhost(VictimPawn);
+	SpawnLocalCrawlerOverheadGhost(EventVictimPawn);
 
 	UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare local victim = %s"),
-		*GetNameSafe(VictimPawn));
+		*GetNameSafe(EventVictimPawn));
 }
 
 void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
@@ -604,7 +688,7 @@ void UGvTScareComponent::Server_RequestCrawlerChaseScare_Implementation(AActor* 
 				BeginLocalScareLifecycle(CrawlerChaseActiveDuration, ChaseRecoveryDuration);
 			}
 
-			if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+			if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Scare(this))
 			{
 				AmbientDirector->HandleScareStarted(GvTScareTags::CrawlerChase(), VictimPawn->GetActorLocation(), 1.0f);
 			}
@@ -642,7 +726,7 @@ void UGvTScareComponent::Server_RequestCrawlerOverheadScare_Implementation(AActo
 			return;
 		}
 
-		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+		if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Scare(this))
 		{
 			AmbientDirector->HandleScareStarted(GvTScareTags::CrawlerOverhead(), VictimPawn->GetActorLocation(), 1.0f);
 		}
@@ -660,7 +744,7 @@ void UGvTScareComponent::Server_RequestMirrorActorScare_Implementation(AGvTMirro
 
 	UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Server triggering mirror %s"), *Mirror->GetName());
 
-	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector(this))
+	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Scare(this))
 	{
 		AmbientDirector->HandleScareStarted(GvTScareTags::Mirror(), Mirror->GetActorLocation(), Intensity01);
 	}
@@ -688,7 +772,7 @@ void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, f
 	{
 		if (APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
 		{
-			if (AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>())
+			if (AGvTPlayerState* PS = Cast<AGvTPlayerState>(PC->PlayerState))
 			{
 				const float PanicDelta = 0.15f * Event.Intensity01;
 				PS->Server_AddPanic(PanicDelta);
@@ -797,6 +881,12 @@ float UGvTScareComponent::GetNowServerSeconds() const
 void UGvTScareComponent::Server_SchedulerTick()
 {
 	if (!IsServer()) return;
+
+	if (!bEnableLegacyAutoScheduler)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[Scare] Server_SchedulerTick called while legacy scheduler is DISABLED. Owner=%s"), *GetNameSafe(GetOwner()));
+		return;
+	}
 
 	const float Now = GetNowServerSeconds();
 
@@ -1048,7 +1138,7 @@ void UGvTScareComponent::Client_ReflectTick()
 		return;
 	}
 
-	Mirror->TriggerScare(Intensity01, ReflectLifeSeconds);
+	Server_RequestMirrorActorScare(Mirror, Intensity01, ReflectLifeSeconds);
 	LastTriggeredMirror = Mirror;
 	NextAllowedReflectTime = Now + ReflectLifeSeconds + 0.25f;
 }
@@ -1128,7 +1218,7 @@ uint8 UGvTScareComponent::GetPanicTier(float& OutPanic01) const
 	const APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
 	if (!PC) return 0;
 
-	const AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
+	const AGvTPlayerState* PS = Cast<AGvTPlayerState>(PC->PlayerState);
 	if (!PS) return 0;
 
 	OutPanic01 = FMath::Clamp(PS->GetPanic01(), 0.f, 1.f);

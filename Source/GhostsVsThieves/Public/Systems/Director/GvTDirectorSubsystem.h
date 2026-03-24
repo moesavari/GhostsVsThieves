@@ -38,6 +38,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	FGvTScareEvent MakeCrawlerChaseEvent(AActor* Target) const;
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Tension")
+	float GetHouseTension01() const { return HouseTension01; }
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Tension")
+	float GetCurrentGlobalHauntCooldown() const;
+
 protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Runtime")
 	bool bEnableAutoHaunts = true;
@@ -80,8 +86,82 @@ protected:
 
 	FTimerHandle TimerHandle_DirectorTick;
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float PanicTargetWeight = 0.45f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float IsolationTargetWeight = 0.30f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float NearbyNoiseTargetWeight = 0.15f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float HauntPressurePenaltyWeight = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HouseTension01 = 0.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float HouseTensionDecayPerSecond = 0.04f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float AvgPanicToTensionWeight = 0.65f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float AvgPressureToTensionWeight = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float GenericDispatchTensionImpulse = 0.08f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float MirrorDispatchTensionImpulse = 0.10f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float CrawlerOverheadDispatchTensionImpulse = 0.14f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float CrawlerChaseDispatchTensionImpulse = 0.20f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.1"))
+	float GlobalHauntCooldownMin = 4.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.1"))
+	float GlobalHauntCooldownMax = 12.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension")
+	bool bLogHouseTension = true;
+
 private:
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float BaseTargetScore = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float RecentTargetPenaltyWeight = 0.55f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float RecentTargetMemorySeconds = 20.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float TopScoreWindow = 0.20f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
+	float BusyTargetPenalty = 1.0f;
+
+	mutable TMap<TWeakObjectPtr<APawn>, float> LastTargetedTimeSeconds;
+
+	float ComputeIsolationScore(const APawn* Pawn) const;
+	float ComputeRecentTargetPenalty01(const APawn* Pawn) const;
+	void RememberTarget(APawn* Pawn);
+
 	bool TriggerRequestedFlicker(const FGvTScareEvent& Event, class UGvTScareComponent* TargetScareComp);
 	bool TryDispatchAutoScare();
 	AActor* ChooseBestTarget() const;
+	float GetHauntPressureForPawn(const APawn* Pawn) const;
+	float ScoreTarget(APawn* Pawn) const;
+
+	void UpdateHouseTension(float DeltaSeconds);
+	float ComputeAveragePlayerPanic01() const;
+	float ComputeAveragePlayerPressure01() const;
+	float GetDispatchTensionImpulse(const FGvTScareEvent& Event) const;
+	void ApplyHouseTensionImpulse(float Delta01);
 };

@@ -16,4 +16,9 @@ namespace GvTScareTags
 	{
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.Crawler.Overhead"));
 	}
+
+	FGameplayTag LightChase()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("Scare.LightChase"));
+	}
 }

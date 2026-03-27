@@ -42,6 +42,24 @@ struct FGvTScareEvent
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	float PanicAmount = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase")
+	int32 LightChaseStepCount = 5;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase", meta = (ClampMin = "0.01"))
+	float LightChaseStepInterval = 0.16f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseStartDistance = 1800.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseEndDistance = 120.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseFlickerRadius = 350.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseAudioLeadDistance = 80.f;
 };
 
 USTRUCT(BlueprintType)

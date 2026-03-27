@@ -326,3 +326,16 @@ void UGvTLightFlickerComponent::ApplyCurrentPowerState()
 		}
 	}
 }
+
+void UGvTLightFlickerComponent::GetCachedLightLocations(TArray<FVector>& OutLocations) const
+{
+	for (const FGvTLightDefaultState& State : CachedLights)
+	{
+		if (!IsValid(State.Light))
+		{
+			continue;
+		}
+
+		OutLocations.Add(State.Light->GetComponentLocation());
+	}
+}

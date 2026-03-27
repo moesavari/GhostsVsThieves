@@ -38,6 +38,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	FGvTScareEvent MakeCrawlerChaseEvent(AActor* Target) const;
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
+	FGvTScareEvent MakeLightChaseEvent(AActor* Target) const;
+
 	UFUNCTION(BlueprintPure, Category = "GvT|Director|Tension")
 	float GetHouseTension01() const { return HouseTension01; }
 
@@ -84,6 +87,30 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerChase")
 	bool bCrawlerChaseTriggersGroupFlicker = true;
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.10"))
+	float LightChaseDuration = 1.1f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.0"))
+	float LightChasePanicAmount = 7.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "2"))
+	int32 LightChaseStepCount = 5;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.01"))
+	float LightChaseStepInterval = 0.16f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseStartDistance = 1800.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseEndDistance = 120.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseFlickerRadius = 350.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.0"))
+	float LightChaseAudioLeadDistance = 80.f;
+
 	FTimerHandle TimerHandle_DirectorTick;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
@@ -127,6 +154,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.1"))
 	float GlobalHauntCooldownMax = 12.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float LightChaseDispatchTensionImpulse = 0.10f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension")
 	bool bLogHouseTension = true;

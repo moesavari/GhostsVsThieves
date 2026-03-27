@@ -59,6 +59,8 @@ public:
 	FName ResolveZoneFromTags(const TArray<FName>& Tags) const;
 	bool HasTag(const TArray<FName>& Tags, FName TagName) const;
 
+	void GetCachedLightLocations(TArray<FVector>& OutLocations) const;
+
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|LightFlicker")
 	bool bAutoCollectOwnerLightComponents = true;

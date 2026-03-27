@@ -17,6 +17,7 @@
 #include "Systems/Audio/GvTAmbientAudioDirector.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "DrawDebugHelpers.h"
 
 namespace
 {
@@ -114,6 +115,12 @@ void UGvTScareComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 void UGvTScareComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ClearLifecycleTimers();
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TimerHandle_LightChaseStep);
+	}
+
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -418,6 +425,35 @@ void UGvTScareComponent::RequestCrawlerOverheadScare(AActor* Victim, bool bVicti
 	Server_RequestCrawlerOverheadScare(Victim, bVictimOnly);
 }
 
+void UGvTScareComponent::RequestLightChaseFromEvent(const FGvTScareEvent& Event)
+{
+	if (!IsServer())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] LightChase ignored: RequestLightChaseFromEvent must run on server."));
+		return;
+	}
+
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APawn* VictimPawn = Cast<APawn>(Event.TargetActor);
+
+	if (!OwnerPawn || !VictimPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] LightChase failed: invalid owner/victim."));
+		return;
+	}
+
+	if (OwnerPawn != VictimPawn)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] LightChase failed: component owner %s does not match victim %s."),
+			*GetNameSafe(OwnerPawn),
+			*GetNameSafe(VictimPawn));
+		return;
+	}
+
+	Client_PlayScare(Event);
+}
+
 void UGvTScareComponent::AddPanic(float Amount)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -499,6 +535,270 @@ void UGvTScareComponent::PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Eve
 
 	UE_LOG(LogTemp, Warning, TEXT("[Scare] PlayLocalCrawlerOverheadScare local victim = %s"),
 		*GetNameSafe(EventVictimPawn));
+}
+
+void UGvTScareComponent::PlayLocalLightChase(const FGvTScareEvent& Event)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APawn* EventVictimPawn = Cast<APawn>(Event.TargetActor);
+
+	if (!OwnerPawn || !EventVictimPawn)
+	{
+		return;
+	}
+
+	if (OwnerPawn != EventVictimPawn)
+	{
+		return;
+	}
+
+	if (!OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (!CanStartNewScare())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] LightChase ignored: Owner=%s already busy"), *GetNameSafe(GetOwner()));
+		return;
+	}
+
+	BeginLocalLightChaseSequence(Event);
+}
+
+void UGvTScareComponent::BeginLocalLightChaseSequence(const FGvTScareEvent& Event)
+{
+	bActiveLightChaseAffectedAnyLights = false;
+
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	ActiveLightChaseEvent = Event;
+
+	const TArray<FVector> RawStepLocations = BuildLightChaseStepLocations(Event);
+
+	ActiveLightChaseStepLocations.Reset();
+	ActiveLightChaseStepLocations.Reserve(RawStepLocations.Num());
+
+	for (const FVector& RawLoc : RawStepLocations)
+	{
+		const FVector SnappedLoc = ResolveLightChaseStepLocation(RawLoc);
+
+#if !(UE_BUILD_SHIPPING)
+		DrawDebugSphere(GetWorld(), RawLoc, 18.f, 8, FColor::Cyan, false, 2.0f, 0, 1.5f);
+		DrawDebugSphere(GetWorld(), SnappedLoc, 24.f, 10, FColor::Yellow, false, 2.0f, 0, 2.0f);
+		DrawDebugLine(GetWorld(), RawLoc, SnappedLoc, FColor::Green, false, 2.0f, 0, 1.0f);
+#endif
+
+		ActiveLightChaseStepLocations.Add(SnappedLoc);
+	}
+
+	CollapseLightChaseStepLocations(ActiveLightChaseStepLocations);
+
+	ActiveLightChaseStepIndex = 0;
+	bLightChaseSequenceActive = ActiveLightChaseStepLocations.Num() > 0;
+
+	if (!bLightChaseSequenceActive)
+	{
+		return;
+	}
+
+	const float ActiveDuration = Event.Duration > 0.f
+		? Event.Duration
+		: ((Event.LightChaseStepCount * Event.LightChaseStepInterval) + 0.25f);
+
+	BeginLocalScareLifecycle(ActiveDuration, LightChaseRecoveryDuration);
+
+	GetWorld()->GetTimerManager().ClearTimer(TimerHandle_LightChaseStep);
+	AdvanceLocalLightChaseSequence();
+}
+
+void UGvTScareComponent::AdvanceLocalLightChaseSequence()
+{
+	if (!bLightChaseSequenceActive || !GetWorld())
+	{
+		return;
+	}
+
+	if (!ActiveLightChaseStepLocations.IsValidIndex(ActiveLightChaseStepIndex))
+	{
+		EndLocalLightChaseSequence();
+		return;
+	}
+
+	const bool bIsFinalStep = (ActiveLightChaseStepIndex == ActiveLightChaseStepLocations.Num() - 1);
+	const FVector StepLocation = ActiveLightChaseStepLocations[ActiveLightChaseStepIndex];
+
+	DrawDebugSphere(
+		GetWorld(),
+		StepLocation,
+		24.f,
+		12,
+		bIsFinalStep ? FColor::Red : FColor::Yellow,
+		false,
+		1.0f,
+		0,
+		2.0f);
+
+	PlayLightChaseStepEffects(StepLocation, bIsFinalStep);
+
+	++ActiveLightChaseStepIndex;
+
+	if (ActiveLightChaseStepLocations.IsValidIndex(ActiveLightChaseStepIndex))
+	{
+		const float Interval = FMath::Max(0.01f, ActiveLightChaseEvent.LightChaseStepInterval);
+
+		GetWorld()->GetTimerManager().SetTimer(
+			TimerHandle_LightChaseStep,
+			this,
+			&UGvTScareComponent::AdvanceLocalLightChaseSequence,
+			Interval,
+			false);
+	}
+	else
+	{
+		EndLocalLightChaseSequence();
+	}
+}
+
+void UGvTScareComponent::EndLocalLightChaseSequence()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TimerHandle_LightChaseStep);
+	}
+
+	bLightChaseSequenceActive = false;
+	ActiveLightChaseStepLocations.Reset();
+	ActiveLightChaseStepIndex = 0;
+
+	const bool bSucceeded = bActiveLightChaseAffectedAnyLights;
+	const float PanicToApply = (bSucceeded && ActiveLightChaseEvent.bAffectsPanic)
+		? ActiveLightChaseEvent.PanicAmount
+		: 0.f;
+
+	Server_ReportLightChaseResult(bSucceeded, PanicToApply);
+}
+
+TArray<FVector> UGvTScareComponent::BuildLightChaseStepLocations(const FGvTScareEvent& Event) const
+{
+	TArray<FVector> OutLocations;
+
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn)
+	{
+		return OutLocations;
+	}
+
+	FVector Forward = FVector::ZeroVector;
+
+	if (/*const APawn* */OwnerPawn == Cast<APawn>(GetOwner()))
+	{
+		if (const AController* Controller = OwnerPawn->GetController())
+		{
+			const FRotator ControlRot = Controller->GetControlRotation();
+			Forward = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::X);
+		}
+
+		if (Forward.IsNearlyZero())
+		{
+			Forward = OwnerPawn->GetActorForwardVector();
+		}
+	}
+
+	Forward.Z = 0.f;
+	Forward = Forward.GetSafeNormal();
+
+	if (Forward.IsNearlyZero())
+	{
+		Forward = FVector::ForwardVector;
+	}
+
+	const FVector Origin = OwnerPawn->GetActorLocation();
+	const int32 StepCount = FMath::Max(2, Event.LightChaseStepCount);
+
+	for (int32 StepIdx = 0; StepIdx < StepCount; ++StepIdx)
+	{
+		const float Alpha = (StepCount > 1) ? (float)StepIdx / (float)(StepCount - 1) : 1.0f;
+		const float Dist = FMath::Lerp(Event.LightChaseStartDistance, Event.LightChaseEndDistance, Alpha);
+
+		FVector StepLoc = Origin + (Forward * Dist);
+		StepLoc.Z = Origin.Z + 50.f;
+
+		OutLocations.Add(StepLoc);
+	}
+
+	return OutLocations;
+}
+
+void UGvTScareComponent::PlayLightChaseStepEffects(const FVector& StepLocation, bool bIsFinalStep)
+{
+	const int32 StepCount = FMath::Max(1, ActiveLightChaseStepLocations.Num());
+	const float StepAlpha = (StepCount > 1)
+		? (float)ActiveLightChaseStepIndex / (float)(StepCount - 1)
+		: 1.0f;
+
+	FGvTLightFlickerEvent FlickerEvent;
+	FlickerEvent.WorldCenter = StepLocation;
+	FlickerEvent.Radius = FMath::Max(100.f, ActiveLightChaseEvent.LightChaseFlickerRadius);
+	FlickerEvent.Duration = bIsFinalStep ? 0.22f : 0.14f;
+	FlickerEvent.Intensity01 = FMath::Clamp(ActiveLightChaseEvent.Intensity01 + (StepAlpha * 0.20f), 0.f, 1.f);
+	FlickerEvent.bWholeHouse = false;
+	FlickerEvent.bAllowFullOffBursts = true;
+	FlickerEvent.MinDimAlpha = bIsFinalStep ? 0.00f : 0.08f;
+	FlickerEvent.MaxDimAlpha = 1.0f;
+	FlickerEvent.PulseIntervalMin = bIsFinalStep ? 0.02f : 0.03f;
+	FlickerEvent.PulseIntervalMax = bIsFinalStep ? 0.06f : 0.08f;
+	FlickerEvent.Seed = ActiveLightChaseEvent.LocalSeed + (ActiveLightChaseStepIndex * 31);
+
+	PlayLocalLightFlicker(FlickerEvent);
+
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	FVector AudioLoc = StepLocation;
+
+	if (OwnerPawn)
+	{
+		const FVector TowardVictim = (OwnerPawn->GetActorLocation() - StepLocation).GetSafeNormal();
+		AudioLoc += TowardVictim * ActiveLightChaseEvent.LightChaseAudioLeadDistance;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UGvTLightFlickerSubsystem* FlickerSubsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>())
+		{
+			const int32 NumNearbyLights = FlickerSubsystem->CountLightsInRadius(
+				StepLocation,
+				FlickerEvent.Radius);
+
+			if (NumNearbyLights > 0)
+			{
+				bActiveLightChaseAffectedAnyLights = true;
+			}
+		}
+	}
+
+	PlayLocalLightChaseSoundAtLocation(AudioLoc, bIsFinalStep, StepAlpha);
+}
+
+void UGvTScareComponent::PlayLocalLightChaseSoundAtLocation(const FVector& WorldLocation, bool bIsFinalStep, float StepAlpha) const
+{
+	USoundBase* ChosenSound = bIsFinalStep ? LightChaseFinalSfx : LightChaseStepSfx;
+	if (!ChosenSound)
+	{
+		return;
+	}
+
+	const float Volume = FMath::Lerp(0.85f, 1.20f, FMath::Clamp(StepAlpha, 0.f, 1.f));
+	const float Pitch = FMath::Lerp(0.96f, 1.06f, FMath::Clamp(StepAlpha, 0.f, 1.f));
+
+	UGameplayStatics::PlaySoundAtLocation(
+		this,
+		ChosenSound,
+		WorldLocation,
+		Volume,
+		Pitch);
 }
 
 void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
@@ -607,6 +907,34 @@ void UGvTScareComponent::Debug_RequestLocalHouseLightFlicker(float Intensity01, 
 	PlayLocalLightFlicker(Event);
 }
 
+void UGvTScareComponent::Debug_RequestLightChase(float Intensity01)
+{
+	APawn* Pawn = Cast<APawn>(GetOwner());
+	if (!Pawn || !Pawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::LightChase();
+	Event.TargetActor = Pawn;
+	Event.Intensity01 = FMath::Clamp(Intensity01, 0.f, 1.f);
+	Event.LightChaseStepCount = 6;
+	Event.LightChaseStepInterval = 0.10f;
+	Event.LightChaseStartDistance = 900.f;
+	Event.LightChaseEndDistance = 100.f;
+	Event.LightChaseFlickerRadius = 650.f;
+	Event.LightChaseAudioLeadDistance = 50.f;
+	Event.Duration = (Event.LightChaseStepCount * Event.LightChaseStepInterval) + 0.25f;
+
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = 7.0f; 
+
+	Event.LocalSeed = MakeLocalSeed(GetNowServerSeconds());
+
+	PlayLocalLightChase(Event);
+}
+
 void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01, float LifeSeconds)
 {
 	if (!CanStartNewScare())
@@ -622,6 +950,12 @@ void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01
 void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& Event)
 {
 	static const FGameplayTag LightFlickerTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.LightFlicker"));
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		PlayLocalLightChase(Event);
+		return;
+	}
 
 	if (Event.ScareTag.MatchesTagExact(LightFlickerTag))
 	{
@@ -1270,3 +1604,98 @@ void UGvTScareComponent::UpdatePanicBand()
 	else CachedPanicBand = EGvTPanicBand::Calm;
 }
 
+FVector UGvTScareComponent::ResolveLightChaseStepLocation(const FVector& RawStepLocation) const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return RawStepLocation;
+	}
+
+	const UGvTLightFlickerSubsystem* FlickerSubsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>();
+	if (!FlickerSubsystem)
+	{
+		return RawStepLocation;
+	}
+
+	FGvTLightClusterQueryResult QueryResult;
+	const float SnapSearchRadius = FMath::Max(ActiveLightChaseEvent.LightChaseFlickerRadius * 1.25f, 500.f);
+
+	if (!FlickerSubsystem->FindNearestLightClusterCenter(RawStepLocation, SnapSearchRadius, QueryResult))
+	{
+		return RawStepLocation;
+	}
+
+	if (!QueryResult.bFoundAny || QueryResult.NumLights <= 0)
+	{
+		return RawStepLocation;
+	}
+
+	return QueryResult.ClusterCenter;
+}
+
+void UGvTScareComponent::CollapseLightChaseStepLocations(TArray<FVector>& StepLocations) const
+{
+	if (StepLocations.Num() <= 1)
+	{
+		return;
+	}
+
+	TArray<FVector> Filtered;
+	Filtered.Reserve(StepLocations.Num());
+
+	const float MinSeparationSq = FMath::Square(180.f);
+
+	for (const FVector& Loc : StepLocations)
+	{
+		if (Filtered.Num() == 0)
+		{
+			Filtered.Add(Loc);
+			continue;
+		}
+
+		if (FVector::DistSquared(Filtered.Last(), Loc) >= MinSeparationSq)
+		{
+			Filtered.Add(Loc);
+		}
+	}
+
+	StepLocations = MoveTemp(Filtered);
+}
+
+void UGvTScareComponent::Server_ReportLightChaseResult_Implementation(bool bSucceeded, float PanicAmount)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn)
+	{
+		return;
+	}
+
+	AGvTPlayerState* PS = OwnerPawn->GetPlayerState<AGvTPlayerState>();
+	if (!PS)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[LightChase] No PlayerState on %s, cannot apply panic."),
+			*GetNameSafe(OwnerPawn));
+		return;
+	}
+
+	if (!bSucceeded || PanicAmount <= 0.f)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[LightChase] No panic awarded to %s. Success=%d Panic=%.2f"),
+			*GetNameSafe(OwnerPawn),
+			bSucceeded ? 1 : 0,
+			PanicAmount);
+		return;
+	}
+
+	const float PanicDelta01 = PanicAmount / 100.f;
+	PS->AddPanicAuthority(PanicDelta01);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[LightChase] Awarded panic to %s. PanicRaw=%.2f Panic01=%.3f"),
+		*GetNameSafe(OwnerPawn),
+		PanicAmount,
+		PanicDelta01);
+}

@@ -144,30 +144,28 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 		return false;
 	}
 
-	// Simple first-pass autonomous routing:
-	// Randomly pick either a mirror scare or overhead/drop scare.
-	const float Roll = FMath::FRand();
-
 	FGvTScareEvent Event;
 	Event.TargetActor = Target;
 	Event.Intensity01 = 1.0f;
 	Event.bAffectsPanic = true;
 
-	if (Roll < 0.50f)
+	const float Roll = FMath::FRand();
+
+	// First pass:
+	// LightChase = environmental mid-tier scare
+	// Mirror = apparition cue
+	// Overhead = stronger spike
+	if (Roll < 0.45f)
 	{
-		Event.ScareTag = GvTScareTags::Mirror();
-		Event.Duration = MirrorDuration;
-		Event.bTriggerLocalFlicker = bMirrorTriggersLocalFlicker;
-		Event.bTriggerGroupFlicker = false;
-		Event.PanicAmount = MirrorPanicAmount;
+		Event = MakeLightChaseEvent(Target);
+	}
+	else if (Roll < 0.75f)
+	{
+		Event = MakeMirrorEvent(Target);
 	}
 	else
 	{
-		Event.ScareTag = GvTScareTags::CrawlerOverhead();
-		Event.Duration = CrawlerOverheadDuration;
-		Event.bTriggerLocalFlicker = bCrawlerOverheadTriggersLocalFlicker;
-		Event.bTriggerGroupFlicker = false;
-		Event.PanicAmount = CrawlerOverheadPanicAmount;
+		Event = MakeCrawlerOverheadEvent(Target);
 	}
 
 	const bool bDispatched = DispatchScareEvent(Event);
@@ -288,7 +286,7 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	if (PS)
 	{
-		if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
+		if (Event.bAffectsPanic && Event.PanicAmount > 0.f && !Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
 		{
 			PS->AddPanicAuthority(Event.PanicAmount / 100.f);
 		}
@@ -306,6 +304,10 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
 		{
 			PressureGain01 = 0.18f;
+		}
+		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+		{
+			PressureGain01 = 0.14f;
 		}
 		else
 		{
@@ -346,6 +348,13 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch Crawler Chase to %s"), *GetNameSafe(Target));
 		ScareComp->RequestCrawlerChaseFromEvent(Target);
+		return true;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch LightChase to %s"), *GetNameSafe(Target));
+		ScareComp->RequestLightChaseFromEvent(Event);
 		return true;
 	}
 
@@ -435,6 +444,28 @@ FGvTScareEvent UGvTDirectorSubsystem::MakeCrawlerChaseEvent(AActor* Target) cons
 	Event.bTriggerGroupFlicker = bCrawlerChaseTriggersGroupFlicker;
 	Event.bAffectsPanic = true;
 	Event.PanicAmount = CrawlerChasePanicAmount;
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeLightChaseEvent(AActor* Target) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::LightChase();
+	Event.TargetActor = Target;
+	Event.Intensity01 = 1.0f;
+
+	Event.LightChaseStepCount = LightChaseStepCount;
+	Event.LightChaseStepInterval = LightChaseStepInterval;
+	Event.LightChaseStartDistance = LightChaseStartDistance;
+	Event.LightChaseEndDistance = LightChaseEndDistance;
+	Event.LightChaseFlickerRadius = LightChaseFlickerRadius;
+	Event.LightChaseAudioLeadDistance = LightChaseAudioLeadDistance;
+
+	Event.Duration = (LightChaseStepCount * LightChaseStepInterval) + 0.25f;
+	Event.bTriggerLocalFlicker = false;
+	Event.bTriggerGroupFlicker = false;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = LightChasePanicAmount;
 	return Event;
 }
 
@@ -710,6 +741,11 @@ float UGvTDirectorSubsystem::GetDispatchTensionImpulse(const FGvTScareEvent& Eve
 	if (Event.ScareTag == GvTScareTags::CrawlerChase())
 	{
 		return CrawlerChaseDispatchTensionImpulse;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		return LightChaseDispatchTensionImpulse;
 	}
 
 	return GenericDispatchTensionImpulse;

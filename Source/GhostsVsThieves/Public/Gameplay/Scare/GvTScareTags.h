@@ -9,4 +9,7 @@ namespace GvTScareTags
 	GHOSTSVSTHIEVES_API FGameplayTag CrawlerChase();
 	GHOSTSVSTHIEVES_API FGameplayTag CrawlerOverhead();
 	GHOSTSVSTHIEVES_API FGameplayTag LightChase();
+	GHOSTSVSTHIEVES_API FGameplayTag DoorSlamBehind();
+	GHOSTSVSTHIEVES_API FGameplayTag RearAudioSting();
+	GHOSTSVSTHIEVES_API FGameplayTag GhostScream();
 }

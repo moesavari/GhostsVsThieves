@@ -60,6 +60,27 @@ struct FGvTScareEvent
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase", meta = (ClampMin = "0.0"))
 	float LightChaseAudioLeadDistance = 80.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Audio", meta = (ClampMin = "0.0"))
+	float SharedAudioRadius = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Audio")
+	bool bTwoShotAudio = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Audio", meta = (ClampMin = "0.0"))
+	float FollowupDelay = 0.18f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Audio", meta = (ClampMin = "0.0"))
+	float RearAudioBackOffset = 180.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Audio", meta = (ClampMin = "0.0"))
+	float RearAudioSideOffset = 110.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Audio")
+	float RearAudioUpOffset = -10.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	TObjectPtr<AActor> SourceActor = nullptr;
 };
 
 USTRUCT(BlueprintType)

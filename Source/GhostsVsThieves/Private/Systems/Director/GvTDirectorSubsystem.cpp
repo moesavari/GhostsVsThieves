@@ -10,6 +10,8 @@
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 #include "TimerManager.h"
+#include "World/Doors/GvTDoorActor.h"
+#include "Camera/PlayerCameraManager.h"
 
 static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
@@ -138,35 +140,58 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 		return false;
 	}
 
-	UGvTScareComponent* ScareComp = Target->FindComponentByClass<UGvTScareComponent>();
-	if (!ScareComp)
-	{
-		return false;
-	}
-
 	FGvTScareEvent Event;
-	Event.TargetActor = Target;
-	Event.Intensity01 = 1.0f;
-	Event.bAffectsPanic = true;
-
 	const float Roll = FMath::FRand();
 
-	// First pass:
-	// LightChase = environmental mid-tier scare
-	// Mirror = apparition cue
-	// Overhead = stronger spike
-	if (Roll < 0.45f)
+	if (Roll < 0.20f)
+	{
+		Event = MakeRearAudioStingEvent(Target);
+	}
+	else if (Roll < 0.38f)
+	{
+		if (APawn* TargetPawn = Cast<APawn>(Target))
+		{
+			if (AGvTDoorActor* Door = ChooseBestDoorSlamTarget(TargetPawn))
+			{
+				Event = MakeDoorSlamBehindEvent(Target, Door);
+			}
+			else
+			{
+				Event = MakeLightChaseEvent(Target);
+			}
+		}
+		else
+		{
+			Event = MakeLightChaseEvent(Target);
+		}
+	}
+	else if (Roll < 0.56f)
 	{
 		Event = MakeLightChaseEvent(Target);
 	}
-	else if (Roll < 0.75f)
+	else if (Roll < 0.72f)
 	{
 		Event = MakeMirrorEvent(Target);
+	}
+	else if (Roll < 0.88f)
+	{
+		AActor* ScreamTarget = Target;
+		if (FMath::FRand() <= GhostScreamHighestPanicBiasChance)
+		{
+			if (AActor* HighestPanicTarget = ChooseHighestPanicTarget())
+			{
+				ScreamTarget = HighestPanicTarget;
+			}
+		}
+
+		Event = MakeGhostScreamEvent(ScreamTarget);
 	}
 	else
 	{
 		Event = MakeCrawlerOverheadEvent(Target);
 	}
+
+	UGvTScareComponent* ScareComp = Target->FindComponentByClass<UGvTScareComponent>();
 
 	const bool bDispatched = DispatchScareEvent(Event);
 	if (bDispatched && GetWorld())
@@ -262,6 +287,56 @@ AActor* UGvTDirectorSubsystem::ChooseBestTarget() const
 	return TopCandidates.Last().Pawn;
 }
 
+AActor* UGvTDirectorSubsystem::ChooseHighestPanicTarget() const
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> Thieves;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+	APawn* BestPawn = nullptr;
+	float BestPanic = -1.f;
+	float BestScoreTieBreak = -1.f;
+
+	for (AActor* Actor : Thieves)
+	{
+		APawn* Pawn = Cast<APawn>(Actor);
+		if (!Pawn)
+		{
+			continue;
+		}
+
+		const UGvTScareComponent* ScareComp = Pawn->FindComponentByClass<UGvTScareComponent>();
+		if (!ScareComp || ScareComp->IsScareBusy())
+		{
+			continue;
+		}
+
+		const APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+		const AGvTPlayerState* PS = PC ? Cast<AGvTPlayerState>(PC->PlayerState) : nullptr;
+		if (!PS)
+		{
+			continue;
+		}
+
+		const float Panic01 = FMath::Clamp(PS->GetPanic01(), 0.f, 1.f);
+		const float TieBreakScore = ScoreTarget(Pawn);
+
+		if (Panic01 > BestPanic || (FMath::IsNearlyEqual(Panic01, BestPanic) && TieBreakScore > BestScoreTieBreak))
+		{
+			BestPawn = Pawn;
+			BestPanic = Panic01;
+			BestScoreTieBreak = TieBreakScore;
+		}
+	}
+
+	return BestPawn;
+}
+
 bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 {
 	AActor* Target = Event.TargetActor;
@@ -283,6 +358,56 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	APawn* Pawn = Cast<APawn>(Target);
 	APlayerController* PC = Pawn ? Cast<APlayerController>(Pawn->GetController()) : nullptr;
 	AGvTPlayerState* PS = PC ? Cast<AGvTPlayerState>(PC->PlayerState) : nullptr;
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+	{
+		AGvTDoorActor* Door = Cast<AGvTDoorActor>(Event.SourceActor);
+		APawn* TargetPawn = Cast<APawn>(Target);
+
+		if (!Door)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Director] DoorSlamBehind failed: SourceActor is not a door."));
+			return false;
+		}
+
+		if (!TargetPawn)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Director] DoorSlamBehind failed: target is not a pawn."));
+			return false;
+		}
+
+		const bool bSlammed = Door->TriggerScareSlam();
+		if (!bSlammed)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Director] DoorSlamBehind failed: %s was not slam-eligible."), *GetNameSafe(Door));
+			return false;
+		}
+
+		// Panic only if the target is actually close enough to the slammed door.
+		const float PanicRadius = FMath::Max(0.f, DoorSlamPanicRadius);
+		const float DistSq = FVector::DistSquared(TargetPawn->GetActorLocation(), Door->GetActorLocation());
+		const bool bTargetWithinPanicVicinity = DistSq <= FMath::Square(PanicRadius);
+
+		if (PS && Event.bAffectsPanic && Event.PanicAmount > 0.f && bTargetWithinPanicVicinity)
+		{
+			PS->AddPanicAuthority(Event.PanicAmount / 100.f);
+		}
+
+		if (PS)
+		{
+			PS->AddHauntPressureAuthority(0.16f);
+		}
+
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Director] Dispatch DoorSlamBehind target=%s door=%s withinPanicVicinity=%d dist=%.1f radius=%.1f"),
+			*GetNameSafe(Target),
+			*GetNameSafe(Door),
+			bTargetWithinPanicVicinity ? 1 : 0,
+			FMath::Sqrt(DistSq),
+			PanicRadius);
+
+		return true;
+	}
 
 	if (PS)
 	{
@@ -308,6 +433,18 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
 		{
 			PressureGain01 = 0.14f;
+		}
+		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+		{
+			PressureGain01 = 0.10f;
+		}
+		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+		{
+			PressureGain01 = 0.20f;
+		}
+		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+		{
+			PressureGain01 = 0.16f;
 		}
 		else
 		{
@@ -355,6 +492,20 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch LightChase to %s"), *GetNameSafe(Target));
 		ScareComp->RequestLightChaseFromEvent(Event);
+		return true;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch RearAudioSting to %s"), *GetNameSafe(Target));
+		ScareComp->RequestRearAudioStingFromEvent(Event);
+		return true;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch GhostScream near %s"), *GetNameSafe(Target));
+		ScareComp->RequestGhostScreamFromEvent(Event);
 		return true;
 	}
 
@@ -466,6 +617,97 @@ FGvTScareEvent UGvTDirectorSubsystem::MakeLightChaseEvent(AActor* Target) const
 	Event.bTriggerGroupFlicker = false;
 	Event.bAffectsPanic = true;
 	Event.PanicAmount = LightChasePanicAmount;
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeRearAudioStingEvent(AActor* Target) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::RearAudioSting();
+	Event.TargetActor = Target;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = RearAudioStingDuration;
+	Event.bTriggerLocalFlicker = false;
+	Event.bTriggerGroupFlicker = false;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = RearAudioStingPanicAmount;
+	Event.bTwoShotAudio = bRearAudioAllowTwoShot && (FMath::FRand() <= RearAudioTwoShotChance);
+	Event.FollowupDelay = 0.18f;
+	Event.RearAudioBackOffset = RearAudioBackOffset;
+	Event.RearAudioSideOffset = RearAudioSideOffset;
+	Event.RearAudioUpOffset = RearAudioUpOffset;
+	Event.LocalSeed = FMath::Rand();
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeGhostScreamEvent(AActor* Target) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::GhostScream();
+	Event.TargetActor = Target;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = GhostScreamDuration;
+	Event.bTriggerLocalFlicker = false;
+	Event.bTriggerGroupFlicker = false;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = GhostScreamPanicAmount;
+	Event.SharedAudioRadius = GhostScreamAudibleRadius;
+	Event.LocalSeed = FMath::Rand();
+
+	const APawn* Pawn = Cast<APawn>(Target);
+	const FVector Origin = Pawn ? Pawn->GetActorLocation() : (Target ? Target->GetActorLocation() : FVector::ZeroVector);
+
+	FVector Forward = Target ? Target->GetActorForwardVector() : FVector::ForwardVector;
+	FVector Right = Target ? Target->GetActorRightVector() : FVector::RightVector;
+
+	if (Pawn)
+	{
+		if (const AController* Controller = Pawn->GetController())
+		{
+			const FRotator ControlRot = Controller->GetControlRotation();
+			Forward = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::X);
+			Right = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::Y);
+		}
+	}
+
+	Forward.Z = 0.f;
+	Right.Z = 0.f;
+	Forward = Forward.GetSafeNormal();
+	Right = Right.GetSafeNormal();
+
+	if (Forward.IsNearlyZero())
+	{
+		Forward = FVector::ForwardVector;
+	}
+	if (Right.IsNearlyZero())
+	{
+		Right = FVector::RightVector;
+	}
+
+	FRandomStream Stream(Event.LocalSeed);
+	const float SideSign = (Stream.FRand() < 0.5f) ? 1.f : -1.f;
+	const float Dist = Stream.FRandRange(GhostScreamSpawnDistanceMin, GhostScreamSpawnDistanceMax);
+
+	const FVector Dir = ((-Forward * 0.85f) + (Right * 0.55f * SideSign)).GetSafeNormal();
+	Event.WorldHint = Origin + (Dir * Dist) + FVector(0.f, 0.f, 70.f);
+
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeDoorSlamBehindEvent(AActor* Target, AActor* DoorActor) const
+{
+	FGvTScareEvent Event;
+	Event.ScareTag = GvTScareTags::DoorSlamBehind();
+	Event.TargetActor = Target;
+	Event.SourceActor = DoorActor;
+	Event.WorldHint = DoorActor ? DoorActor->GetActorLocation() : FVector::ZeroVector;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = DoorSlamBehindDuration;
+	Event.bTriggerLocalFlicker = false;
+	Event.bTriggerGroupFlicker = false;
+	Event.bAffectsPanic = true;
+	Event.PanicAmount = DoorSlamBehindPanicAmount;
+	Event.LocalSeed = FMath::Rand();
 	return Event;
 }
 
@@ -748,6 +990,21 @@ float UGvTDirectorSubsystem::GetDispatchTensionImpulse(const FGvTScareEvent& Eve
 		return LightChaseDispatchTensionImpulse;
 	}
 
+	if (Event.ScareTag == GvTScareTags::RearAudioSting())
+	{
+		return RearAudioDispatchTensionImpulse;
+	}
+
+	if (Event.ScareTag == GvTScareTags::GhostScream())
+	{
+		return GhostScreamDispatchTensionImpulse;
+	}
+
+	if (Event.ScareTag == GvTScareTags::DoorSlamBehind())
+	{
+		return DoorSlamDispatchTensionImpulse;
+	}
+
 	return GenericDispatchTensionImpulse;
 }
 
@@ -767,4 +1024,95 @@ void UGvTDirectorSubsystem::ApplyHouseTensionImpulse(float Delta01)
 float UGvTDirectorSubsystem::GetCurrentGlobalHauntCooldown() const
 {
 	return FMath::Lerp(GlobalHauntCooldownMax, GlobalHauntCooldownMin, HouseTension01);
+}
+
+float UGvTDirectorSubsystem::ScoreDoorForSlam(const APawn* TargetPawn, const AGvTDoorActor* Door) const
+{
+	if (!TargetPawn || !Door)
+	{
+		return -1.f;
+	}
+
+	if (!Door->IsOpenForScareSlam())
+	{
+		return -1.f;
+	}
+
+	const FVector PawnLoc = TargetPawn->GetActorLocation();
+	const FVector DoorLoc = Door->GetActorLocation();
+
+	FVector Forward = TargetPawn->GetActorForwardVector();
+
+	if (const AController* Controller = TargetPawn->GetController())
+	{
+		Forward = Controller->GetControlRotation().Vector();
+	}
+
+	Forward.Z = 0.f;
+	Forward = Forward.GetSafeNormal();
+	if (Forward.IsNearlyZero())
+	{
+		Forward = FVector::ForwardVector;
+	}
+
+	FVector ToDoor = DoorLoc - PawnLoc;
+	ToDoor.Z = 0.f;
+
+	const float Dist = ToDoor.Length();
+	if (Dist > DoorSlamSearchRadius || Dist <= KINDA_SMALL_NUMBER)
+	{
+		return -1.f;
+	}
+
+	ToDoor /= Dist;
+
+	const float FrontDot = FVector::DotProduct(Forward, ToDoor);
+
+	// Reject doors too far in front of the player.
+	if (FrontDot > DoorSlamMaxFrontDot)
+	{
+		return -1.f;
+	}
+
+	const float BehindScore = FMath::Clamp((-FrontDot + 1.f) * 0.5f, 0.f, 1.f);
+	const float DistanceScore = 1.f - FMath::Clamp(Dist / FMath::Max(1.f, DoorSlamSearchRadius), 0.f, 1.f);
+
+	return (BehindScore * DoorSlamBehindWeight) + (DistanceScore * DoorSlamDistanceWeight);
+}
+
+AGvTDoorActor* UGvTDirectorSubsystem::ChooseBestDoorSlamTarget(APawn* TargetPawn) const
+{
+	if (!TargetPawn || !GetWorld())
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> FoundDoors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGvTDoorActor::StaticClass(), FoundDoors);
+
+	AGvTDoorActor* BestDoor = nullptr;
+	float BestScore = -1.f;
+
+	for (AActor* Actor : FoundDoors)
+	{
+		AGvTDoorActor* Door = Cast<AGvTDoorActor>(Actor);
+		if (!Door)
+		{
+			continue;
+		}
+
+		const float Score = ScoreDoorForSlam(TargetPawn, Door);
+		if (Score > BestScore)
+		{
+			BestScore = Score;
+			BestDoor = Door;
+		}
+	}
+
+	return BestDoor;
+}
+
+AActor* UGvTDirectorSubsystem::FindBestDoorSlamDoor(AActor* Target) const
+{
+	return ChooseBestDoorSlamTarget(Cast<APawn>(Target));
 }

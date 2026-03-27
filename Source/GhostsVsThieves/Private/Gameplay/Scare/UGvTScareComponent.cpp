@@ -119,6 +119,7 @@ void UGvTScareComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(TimerHandle_LightChaseStep);
+		World->GetTimerManager().ClearTimer(TimerHandle_RearAudioFollowup);
 	}
 
 	Super::EndPlay(EndPlayReason);
@@ -454,6 +455,74 @@ void UGvTScareComponent::RequestLightChaseFromEvent(const FGvTScareEvent& Event)
 	Client_PlayScare(Event);
 }
 
+void UGvTScareComponent::RequestRearAudioStingFromEvent(const FGvTScareEvent& Event)
+{
+	if (!IsServer())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] RearAudioSting ignored: must run on server."));
+		return;
+	}
+
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APawn* VictimPawn = Cast<APawn>(Event.TargetActor);
+
+	if (!OwnerPawn || !VictimPawn || OwnerPawn != VictimPawn)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Scare] RearAudioSting failed: invalid owner/victim. Owner=%s Victim=%s"),
+			*GetNameSafe(OwnerPawn),
+			*GetNameSafe(VictimPawn));
+		return;
+	}
+
+	Client_PlayScare(Event);
+}
+
+void UGvTScareComponent::RequestGhostScreamFromEvent(const FGvTScareEvent& Event)
+{
+	if (!IsServer())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Scare] GhostScream ignored: must run on server."));
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	APawn* TargetPawn = Cast<APawn>(Event.TargetActor);
+	if (!TargetPawn)
+	{
+		return;
+	}
+
+	TArray<AActor*> Thieves;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+	const float RadiusSq = FMath::Square(FMath::Max(0.f, Event.SharedAudioRadius));
+
+	for (AActor* Actor : Thieves)
+	{
+		AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Actor);
+		if (!Thief)
+		{
+			continue;
+		}
+
+		if (RadiusSq > 0.f && FVector::DistSquared(Thief->GetActorLocation(), Event.WorldHint) > RadiusSq)
+		{
+			continue;
+		}
+
+		if (UGvTScareComponent* ListenerScareComp = Thief->FindComponentByClass<UGvTScareComponent>())
+		{
+			ListenerScareComp->Client_PlayScare(Event);
+		}
+	}
+}
+
 void UGvTScareComponent::AddPanic(float Amount)
 {
 	if (GetOwnerRole() != ROLE_Authority)
@@ -564,6 +633,94 @@ void UGvTScareComponent::PlayLocalLightChase(const FGvTScareEvent& Event)
 	}
 
 	BeginLocalLightChaseSequence(Event);
+}
+
+void UGvTScareComponent::PlayLocalRearAudioSting(const FGvTScareEvent& Event)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APawn* EventVictimPawn = Cast<APawn>(Event.TargetActor);
+
+	if (!OwnerPawn || !EventVictimPawn || OwnerPawn != EventVictimPawn)
+	{
+		return;
+	}
+
+	if (!OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (!CanStartNewScare())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] RearAudioSting ignored: Owner=%s already busy"), *GetNameSafe(GetOwner()));
+		return;
+	}
+
+	const FVector SfxLoc = BuildRearAudioWorldLocation(Event);
+
+	if (RearAudioStingSfx)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, RearAudioStingSfx, SfxLoc, 1.0f, 1.0f);
+	}
+
+	const float ActiveDuration = FMath::Max(0.08f, Event.Duration);
+	BeginLocalScareLifecycle(ActiveDuration, RearAudioRecoveryDuration);
+
+	if (Event.bTwoShotAudio && RearAudioStingFollowupSfx && GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(TimerHandle_RearAudioFollowup);
+
+		FTimerDelegate FollowupDelegate;
+		FollowupDelegate.BindWeakLambda(this, [this, Event]()
+			{
+				if (!GetWorld())
+				{
+					return;
+				}
+
+				const FVector FollowupLoc = BuildRearAudioWorldLocation(Event);
+				UGameplayStatics::PlaySoundAtLocation(this, RearAudioStingFollowupSfx, FollowupLoc, 0.95f, 1.03f);
+			});
+
+		GetWorld()->GetTimerManager().SetTimer(
+			TimerHandle_RearAudioFollowup,
+			FollowupDelegate,
+			FMath::Max(0.01f, Event.FollowupDelay),
+			false);
+	}
+}
+
+void UGvTScareComponent::PlayLocalGhostScreamShared(const FGvTScareEvent& Event)
+{
+	if (GhostScreamSfx)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			GhostScreamSfx,
+			Event.WorldHint,
+			1.0f,
+			FMath::FRandRange(0.97f, 1.03f));
+	}
+
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	APawn* TargetPawn = Cast<APawn>(Event.TargetActor);
+
+	if (!OwnerPawn || !TargetPawn || OwnerPawn != TargetPawn)
+	{
+		return; // listeners hear it, but do not enter scare lifecycle
+	}
+
+	if (!OwnerPawn->IsLocallyControlled())
+	{
+		return;
+	}
+
+	if (!CanStartNewScare())
+	{
+		return;
+	}
+
+	BeginLocalScareLifecycle(FMath::Max(0.10f, Event.Duration), GhostScreamRecoveryDuration);
 }
 
 void UGvTScareComponent::BeginLocalLightChaseSequence(const FGvTScareEvent& Event)
@@ -731,6 +888,57 @@ TArray<FVector> UGvTScareComponent::BuildLightChaseStepLocations(const FGvTScare
 	}
 
 	return OutLocations;
+}
+
+FVector UGvTScareComponent::BuildRearAudioWorldLocation(const FGvTScareEvent& Event) const
+{
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn)
+	{
+		return FVector::ZeroVector;
+	}
+
+	FVector ViewLoc = OwnerPawn->GetActorLocation() + FVector(0.f, 0.f, 60.f);
+	FRotator ViewRot = OwnerPawn->GetActorRotation();
+
+	if (const APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController()))
+	{
+		PC->GetPlayerViewPoint(ViewLoc, ViewRot);
+	}
+	else if (const AController* Controller = OwnerPawn->GetController())
+	{
+		ViewRot = Controller->GetControlRotation();
+	}
+
+	FVector Forward = FRotationMatrix(ViewRot).GetUnitAxis(EAxis::X);
+	FVector Right = FRotationMatrix(ViewRot).GetUnitAxis(EAxis::Y);
+
+	Forward.Z = 0.f;
+	Right.Z = 0.f;
+	Forward = Forward.GetSafeNormal();
+	Right = Right.GetSafeNormal();
+
+	if (Forward.IsNearlyZero())
+	{
+		Forward = OwnerPawn->GetActorForwardVector();
+		Forward.Z = 0.f;
+		Forward = Forward.GetSafeNormal();
+	}
+
+	if (Right.IsNearlyZero())
+	{
+		Right = OwnerPawn->GetActorRightVector();
+		Right.Z = 0.f;
+		Right = Right.GetSafeNormal();
+	}
+
+	FRandomStream Stream(Event.LocalSeed != 0 ? Event.LocalSeed : 1337);
+	const float SideSign = (Stream.FRand() < 0.5f) ? 1.f : -1.f;
+
+	return ViewLoc
+		- (Forward * Event.RearAudioBackOffset)
+		+ (Right * Event.RearAudioSideOffset * SideSign)
+		+ FVector(0.f, 0.f, Event.RearAudioUpOffset);
 }
 
 void UGvTScareComponent::PlayLightChaseStepEffects(const FVector& StepLocation, bool bIsFinalStep)
@@ -954,6 +1162,18 @@ void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& E
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
 	{
 		PlayLocalLightChase(Event);
+		return;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		PlayLocalRearAudioSting(Event);
+		return;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		PlayLocalGhostScreamShared(Event);
 		return;
 	}
 

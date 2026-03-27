@@ -21,4 +21,19 @@ namespace GvTScareTags
 	{
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.LightChase"));
 	}
+
+	FGameplayTag GvTScareTags::RearAudioSting()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("Scare.RearAudioSting"));
+	}
+
+	FGameplayTag GvTScareTags::GhostScream()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("Scare.GhostScream"));
+	}
+
+	FGameplayTag DoorSlamBehind()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("Scare.DoorSlamBehind"));
+	}
 }

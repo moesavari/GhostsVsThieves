@@ -61,6 +61,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestCrawlerOverheadScare();
 
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestRearAudioStingScare();
+
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestGhostScreamScare();
+
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestDoorSlamBehindScare();
+
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestMirrorScare();
 
@@ -69,6 +78,15 @@ public:
 
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestCrawlerOverheadScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestRearAudioStingScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestGhostScreamScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestDoorSlamBehindScare();
 
 protected:
     virtual void BeginPlay() override;

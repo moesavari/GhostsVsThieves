@@ -48,7 +48,7 @@ void AGvTDoorActor::Tick(float DeltaSeconds)
 	const float Now = GS ? GS->GetServerWorldTimeSeconds() : GetWorld()->GetTimeSeconds();
 
 	const float Elapsed = Now - DoorAnimStartServerTime;
-	const float Alpha = FMath::Clamp(Elapsed / FMath::Max(OpenDuration, 0.01f), 0.f, 1.f);
+	const float Alpha = FMath::Clamp(Elapsed / FMath::Max(CurrentAnimDuration, 0.01f), 0.f, 1.f);
 
 	const float SmoothAlpha = FMath::SmoothStep(0.f, 1.f, Alpha);
 	const float NewYaw = FMath::Lerp(AnimFromYaw, AnimToYaw, SmoothAlpha);
@@ -114,12 +114,12 @@ void AGvTDoorActor::CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTI
 	// Toggle open/close
 	bIsOpen = !bIsOpen;
 	DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
-	StartDoorAnim(bIsOpen);
+	ReplicatedAnimDuration = OpenDuration;
+	bReplicatedWasScareSlam = false;
+	StartDoorAnimWithDuration(bIsOpen, OpenDuration, false);
 
-	// Start SFX (server multicasts ONCE)
 	Multicast_PlaySFX(bIsOpen ? SFX_OpenStart : SFX_CloseStart);
 
-	// Start noise (server emits ONCE)
 	if (DoorNoiseEmitter)
 	{
 		DoorNoiseEmitter->EmitNoise(DoorNoiseTag, DoorNoiseRadius, 1.0f);
@@ -144,14 +144,21 @@ void AGvTDoorActor::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInt
 
 void AGvTDoorActor::Server_DoCloseEnd()
 {
-	// Server-only, one-shot: thunk SFX + end noise
-	Multicast_PlaySFX(SFX_CloseEnd);
+	PlayDoorCloseEndSFX(bReplicatedWasScareSlam);
 
 	if (DoorNoiseEmitter)
 	{
 		const float EndRadius = (CloseEndNoiseRadius > 0.f) ? CloseEndNoiseRadius : DoorNoiseRadius;
-		DoorNoiseEmitter->EmitNoise(DoorNoiseTag, EndRadius, 1.0f);
+		DoorNoiseEmitter->EmitNoise(
+			DoorNoiseTag,
+			EndRadius,
+			bReplicatedWasScareSlam ? ScareSlamLoudness : 1.0f
+		);
 	}
+}
+void AGvTDoorActor::PlayDoorCloseEndSFX(bool bWasScareSlam)
+{
+	Multicast_PlaySFX(bWasScareSlam ? SFX_ScareSlamEnd : SFX_CloseEnd);
 }
 
 void AGvTDoorActor::Multicast_PlaySFX_Implementation(USoundBase* Sound)
@@ -162,7 +169,7 @@ void AGvTDoorActor::Multicast_PlaySFX_Implementation(USoundBase* Sound)
 
 void AGvTDoorActor::OnRep_DoorAnimStart()
 {
-	StartDoorAnim(bIsOpen);
+	StartDoorAnimWithDuration(bIsOpen, ReplicatedAnimDuration, bReplicatedWasScareSlam);
 }
 
 void AGvTDoorActor::OnRep_IsOpen()
@@ -179,11 +186,18 @@ void AGvTDoorActor::ApplyDoorState(bool bOpen)
 
 void AGvTDoorActor::StartDoorAnim(bool bOpen)
 {
+	StartDoorAnimWithDuration(bOpen, OpenDuration, false);
+}
+
+void AGvTDoorActor::StartDoorAnimWithDuration(bool bOpen, float Duration, bool bWasScareSlam)
+{
 	const float SignedOpen = bInvertDirection ? -OpenYaw : OpenYaw;
 	const float TargetYaw = bOpen ? SignedOpen : ClosedYaw;
 
 	AnimFromYaw = Hinge->GetRelativeRotation().Yaw;
 	AnimToYaw = TargetYaw;
+	CurrentAnimDuration = FMath::Max(Duration, 0.01f);
+	bLastAnimWasScareSlam = bWasScareSlam;
 
 	bAnimating = true;
 	SetActorTickEnabled(true);
@@ -229,7 +243,9 @@ bool AGvTDoorActor::TryUnlock(APawn* InstigatorPawn, EDoorUnlockMethod Method, b
 
 		bIsOpen = true;
 		DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
-		StartDoorAnim(true);
+		ReplicatedAnimDuration = OpenDuration;
+		bReplicatedWasScareSlam = false;
+		StartDoorAnimWithDuration(true, OpenDuration, false);
 
 		Multicast_PlaySFX(SFX_OpenStart);
 		if (DoorNoiseEmitter)
@@ -272,6 +288,8 @@ void AGvTDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 
 	DOREPLIFETIME(AGvTDoorActor, bIsOpen);
 	DOREPLIFETIME(AGvTDoorActor, DoorAnimStartServerTime);
+	DOREPLIFETIME(AGvTDoorActor, ReplicatedAnimDuration);
+	DOREPLIFETIME(AGvTDoorActor, bReplicatedWasScareSlam);
 	DOREPLIFETIME(AGvTDoorActor, bIsLocked);
 }
 
@@ -281,4 +299,78 @@ void AGvTDoorActor::Debug_ToggleLock()
 		return;
 
 	SetLocked(!bIsLocked);
+}
+
+float AGvTDoorActor::GetCurrentOpenAlpha() const
+{
+	const float SignedOpen = bInvertDirection ? -OpenYaw : OpenYaw;
+	const float CurrentYaw = Hinge ? Hinge->GetRelativeRotation().Yaw : ClosedYaw;
+	const float Denom = (SignedOpen - ClosedYaw);
+
+	if (FMath::IsNearlyZero(Denom))
+	{
+		return bIsOpen ? 1.f : 0.f;
+	}
+
+	return FMath::Clamp((CurrentYaw - ClosedYaw) / Denom, 0.f, 1.f);
+}
+
+bool AGvTDoorActor::IsOpenForScareSlam() const
+{
+	if (bIsLocked)
+	{
+		return false;
+	}
+
+	if (!bIsOpen)
+	{
+		return false;
+	}
+
+	// If it's already animating toward closed, don't double-slam it.
+	if (bAnimating && AnimToYaw == ClosedYaw)
+	{
+		return false;
+	}
+
+	return GetCurrentOpenAlpha() >= ScareSlamMinOpenAlpha;
+}
+
+bool AGvTDoorActor::TriggerScareSlam()
+{
+	if (!HasAuthority())
+	{
+		return false;
+	}
+
+	if (!IsOpenForScareSlam())
+	{
+		return false;
+	}
+
+	GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
+
+	bIsOpen = false;
+	DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
+	ReplicatedAnimDuration = ScareSlamDuration;
+	bReplicatedWasScareSlam = true;
+	StartDoorAnimWithDuration(false, ScareSlamDuration, true);
+
+	Multicast_PlaySFX(SFX_ScareSlamStart);
+
+	if (DoorNoiseEmitter)
+	{
+		const float Radius = DoorNoiseRadius > 0.f ? DoorNoiseRadius : 1200.f;
+		DoorNoiseEmitter->EmitNoise(DoorNoiseTag, Radius, ScareSlamLoudness);
+	}
+
+	GetWorldTimerManager().SetTimer(
+		TimerHandle_CloseEnd,
+		this,
+		&AGvTDoorActor::Server_DoCloseEnd,
+		FMath::Max(ScareSlamDuration, 0.01f),
+		false
+	);
+
+	return true;
 }

@@ -104,6 +104,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GvT|Scare|Lifecycle")
 	bool IsScareBusy() const;
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
+	void RequestRearAudioStingFromEvent(const FGvTScareEvent& Event);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
+	void RequestGhostScreamFromEvent(const FGvTScareEvent& Event);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void Server_RequestCrawlerChaseScare(AActor* Victim);
@@ -164,6 +170,21 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase")
 	float LightChaseRecoveryDuration = 0.9f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
+	TObjectPtr<USoundBase> RearAudioStingSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
+	TObjectPtr<USoundBase> RearAudioStingFollowupSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
+	float RearAudioRecoveryDuration = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
+	TObjectPtr<USoundBase> GhostScreamSfx = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
+	float GhostScreamRecoveryDuration = 0.55f;
 
 	UFUNCTION(BlueprintPure, Category = "Panic")
 	bool IsCriticalPanic() const { return Panic >= CriticalThreshold; }
@@ -293,6 +314,11 @@ private:
 	FVector ResolveLightChaseStepLocation(const FVector& RawStepLocation) const;
 	void CollapseLightChaseStepLocations(TArray<FVector>& StepLocations) const;
 
+	void PlayLocalRearAudioSting(const FGvTScareEvent& Event);
+	void PlayLocalGhostScreamShared(const FGvTScareEvent& Event);
+
+	FVector BuildRearAudioWorldLocation(const FGvTScareEvent& Event) const;
+
 	UPROPERTY(VisibleInstanceOnly, Category = "GvT|Scare|Lifecycle")
 	EGvTScareLifecycleState LifecycleState = EGvTScareLifecycleState::Idle;
 
@@ -332,4 +358,5 @@ private:
 	FTimerHandle TimerHandle_ScareActiveFinish;
 	FTimerHandle TimerHandle_ScareRecoveryFinish;
 	FTimerHandle TimerHandle_LightChaseStep;
+	FTimerHandle TimerHandle_RearAudioFollowup;
 };

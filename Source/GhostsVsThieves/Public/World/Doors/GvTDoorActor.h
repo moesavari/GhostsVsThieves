@@ -47,6 +47,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Door|Lock")
 	bool TryUnlock(APawn* InstigatorPawn, EDoorUnlockMethod Method, bool bAutoOpenOnSuccess = true);
 
+	UFUNCTION(BlueprintPure, Category = "Door|Scare")
+	bool IsOpenForScareSlam() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Door|Scare")
+	bool TriggerScareSlam();
+
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Door")
 	USceneComponent* Root = nullptr;
@@ -69,6 +75,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Door|Rotation")
 	bool bInvertDirection = false;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Scare", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ScareSlamMinOpenAlpha = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Scare")
+	float ScareSlamLoudness = 1.2f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Scare", meta = (ClampMin = "0.01"))
+	float ScareSlamDuration = 0.12f;
 
 	// ---- Noise ----
 	UPROPERTY(EditAnywhere, Category = "Door|Noise")
@@ -103,6 +118,12 @@ protected:
 	UFUNCTION()
 	void OnRep_DoorAnimStart();
 
+	UPROPERTY(ReplicatedUsing = OnRep_DoorAnimStart)
+	float ReplicatedAnimDuration = 0.6f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_DoorAnimStart)
+	bool bReplicatedWasScareSlam = false;
+
 	UFUNCTION()
 	void OnRep_IsOpen();
 
@@ -110,9 +131,14 @@ protected:
 	float AnimFromYaw = 0.f;
 	float AnimToYaw = 0.f;
 	bool bAnimating = false;
+	float CurrentAnimDuration = 0.6f;
+	bool bLastAnimWasScareSlam = false;
 
 	void StartDoorAnim(bool bOpen);
+	void StartDoorAnimWithDuration(bool bOpen, float Duration, bool bWasScareSlam);
 	void ApplyDoorState(bool bOpen);
+	float GetCurrentOpenAlpha() const;
+	void PlayDoorCloseEndSFX(bool bWasScareSlam);
 
 	// ---- Audio ----
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_OpenStart = nullptr;
@@ -121,6 +147,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_LockedRattle = nullptr;
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_Lock = nullptr;
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_Unlock = nullptr;
+	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_ScareSlamStart = nullptr;
+	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_ScareSlamEnd = nullptr;
+
 
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_PlaySFX(USoundBase* Sound);

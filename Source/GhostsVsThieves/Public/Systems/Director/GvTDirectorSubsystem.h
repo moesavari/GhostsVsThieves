@@ -5,6 +5,8 @@
 #include "Gameplay/Scare/GvTScareTypes.h"
 #include "GvTDirectorSubsystem.generated.h"
 
+class AGvTDoorActor;
+
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTDirectorSubsystem : public UGameInstanceSubsystem
 {
@@ -41,11 +43,23 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	FGvTScareEvent MakeLightChaseEvent(AActor* Target) const;
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
+	FGvTScareEvent MakeRearAudioStingEvent(AActor* Target) const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
+	FGvTScareEvent MakeGhostScreamEvent(AActor* Target) const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
+	FGvTScareEvent MakeDoorSlamBehindEvent(AActor* Target, AActor* DoorActor) const;
+
 	UFUNCTION(BlueprintPure, Category = "GvT|Director|Tension")
 	float GetHouseTension01() const { return HouseTension01; }
 
 	UFUNCTION(BlueprintPure, Category = "GvT|Director|Tension")
 	float GetCurrentGlobalHauntCooldown() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
+	AActor* FindBestDoorSlamDoor(AActor* Target) const;
 
 protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Runtime")
@@ -111,6 +125,66 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.0"))
 	float LightChaseAudioLeadDistance = 80.f;
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting", meta = (ClampMin = "0.01"))
+	float RearAudioStingDuration = 0.20f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting", meta = (ClampMin = "0.0"))
+	float RearAudioStingPanicAmount = 4.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting")
+	bool bRearAudioAllowTwoShot = true;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RearAudioTwoShotChance = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting", meta = (ClampMin = "0.0"))
+	float RearAudioBackOffset = 180.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting", meta = (ClampMin = "0.0"))
+	float RearAudioSideOffset = 110.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|RearAudioSting")
+	float RearAudioUpOffset = -10.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScream", meta = (ClampMin = "0.01"))
+	float GhostScreamDuration = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScream", meta = (ClampMin = "0.0"))
+	float GhostScreamPanicAmount = 9.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScream", meta = (ClampMin = "0.0"))
+	float GhostScreamAudibleRadius = 1200.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScream", meta = (ClampMin = "0.0"))
+	float GhostScreamSpawnDistanceMin = 180.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScream", meta = (ClampMin = "0.0"))
+	float GhostScreamSpawnDistanceMax = 320.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScream", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float GhostScreamHighestPanicBiasChance = 0.75f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.01"))
+	float DoorSlamBehindDuration = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
+	float DoorSlamBehindPanicAmount = 8.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
+	float DoorSlamSearchRadius = 900.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
+	float DoorSlamMaxFrontDot = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
+	float DoorSlamDistanceWeight = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
+	float DoorSlamBehindWeight = 1.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
+	float DoorSlamPanicRadius = 450.f;
+
 	FTimerHandle TimerHandle_DirectorTick;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
@@ -161,6 +235,16 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension")
 	bool bLogHouseTension = true;
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float RearAudioDispatchTensionImpulse = 0.06f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float GhostScreamDispatchTensionImpulse = 0.12f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
+	float DoorSlamDispatchTensionImpulse = 0.10f;
+
+
 private:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
 	float BaseTargetScore = 0.25f;
@@ -194,4 +278,7 @@ private:
 	float ComputeAveragePlayerPressure01() const;
 	float GetDispatchTensionImpulse(const FGvTScareEvent& Event) const;
 	void ApplyHouseTensionImpulse(float Delta01);
+	AActor* ChooseHighestPanicTarget() const;
+	AGvTDoorActor* ChooseBestDoorSlamTarget(APawn* TargetPawn) const;
+	float ScoreDoorForSlam(const APawn* TargetPawn, const AGvTDoorActor* Door) const;
 };

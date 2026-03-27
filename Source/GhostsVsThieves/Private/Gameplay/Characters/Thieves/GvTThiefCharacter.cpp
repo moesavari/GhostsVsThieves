@@ -18,6 +18,7 @@
 #include "Engine/GameInstance.h"
 #include "TimerManager.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
+#include "World/Doors/GvTDoorActor.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -478,6 +479,39 @@ void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
     Server_DebugRequestCrawlerOverheadScare();
 }
 
+void AGvTThiefCharacter::Debug_RequestRearAudioStingScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestRearAudioStingScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestRearAudioStingScare();
+}
+
+void AGvTThiefCharacter::Debug_RequestGhostScreamScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestGhostScreamScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestGhostScreamScare();
+}
+
+void AGvTThiefCharacter::Debug_RequestDoorSlamBehindScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestDoorSlamBehindScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestDoorSlamBehindScare();
+}
+
 void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
 {
     if (UGameInstance* GI = GetGameInstance())
@@ -515,6 +549,59 @@ void AGvTThiefCharacter::Server_DebugRequestCrawlerOverheadScare_Implementation(
             const FGvTScareEvent Event = Director->MakeCrawlerOverheadEvent(this);
 
             UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerOverhead scare requested for %s"), *GetName());
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Server_DebugRequestRearAudioStingScare_Implementation()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            const FGvTScareEvent Event = Director->MakeRearAudioStingEvent(this);
+
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server RearAudioSting scare requested for %s"), *GetName());
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Server_DebugRequestGhostScreamScare_Implementation()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            const FGvTScareEvent Event = Director->MakeGhostScreamEvent(this);
+
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server GhostScream scare requested for %s"), *GetName());
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Server_DebugRequestDoorSlamBehindScare_Implementation()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            AGvTDoorActor* Door = Cast<AGvTDoorActor>(Director->FindBestDoorSlamDoor(this));
+            if (!Door)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[Debug] DoorSlamBehind failed: no valid open door for %s"), *GetName());
+                return;
+            }
+
+            const FGvTScareEvent Event = Director->MakeDoorSlamBehindEvent(this, Door);
+
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Debug] Server DoorSlamBehind scare requested for %s using %s"),
+                *GetName(),
+                *GetNameSafe(Door));
+
             Director->DispatchScareEvent(Event);
         }
     }

@@ -7,7 +7,77 @@
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Systems/Noise/GvTNoiseEmitterComponent.h"
 #include "Systems/Light/GvTLightFlickerComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "GvTPlayerState.h"
 
+static void GvTApplyPowerStatePanicToPlayers(
+	UWorld* World,
+	AActor* SourceActor,
+	EGvTHousePowerState NewPowerState,
+	EGvTPowerChangeCause Cause)
+{
+	if (!World)
+	{
+		return;
+	}
+
+	// Only haunted / scripted house behavior should apply panic.
+	if (Cause != EGvTPowerChangeCause::GhostEvent &&
+		Cause != EGvTPowerChangeCause::SystemScript)
+	{
+		return;
+	}
+
+	TArray<AActor*> Thieves;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTThiefCharacter::StaticClass(), Thieves);
+
+	for (AActor* Actor : Thieves)
+	{
+		APawn* Pawn = Cast<APawn>(Actor);
+		if (!Pawn)
+		{
+			continue;
+		}
+
+		AGvTPlayerState* PS = Pawn->GetPlayerState<AGvTPlayerState>();
+		if (!PS)
+		{
+			continue;
+		}
+
+		FGvTPanicEvent PanicEvent;
+		PanicEvent.SourceActor = SourceActor;
+		PanicEvent.InstigatorActor = SourceActor;
+		PanicEvent.WorldLocation = SourceActor ? SourceActor->GetActorLocation() : FVector::ZeroVector;
+		PanicEvent.bRequiresProximity = false;
+		PanicEvent.bRequiresSuccessfulExecution = true;
+		PanicEvent.bExecutionSucceeded = true;
+
+		switch (NewPowerState)
+		{
+		case EGvTHousePowerState::Off:
+		case EGvTHousePowerState::Blown:
+			PanicEvent.Source = EGvTPanicSource::PowerOutage;
+			PanicEvent.PanicDelta01 = 0.10f;
+			PanicEvent.HauntPressureDelta01 = 0.12f;
+			PanicEvent.CooldownSeconds = 15.0f;
+			break;
+
+		case EGvTHousePowerState::On:
+			PanicEvent.Source = EGvTPanicSource::PowerRestore;
+			PanicEvent.PanicDelta01 = -0.02f;
+			PanicEvent.HauntPressureDelta01 = -0.04f;
+			PanicEvent.CooldownSeconds = 2.0f;
+			break;
+
+		default:
+			continue;
+		}
+
+		PS->ApplyPanicEventAuthority(PanicEvent);
+	}
+}
 AGvTPowerBoxActor::AGvTPowerBoxActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
@@ -120,6 +190,11 @@ void AGvTPowerBoxActor::ApplyPowerState()
 
 void AGvTPowerBoxActor::Server_SetPowerState_Implementation(EGvTHousePowerState NewState)
 {
+	if (PowerState == NewState)
+	{
+		return;
+	}
+
 	PowerState = NewState;
 	ApplyPowerState();
 }
@@ -128,15 +203,12 @@ void AGvTPowerBoxActor::TogglePower()
 {
 	if (!HasAuthority())
 	{
-		Server_SetPowerState(PowerState == EGvTHousePowerState::On
-			? EGvTHousePowerState::Off
-			: EGvTHousePowerState::On);
+		Server_TogglePower();
 		return;
 	}
 
 	if (PowerState == EGvTHousePowerState::Blown)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("PowerBox %s is blown and cannot be toggled normally."), *GetName());
 		return;
 	}
 
@@ -145,6 +217,15 @@ void AGvTPowerBoxActor::TogglePower()
 		: EGvTHousePowerState::On;
 
 	ApplyPowerState();
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[Power] Player toggled power -> %d"),
+		(int32)PowerState);
+}
+
+void AGvTPowerBoxActor::Server_TogglePower_Implementation()
+{
+	TogglePower();
 }
 
 void AGvTPowerBoxActor::BlowPowerBox()
@@ -155,8 +236,42 @@ void AGvTPowerBoxActor::BlowPowerBox()
 		return;
 	}
 
+	if (PowerState == EGvTHousePowerState::Blown)
+	{
+		return;
+	}
+
 	PowerState = EGvTHousePowerState::Blown;
 	ApplyPowerState();
+	GvTApplyPowerStatePanicToPlayers(GetWorld(), this, PowerState, EGvTPowerChangeCause::GhostEvent);
+}
+
+void AGvTPowerBoxActor::Server_ForcePowerStateFromGhost_Implementation(EGvTHousePowerState NewState)
+{
+	ForcePowerStateFromGhost(NewState);
+}
+
+void AGvTPowerBoxActor::ForcePowerStateFromGhost(EGvTHousePowerState NewState)
+{
+	if (!HasAuthority())
+	{
+		Server_ForcePowerStateFromGhost(NewState);
+		return;
+	}
+
+	if (PowerState == NewState)
+	{
+		return;
+	}
+
+	PowerState = NewState;
+	ApplyPowerState();
+
+	GvTApplyPowerStatePanicToPlayers(GetWorld(), this, PowerState, EGvTPowerChangeCause::GhostEvent);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[Power] Ghost forced power state -> %d"),
+		(int32)PowerState);
 }
 
 void AGvTPowerBoxActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

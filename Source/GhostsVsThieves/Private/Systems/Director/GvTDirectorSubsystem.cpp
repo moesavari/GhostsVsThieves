@@ -1,4 +1,4 @@
-#include "Systems/Director/GvTDirectorSubsystem.h"
+﻿#include "Systems/Director/GvTDirectorSubsystem.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
@@ -12,6 +12,9 @@
 #include "TimerManager.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Camera/PlayerCameraManager.h"
+#include "GvTPlayerState.h"
+#include "EngineUtils.h"
+#include "Systems/GvTPowerBoxActor.h"
 
 static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
@@ -23,6 +26,74 @@ static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 		case NM_Client:          return TEXT("Client");
 		default:                 return TEXT("Unknown");
 	}
+}
+
+static EGvTPanicSource GvTMapScareTagToPanicSource(const FGameplayTag& ScareTag)
+{
+	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
+	{
+		return EGvTPanicSource::MirrorScare;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	{
+		return EGvTPanicSource::CrawlerOverhead;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
+	{
+		return EGvTPanicSource::CrawlerChaseStart;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		return EGvTPanicSource::LightFlicker;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		return EGvTPanicSource::RearAudioSting;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		return EGvTPanicSource::GhostScream;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+	{
+		return EGvTPanicSource::DoorSlam;
+	}
+
+	return EGvTPanicSource::None;
+}
+
+static float GvTGetPressureGain01ForScareTag(const FGameplayTag& ScareTag, bool bTriggerLocalFlicker)
+{
+	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
+	{
+		return 0.35f;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	{
+		return 0.22f;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
+	{
+		return 0.18f;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		return 0.14f;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		return 0.10f;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		return 0.20f;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+	{
+		return 0.16f;
+	}
+
+	return bTriggerLocalFlicker ? 0.08f : 0.04f;
 }
 
 void UGvTDirectorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -88,7 +159,7 @@ void UGvTDirectorSubsystem::StopDirector()
 		TimerHandle_DirectorTick.Invalidate();
 
 		UE_LOG(LogTemp, Log, TEXT("[Director] Auto-haunt loop stopped."));
-	}
+	} 
 }
 
 void UGvTDirectorSubsystem::TickDirector()
@@ -388,14 +459,22 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		const float DistSq = FVector::DistSquared(TargetPawn->GetActorLocation(), Door->GetActorLocation());
 		const bool bTargetWithinPanicVicinity = DistSq <= FMath::Square(PanicRadius);
 
-		if (PS && Event.bAffectsPanic && Event.PanicAmount > 0.f && bTargetWithinPanicVicinity)
-		{
-			PS->AddPanicAuthority(Event.PanicAmount / 100.f);
-		}
-
 		if (PS)
 		{
-			PS->AddHauntPressureAuthority(0.16f);
+			FGvTPanicEvent PanicEvent;
+			PanicEvent.Source = EGvTPanicSource::DoorSlam;
+			PanicEvent.PanicDelta01 = (Event.bAffectsPanic && Event.PanicAmount > 0.f) ? (Event.PanicAmount / 100.f) : 0.f;
+			PanicEvent.HauntPressureDelta01 = 0.16f;
+			PanicEvent.SourceActor = Door;
+			PanicEvent.InstigatorActor = Target;
+			PanicEvent.WorldLocation = Door->GetActorLocation();
+			PanicEvent.SourceRadius = PanicRadius;
+			PanicEvent.bRequiresProximity = true;
+			PanicEvent.bRequiresSuccessfulExecution = true;
+			PanicEvent.bExecutionSucceeded = bSlammed;
+			PanicEvent.CooldownSeconds = 3.0f;
+
+			PS->ApplyPanicEventAuthority(PanicEvent);
 		}
 
 		UE_LOG(LogTemp, Warning,
@@ -411,63 +490,31 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	if (PS)
 	{
-		if (Event.bAffectsPanic && Event.PanicAmount > 0.f && !Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
-		{
-			PS->AddPanicAuthority(Event.PanicAmount / 100.f);
-		}
+		FGvTPanicEvent PanicEvent;
+		PanicEvent.Source = GvTMapScareTagToPanicSource(Event.ScareTag);
+		PanicEvent.PanicDelta01 =
+			(Event.bAffectsPanic && Event.PanicAmount > 0.f && !Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+			? (Event.PanicAmount / 100.f)
+			: 0.f;
+		PanicEvent.HauntPressureDelta01 = GvTGetPressureGain01ForScareTag(Event.ScareTag, Event.bTriggerLocalFlicker);
+		PanicEvent.SourceActor = Event.SourceActor;
+		PanicEvent.InstigatorActor = Target;
+		PanicEvent.WorldLocation = !Event.WorldHint.IsNearlyZero() ? Event.WorldHint : Target->GetActorLocation();
+		PanicEvent.bRequiresProximity = false;
+		PanicEvent.bRequiresSuccessfulExecution = true;
+		PanicEvent.bExecutionSucceeded = true;
 
-		float PressureGain01 = 0.f;
-
-		if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
-		{
-			PressureGain01 = 0.35f;
-		}
-		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
-		{
-			PressureGain01 = 0.22f;
-		}
-		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
-		{
-			PressureGain01 = 0.18f;
-		}
-		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
-		{
-			PressureGain01 = 0.14f;
-		}
-		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
-		{
-			PressureGain01 = 0.10f;
-		}
-		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
-		{
-			PressureGain01 = 0.20f;
-		}
-		else if (Event.ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
-		{
-			PressureGain01 = 0.16f;
-		}
-		else
-		{
-			PressureGain01 = Event.bTriggerLocalFlicker ? 0.08f : 0.04f;
-		}
-
-		if (PressureGain01 > 0.f)
-		{
-			PS->AddHauntPressureAuthority(PressureGain01);
-		}
+		PS->ApplyPanicEventAuthority(PanicEvent);
 
 		UE_LOG(LogTemp, Log,
-			TEXT("[DirectorDispatch] Target=%s Tag=%s Panic=%.2f Pressure=%.2f (+%.2f)"),
+			TEXT("[DirectorDispatch] Target=%s Tag=%s Panic=%.2f Pressure=%.2f"),
 			*GetNameSafe(Target),
 			*Event.ScareTag.ToString(),
 			PS->GetPanic01(),
-			PS->GetRecentHauntPressure01(),
-			PressureGain01
-		);
+			PS->GetRecentHauntPressure01());
 	}
 	else
 	{
-		// Fallback so existing behavior doesn't die if PS isn't found for some reason.
 		if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
 		{
 			ScareComp->AddPanic(Event.PanicAmount);
@@ -524,6 +571,30 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch failed: Unknown scare tag %s"), *Event.ScareTag.ToString());
 	return false;
+}
+
+bool UGvTDirectorSubsystem::DispatchScareEventSimple(
+	const FGameplayTag& ScareTag,
+	APawn* TargetPawn,
+	AActor* SourceActor)
+{
+	if (!TargetPawn)
+	{
+		return false;
+	}
+
+	FGvTScareEvent Event;
+	Event.TargetActor = TargetPawn;
+	Event.ScareTag = ScareTag;
+	Event.SourceActor = SourceActor;
+	Event.WorldHint = TargetPawn->GetActorLocation();
+	Event.PanicAmount = 10.f;
+	Event.Intensity01 = 1.0f;
+	Event.Duration = 1.5f;
+	Event.bAffectsPanic = true;
+	Event.bTriggerLocalFlicker = false;
+
+	return DispatchScareEvent(Event);
 }
 
 bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event, UGvTScareComponent* TargetScareComp)
@@ -1115,4 +1186,184 @@ AGvTDoorActor* UGvTDirectorSubsystem::ChooseBestDoorSlamTarget(APawn* TargetPawn
 AActor* UGvTDirectorSubsystem::FindBestDoorSlamDoor(AActor* Target) const
 {
 	return ChooseBestDoorSlamTarget(Cast<APawn>(Target));
+}
+
+void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor* TargetActor)
+{
+	if (!Interactor)
+	{
+		return;
+	}
+
+	APawn* Pawn = Cast<APawn>(Interactor);
+	if (!Pawn)
+	{
+		return;
+	}
+
+	AGvTPlayerState* PS = Pawn->GetPlayerState<AGvTPlayerState>();
+	if (!PS)
+	{
+		return;
+	}
+
+	const float Panic = PS->GetPanic01();
+	const float Pressure = PS->GetRecentHauntPressure01();
+
+	bool bIsElectrical = false;
+	bool bIsValuable = false;
+	bool bIsNoisy = false;
+	float ItemValue01 = 0.f;
+
+	if (TargetActor)
+	{
+		if (TargetActor->ActorHasTag(TEXT("Electrical")))
+		{
+			bIsElectrical = true;
+		}
+
+		if (TargetActor->ActorHasTag(TEXT("Valuable")))
+		{
+			bIsValuable = true;
+			ItemValue01 = 1.0f;
+		}
+
+		if (TargetActor->ActorHasTag(TEXT("Noisy")))
+		{
+			bIsNoisy = true;
+		}
+	}
+
+	float ReactionChance = 0.10f;
+	ReactionChance += Panic * 0.35f;
+	ReactionChance += Pressure * 0.25f;
+
+	if (bIsElectrical) ReactionChance += 0.35f;
+	if (bIsValuable)   ReactionChance += 0.20f;
+	if (bIsNoisy)      ReactionChance += 0.25f;
+
+	ReactionChance = FMath::Clamp(ReactionChance, 0.f, 0.95f);
+
+	if (FMath::FRand() > ReactionChance)
+	{
+		return;
+	}
+
+	TriggerInteractionReaction(Pawn, TargetActor, bIsElectrical, bIsValuable, bIsNoisy, ItemValue01);
+}
+
+void UGvTDirectorSubsystem::TriggerInteractionReaction(
+	APawn* Pawn,
+	AActor* TargetActor,
+	bool bIsElectrical,
+	bool bIsValuable,
+	bool bIsNoisy,
+	float ItemValue01)
+{
+	if (!Pawn)
+	{
+		return;
+	}
+
+	AGvTPlayerState* PS = Pawn->GetPlayerState<AGvTPlayerState>();
+	if (!PS)
+	{
+		return;
+	}
+
+	const float Panic = PS->GetPanic01();
+	FGameplayTag ChosenScare;
+
+	if (bIsElectrical)
+	{
+		const float Roll = FMath::FRand();
+
+		if (Roll < 0.7f)
+		{
+			if (AGvTPowerBoxActor* Power = FindPowerBoxInWorld())
+			{
+				Power->ForcePowerStateFromGhost(EGvTHousePowerState::Off);
+			}
+
+			ChosenScare = GvTScareTags::LightChase();
+		}
+		else
+		{
+			ChosenScare = GvTScareTags::GhostScream();
+		}
+	}
+	else if (bIsValuable)
+	{
+		const float Roll = FMath::FRand();
+
+		if (Roll < 0.5f)
+		{
+			ChosenScare = GvTScareTags::GhostScream();
+		}
+		else
+		{
+			ChosenScare = GvTScareTags::RearAudioSting();
+		}
+	}
+	else if (bIsNoisy)
+	{
+		if (Panic > 0.5f)
+		{
+			ChosenScare = GvTScareTags::CrawlerChase();
+		}
+		else
+		{
+			ChosenScare = GvTScareTags::RearAudioSting();
+		}
+	}
+	else
+	{
+		const float Roll = FMath::FRand();
+
+		if (Panic < 0.3f)
+		{
+			ChosenScare = (Roll < 0.5f)
+				? GvTScareTags::RearAudioSting()
+				: GvTScareTags::LightChase();
+		}
+		else if (Panic < 0.7f)
+		{
+			if (Roll < 0.4f)
+			{
+				ChosenScare = GvTScareTags::Mirror();
+			}
+			else if (Roll < 0.8f)
+			{
+				ChosenScare = GvTScareTags::GhostScream();
+			}
+			else
+			{
+				ChosenScare = GvTScareTags::LightChase();
+			}
+		}
+		else
+		{
+			ChosenScare = (Roll < 0.5f)
+				? GvTScareTags::CrawlerOverhead()
+				: GvTScareTags::CrawlerChase();
+		}
+	}
+
+	DispatchScareEventSimple(ChosenScare, Pawn, TargetActor);
+}
+
+AGvTPowerBoxActor* UGvTDirectorSubsystem::FindPowerBoxInWorld()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return nullptr;
+	}
+
+	for (TActorIterator<AGvTPowerBoxActor> It(World); It; ++It)
+	{
+		return *It;
+	}
+
+	return nullptr;
 }

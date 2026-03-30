@@ -19,6 +19,15 @@ enum class EGvTHousePowerState : uint8
 	Blown	UMETA(DisplayName = "Blown")
 };
 
+UENUM(BlueprintType)
+enum class EGvTPowerChangeCause : uint8
+{
+	PlayerInteraction,
+	GhostEvent,
+	SystemScript,
+	Debug
+};
+
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTPowerBoxActor : public AActor, public IGvTInteractable
 {
@@ -39,8 +48,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
 	void TogglePower();
 
+	UFUNCTION(Server, Reliable)
+	void Server_TogglePower();
+
 	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
 	void BlowPowerBox();
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
+	void ForcePowerStateFromGhost(EGvTHousePowerState NewState);
+
+	UFUNCTION(Server, Reliable)
+	void Server_ForcePowerStateFromGhost(EGvTHousePowerState NewState);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
 	void HandlePlayerInteract(APawn* InstigatorPawn);

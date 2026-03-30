@@ -1,11 +1,10 @@
 #include "Gameplay/Interaction/GvTInteractionComponent.h"
-
+#include "Systems/Director/GvTDirectorSubsystem.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "Net/UnrealNetwork.h"
-
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "Systems/Noise/GvTNoiseSubsystem.h"
@@ -232,6 +231,17 @@ void UGvTInteractionComponent::CompleteInteraction()
 	if (Target->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
 		IGvTInteractable::Execute_CompleteInteract(Target, OwnerPawn, Verb);
+	}
+
+	if (GetOwner()->HasAuthority())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Director->OnPlayerInteractionEvent(OwnerPawn, Target);
+			}
+		}
 	}
 
 	// Reset timings/spec

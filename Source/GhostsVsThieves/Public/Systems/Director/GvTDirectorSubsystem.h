@@ -6,6 +6,7 @@
 #include "GvTDirectorSubsystem.generated.h"
 
 class AGvTDoorActor;
+class AGvTPowerBoxActor;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTDirectorSubsystem : public UGameInstanceSubsystem
@@ -21,6 +22,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	bool DispatchScareEvent(const FGvTScareEvent& Event);
+
+	bool DispatchScareEventSimple(const FGameplayTag& ScareTag, APawn* TargetPawn, AActor* SourceActor);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	void StartDirector();
@@ -60,6 +63,19 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	AActor* FindBestDoorSlamDoor(AActor* Target) const;
+
+	UFUNCTION()
+	void OnPlayerInteractionEvent(AActor* Interactor, AActor* TargetActor);
+
+	void TriggerInteractionReaction(
+		APawn* Pawn,
+		AActor* TargetActor,
+		bool bIsElectrical,
+		bool bIsValuable,
+		bool bIsNoisy,
+		float ItemValue01);
+
+	AGvTPowerBoxActor* FindPowerBoxInWorld();
 
 protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Runtime")

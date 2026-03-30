@@ -1147,7 +1147,12 @@ void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01
 {
 	if (!CanStartNewScare())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Mirror ignored: Owner=%s already busy"), *GetNameSafe(GetOwner()));
+		UE_LOG(LogTemp, Warning,
+			TEXT("[MirrorClient] Owner=%s LocalRole=%d RemoteRole=%d LocallyControlled=%d"),
+			*GetNameSafe(GetOwner()),
+			(int32)GetOwner()->GetLocalRole(),
+			(int32)GetOwner()->GetRemoteRole(),
+			Cast<APawn>(GetOwner()) && Cast<APawn>(GetOwner())->IsLocallyControlled() ? 1 : 0);
 		return;
 	}
 
@@ -1328,8 +1333,19 @@ void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, f
 		{
 			if (AGvTPlayerState* PS = Cast<AGvTPlayerState>(PC->PlayerState))
 			{
-				const float PanicDelta = 0.15f * Event.Intensity01;
-				PS->Server_AddPanic(PanicDelta);
+				FGvTPanicEvent PanicEvent;
+				PanicEvent.Source = EGvTPanicSource::DeathRipple;
+				PanicEvent.PanicDelta01 = 0.15f * Event.Intensity01;
+				PanicEvent.HauntPressureDelta01 = 0.10f * Event.Intensity01;
+				PanicEvent.SourceActor = GetOwner();
+				PanicEvent.WorldLocation = DeathLocation;
+				PanicEvent.SourceRadius = Radius;
+				PanicEvent.bRequiresProximity = true;
+				PanicEvent.bRequiresSuccessfulExecution = true;
+				PanicEvent.bExecutionSucceeded = true;
+				PanicEvent.CooldownSeconds = 8.0f;
+
+				PS->Server_ApplyPanicEvent(PanicEvent);
 			}
 		}
 	}
@@ -1910,12 +1926,23 @@ void UGvTScareComponent::Server_ReportLightChaseResult_Implementation(bool bSucc
 		return;
 	}
 
-	const float PanicDelta01 = PanicAmount / 100.f;
-	PS->AddPanicAuthority(PanicDelta01);
+	FGvTPanicEvent PanicEvent;
+	PanicEvent.Source = EGvTPanicSource::LightFlicker;
+	PanicEvent.PanicDelta01 = PanicAmount / 100.f;
+	PanicEvent.HauntPressureDelta01 = 0.f;
+	PanicEvent.SourceActor = GetOwner();
+	PanicEvent.InstigatorActor = GetOwner();
+	PanicEvent.WorldLocation = OwnerPawn->GetActorLocation();
+	PanicEvent.bRequiresProximity = false;
+	PanicEvent.bRequiresSuccessfulExecution = true;
+	PanicEvent.bExecutionSucceeded = bSucceeded;
+	PanicEvent.CooldownSeconds = 4.0f;
+
+	PS->ApplyPanicEventAuthority(PanicEvent);
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("[LightChase] Awarded panic to %s. PanicRaw=%.2f Panic01=%.3f"),
 		*GetNameSafe(OwnerPawn),
 		PanicAmount,
-		PanicDelta01);
+		PanicEvent.PanicDelta01);
 }

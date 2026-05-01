@@ -23,9 +23,9 @@ enum class EGvTPanicSource : uint8
 	PowerOutage				UMETA(DisplayName = "Power Outage"),
 	PowerRestore			UMETA(DisplayName = "Power Restore"),
 	MirrorScare				UMETA(DisplayName = "Mirror Scare"),
-	CrawlerOverhead			UMETA(DisplayName = "Crawler Overhead"),
-	CrawlerChaseStart		UMETA(DisplayName = "Crawler Chase Start"),
-	CrawlerChaseTick		UMETA(DisplayName = "Crawler Chase Tick"),
+	GhostScare				UMETA(DisplayName = "Ghost Scare"),
+	GhostChaseStart			UMETA(DisplayName = "Ghost Chase Start"),
+	GhostChaseTick			UMETA(DisplayName = "Ghost Chase Tick"),
 	RearAudioSting			UMETA(DisplayName = "Rear Audio Sting"),
 	GhostScream				UMETA(DisplayName = "Ghost Scream"),
 	DeathRipple				UMETA(DisplayName = "Death Ripple")
@@ -143,6 +143,11 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_Panic, BlueprintReadOnly, Category = "GvT|Panic")
 	float Panic01 = 0.f;
 
+	// Highest panic threshold this player has crossed.
+	// Panic decay and direct reductions clamp against this value.
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Panic")
+	float PanicFloor01 = 0.f;
+
 	UFUNCTION()
 	void OnRep_Panic();
 
@@ -182,6 +187,9 @@ protected:
 private:
 	void ApplyPanicDecay(float DeltaSeconds);
 	void ApplyHauntPressureDecay(float DeltaSeconds);
+
+	float ResolvePanicFloorForValue(float Value01) const;
+	void UpdatePanicFloorFromValue(float Value01);
 
 	bool CanApplyPanicSource(EGvTPanicSource Source, float CooldownSeconds) const;
 	void MarkPanicSourceApplied(EGvTPanicSource Source);

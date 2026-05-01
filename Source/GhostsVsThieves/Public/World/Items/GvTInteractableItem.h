@@ -94,6 +94,11 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Item|Audio")
 	TObjectPtr<USoundBase> ScanCancelSfx = nullptr;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Tags")
+	FGameplayTagContainer ItemTags;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Scare")
+	float InteractionThreat01 = 0.0f;
 
 	UPROPERTY(ReplicatedUsing = OnRep_IsConsumed)
 	bool bIsConsumed = false;

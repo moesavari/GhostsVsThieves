@@ -7,7 +7,7 @@
 #include "UGvTScareSubsystem.generated.h"
 
 class UGvTScareDefinition;
-class UGvTGhostProfileAsset;
+class UGvTGhostTypeData;
 
 USTRUCT()
 struct FGvTWeightedScareCandidate
@@ -29,7 +29,7 @@ struct FGvTScareWeightDebugRow
 	UPROPERTY() FGameplayTag Tag;
 	UPROPERTY() float Base = 0.f;
 	UPROPERTY() float TierMult = 1.f;
-	UPROPERTY() float GhostMult = 1.f;
+	UPROPERTY() float GhostTypeMult = 1.f;
 	UPROPERTY() float ContextMult = 1.f;
 	UPROPERTY() float RepeatMult = 1.f;
 	UPROPERTY() float Final = 0.f;
@@ -48,15 +48,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare")
 	void RegisterScareDefinition(UGvTScareDefinition* Def);
 
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare")
-	void RegisterGhostProfile(UGvTGhostProfileAsset* Profile);
-
-	UFUNCTION(BlueprintPure, Category = "GvT|Scare")
-	const UGvTGhostProfileAsset* GetGhostProfile(FGameplayTag GhostTag) const;
-
 	const UGvTScareDefinition* PickScareWeighted(
 		const FGameplayTagContainer& ContextTags,
-		const UGvTGhostProfileAsset* GhostProfile,
+		const UGvTGhostTypeData* GhostType,
 		uint8 PanicTier,
 		const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 		float NowSeconds,
@@ -65,7 +59,7 @@ public:
 
 	const UGvTScareDefinition* PickScareWeightedDebug(
 		const FGameplayTagContainer& ContextTags,
-		const UGvTGhostProfileAsset* GhostProfile,
+		const UGvTGhostTypeData* GhostType,
 		uint8 PanicTier,
 		const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 		float NowSeconds,
@@ -76,7 +70,7 @@ public:
 	float ComputeFinalWeight(
 		const UGvTScareDefinition* Def,
 		const FGameplayTagContainer& ContextTags,
-		const UGvTGhostProfileAsset* GhostProfile,
+		const UGvTGhostTypeData* GhostType,
 		uint8 PanicTier,
 		const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 		float NowSeconds
@@ -87,7 +81,4 @@ public:
 private:
 	UPROPERTY()
 	TArray<TObjectPtr<UGvTScareDefinition>> ScareDefinitions;
-
-	UPROPERTY()
-	TMap<FGameplayTag, TObjectPtr<UGvTGhostProfileAsset>> GhostProfiles;
 };

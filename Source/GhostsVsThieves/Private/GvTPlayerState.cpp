@@ -46,6 +46,7 @@ void AGvTPlayerState::AddPanicAuthority(float Delta01)
 	}
 
 	Panic01 = FMath::Clamp(Panic01 + Delta01, 0.f, 1.f);
+	UpdatePanicFloorFromValue(Panic01);
 	LastPanicSpikeTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
 	OnRep_Panic();
 	ForceNetUpdate();
@@ -58,7 +59,7 @@ void AGvTPlayerState::ReducePanicAuthority(float Delta01)
 		return;
 	}
 
-	Panic01 = FMath::Clamp(Panic01 - Delta01, 0.f, 1.f);
+	Panic01 = FMath::Clamp(Panic01 - Delta01, PanicFloor01, 1.f);
 	OnRep_Panic();
 	ForceNetUpdate();
 }
@@ -194,6 +195,7 @@ void AGvTPlayerState::ApplyPanicEventAuthority(const FGvTPanicEvent& Event)
 	const bool bPressureChanged = !FMath::IsNearlyEqual(NewPressure, OldPressure);
 
 	Panic01 = NewPanic;
+	UpdatePanicFloorFromValue(Panic01);
 	RecentHauntPressure01 = NewPressure;
 
 	if (Event.PanicDelta01 > 0.f)
@@ -232,6 +234,45 @@ void AGvTPlayerState::ApplyPanicEventAuthority(const FGvTPanicEvent& Event)
 		Event.bExecutionSucceeded ? 1 : 0);
 }
 
+float AGvTPlayerState::ResolvePanicFloorForValue(float Value01) const
+{
+	if (Value01 >= 0.75f)
+	{
+		return 0.75f;
+	}
+
+	if (Value01 >= 0.50f)
+	{
+		return 0.50f;
+	}
+
+	if (Value01 >= 0.25f)
+	{
+		return 0.25f;
+	}
+
+	return 0.f;
+}
+
+void AGvTPlayerState::UpdatePanicFloorFromValue(float Value01)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const float NewFloor = ResolvePanicFloorForValue(Value01);
+	if (NewFloor > PanicFloor01)
+	{
+		PanicFloor01 = NewFloor;
+		UE_LOG(LogTemp, Log,
+			TEXT("[PanicFloor] PlayerState=%s Floor=%.2f Panic=%.2f"),
+			*GetNameSafe(this),
+			PanicFloor01,
+			Panic01);
+	}
+}
+
 void AGvTPlayerState::ApplyPanicDecay(float DeltaSeconds)
 {
 	if (Panic01 <= 0.f)
@@ -251,7 +292,7 @@ void AGvTPlayerState::ApplyPanicDecay(float DeltaSeconds)
 		return;
 	}
 
-	const float NewPanic = FMath::Clamp(Panic01 - PanicDecayPerSecond * DeltaSeconds, 0.f, 1.f);
+	const float NewPanic = FMath::Clamp(Panic01 - PanicDecayPerSecond * DeltaSeconds, PanicFloor01, 1.f);
 	if (!FMath::IsNearlyEqual(NewPanic, Panic01))
 	{
 		Panic01 = NewPanic;
@@ -334,9 +375,9 @@ float AGvTPlayerState::ResolveCooldownForSource(EGvTPanicSource Source, float Ov
 		return DefaultPowerCooldownSeconds;
 
 	case EGvTPanicSource::MirrorScare:
-	case EGvTPanicSource::CrawlerOverhead:
-	case EGvTPanicSource::CrawlerChaseStart:
-	case EGvTPanicSource::CrawlerChaseTick:
+	case EGvTPanicSource::GhostScare:
+	case EGvTPanicSource::GhostChaseStart:
+	case EGvTPanicSource::GhostChaseTick:
 	case EGvTPanicSource::RearAudioSting:
 	case EGvTPanicSource::GhostScream:
 	case EGvTPanicSource::DeathRipple:
@@ -362,9 +403,9 @@ const TCHAR* AGvTPlayerState::PanicSourceToString(EGvTPanicSource Source)
 	case EGvTPanicSource::PowerOutage:			return TEXT("PowerOutage");
 	case EGvTPanicSource::PowerRestore:			return TEXT("PowerRestore");
 	case EGvTPanicSource::MirrorScare:			return TEXT("MirrorScare");
-	case EGvTPanicSource::CrawlerOverhead:		return TEXT("CrawlerOverhead");
-	case EGvTPanicSource::CrawlerChaseStart:	return TEXT("CrawlerChaseStart");
-	case EGvTPanicSource::CrawlerChaseTick:		return TEXT("CrawlerChaseTick");
+	case EGvTPanicSource::GhostScare:			return TEXT("GhostScare");
+	case EGvTPanicSource::GhostChaseStart:		return TEXT("GhostChaseStart");
+	case EGvTPanicSource::GhostChaseTick:		return TEXT("GhostChaseTick");
 	case EGvTPanicSource::RearAudioSting:		return TEXT("RearAudioSting");
 	case EGvTPanicSource::GhostScream:			return TEXT("GhostScream");
 	case EGvTPanicSource::DeathRipple:			return TEXT("DeathRipple");
@@ -378,5 +419,6 @@ void AGvTPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 
 	DOREPLIFETIME(AGvTPlayerState, LootValue);
 	DOREPLIFETIME(AGvTPlayerState, Panic01);
+	DOREPLIFETIME(AGvTPlayerState, PanicFloor01);
 	DOREPLIFETIME(AGvTPlayerState, RecentHauntPressure01);
 }

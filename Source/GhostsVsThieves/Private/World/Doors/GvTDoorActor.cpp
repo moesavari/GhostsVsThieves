@@ -167,6 +167,15 @@ void AGvTDoorActor::Multicast_PlaySFX_Implementation(USoundBase* Sound)
 	UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation());
 }
 
+void AGvTDoorActor::Multicast_PrimeDoorOpenForScareSlam_Implementation()
+{
+	// Fallback for scare payloads: pop closed doors open locally first,
+	// then the replicated scare slam animates them shut.
+	ApplyDoorState(true);
+	bAnimating = false;
+	SetActorTickEnabled(false);
+}
+
 void AGvTDoorActor::OnRep_DoorAnimStart()
 {
 	StartDoorAnimWithDuration(bIsOpen, ReplicatedAnimDuration, bReplicatedWasScareSlam);
@@ -336,15 +345,26 @@ bool AGvTDoorActor::IsOpenForScareSlam() const
 	return GetCurrentOpenAlpha() >= ScareSlamMinOpenAlpha;
 }
 
-bool AGvTDoorActor::TriggerScareSlam()
+bool AGvTDoorActor::TriggerScareSlam(bool bAllowClosedDoor)
 {
 	if (!HasAuthority())
 	{
 		return false;
 	}
 
+	if (bIsLocked)
+	{
+		return false;
+	}
+
+	// Door slam scares should only slam doors that are already visibly open.
+	// bAllowClosedDoor is intentionally ignored for now; forced-open fallback made
+	// closed doors appear haunted without a readable setup.
 	if (!IsOpenForScareSlam())
 	{
+		UE_LOG(LogTemp, Verbose,
+			TEXT("[DoorSlam] Rejected %s: door is not open enough for scare slam."),
+			*GetNameSafe(this));
 		return false;
 	}
 

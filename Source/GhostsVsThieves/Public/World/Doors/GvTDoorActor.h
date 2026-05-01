@@ -51,7 +51,7 @@ public:
 	bool IsOpenForScareSlam() const;
 
 	UFUNCTION(BlueprintCallable, Category = "Door|Scare")
-	bool TriggerScareSlam();
+	bool TriggerScareSlam(bool bAllowClosedDoor = false);
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Door")
@@ -149,10 +149,12 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_Unlock = nullptr;
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_ScareSlamStart = nullptr;
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_ScareSlamEnd = nullptr;
-
-
+	
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_PlaySFX(USoundBase* Sound);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PrimeDoorOpenForScareSlam();
 
 	// ---- Server-only close-end callback (one-shot) ----
 	FTimerHandle TimerHandle_CloseEnd;

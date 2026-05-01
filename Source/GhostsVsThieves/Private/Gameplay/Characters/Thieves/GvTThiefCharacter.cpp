@@ -19,6 +19,7 @@
 #include "TimerManager.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "World/Doors/GvTDoorActor.h"
+#include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -214,44 +215,6 @@ void AGvTThiefCharacter::OnPhotoPressed()
     InteractionComponent->TryScan();
 }
 
-void AGvTThiefCharacter::OnTestMirrorPressed()
-{
-    if (!IsLocallyControlled())
-    {
-        return;
-    }
-
-    APlayerController* PC = Cast<APlayerController>(GetController());
-    if (!PC || !PC->PlayerCameraManager)
-    {
-        return;
-    }
-
-    const FVector Start = PC->PlayerCameraManager->GetCameraLocation();
-    const FVector Dir = PC->PlayerCameraManager->GetCameraRotation().Vector();
-    const FVector End = Start + Dir * 2000.f;
-
-    FCollisionQueryParams Params(SCENE_QUERY_STAT(TestMirrorTrace), false, this);
-    FHitResult Hit;
-
-    const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
-    if (!bHit)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] No hit."));
-        return;
-    }
-
-    AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
-    if (!Mirror)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Hit %s, not a mirror."), *GetNameSafe(Hit.GetActor()));
-        return;
-    }
-
-    UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Triggering mirror %s"), *Mirror->GetName());
-    Mirror->TriggerScare(1.0f, 1.5f);
-}
-
 void AGvTThiefCharacter::ServerSetSprinting_Implementation(bool bNewSprinting)
 {
     bIsSprinting = bNewSprinting;
@@ -296,36 +259,37 @@ void AGvTThiefCharacter::Client_PlayLocalScareStun_Implementation(float Duration
     ApplyScareStun(Duration);
 }
 
-void AGvTThiefCharacter::Client_PlayLocalCrawlerOverheadScare_Implementation(const FGvTScareEvent& Event)
+void AGvTThiefCharacter::Client_PlayLocalGhostScare_Implementation(const FGvTScareEvent& Event)
 {
+    UE_LOG(LogTemp, Warning, TEXT("[GhostScareTest] Client RPC reached %s local=%d tag=%s class=%s"),
+        *GetNameSafe(this),
+        IsLocallyControlled() ? 1 : 0,
+        *Event.ScareTag.ToString(),
+        *GetNameSafe(LocalHauntGhostClass));
+
     UE_LOG(LogTemp, Warning,
-        TEXT("[ScareRPC] Client_PlayLocalCrawlerOverheadScare this=%s local=%d incomingTarget=%s"),
+        TEXT("[ScareRPC] Client_PlayLocalGhostScare this=%s local=%d incomingTarget=%s"),
         *GetNameSafe(this),
         IsLocallyControlled() ? 1 : 0,
         *GetNameSafe(Event.TargetActor));
 
     if (!IsLocallyControlled())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare ignored: %s is not locally controlled"), *GetName());
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalGhostScare ignored: %s is not locally controlled"), *GetName());
         return;
     }
 
     UGvTScareComponent* ScareComp = FindComponentByClass<UGvTScareComponent>();
     if (!ScareComp)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare failed: %s has no scare component"), *GetName());
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalGhostScare failed: %s has no scare component"), *GetName());
         return;
     }
 
     FGvTScareEvent LocalEvent = Event;
     LocalEvent.TargetActor = this; // force victim identity from the RPC receiver
 
-    ScareComp->PlayLocalCrawlerOverheadScare(LocalEvent);
-
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare executed on %s finalTarget=%s"),
-        *GetNameSafe(this),
-        *GetNameSafe(LocalEvent.TargetActor));
+    PlayLocalHauntGhostScare(LocalEvent);
 }
 
 void AGvTThiefCharacter::ApplyScareStun(float Duration)
@@ -448,35 +412,7 @@ void AGvTThiefCharacter::OnRep_IsDead()
 
 void AGvTThiefCharacter::Debug_RequestMirrorScare()
 {
-    if (HasAuthority())
-    {
-        Server_DebugRequestMirrorScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestMirrorScare();
-}
-
-void AGvTThiefCharacter::Debug_RequestCrawlerChaseScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestCrawlerChaseScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestCrawlerChaseScare();
-}
-
-void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestCrawlerOverheadScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestCrawlerOverheadScare();
+    OnTestMirrorPressed();
 }
 
 void AGvTThiefCharacter::Debug_RequestRearAudioStingScare()
@@ -512,6 +448,17 @@ void AGvTThiefCharacter::Debug_RequestDoorSlamBehindScare()
     Server_DebugRequestDoorSlamBehindScare();
 }
 
+void AGvTThiefCharacter::Debug_RequestLightChaseScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestLightChaseScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestLightChaseScare();
+}
+
 void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
 {
     if (UGameInstance* GI = GetGameInstance())
@@ -521,34 +468,6 @@ void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
             const FGvTScareEvent Event = Director->MakeMirrorEvent(this);
 
             UE_LOG(LogTemp, Warning, TEXT("[Debug] Server Mirror scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
-        }
-    }
-}
-
-void AGvTThiefCharacter::Server_DebugRequestCrawlerChaseScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
-    {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            const FGvTScareEvent Event = Director->MakeCrawlerChaseEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerChase scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
-        }
-    }
-}
-
-void AGvTThiefCharacter::Server_DebugRequestCrawlerOverheadScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
-    {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            const FGvTScareEvent Event = Director->MakeCrawlerOverheadEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerOverhead scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }
@@ -605,4 +524,213 @@ void AGvTThiefCharacter::Server_DebugRequestDoorSlamBehindScare_Implementation()
             Director->DispatchScareEvent(Event);
         }
     }
+}
+
+void AGvTThiefCharacter::Server_DebugRequestLightChaseScare_Implementation()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            const FGvTScareEvent Event = Director->MakeLightChaseEvent(this);
+
+            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server LightChase scare requested for %s"), *GetName());
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::OnTestMirrorPressed()
+{
+    APlayerController* PC = Cast<APlayerController>(GetController());
+    if (!PC || !PC->PlayerCameraManager)
+    {
+        return;
+    }
+
+    const FVector Start = PC->PlayerCameraManager->GetCameraLocation();
+    const FVector Dir = PC->PlayerCameraManager->GetCameraRotation().Vector();
+    const FVector End = Start + Dir * 2000.f;
+
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(TestMirrorTrace), false, this);
+    FHitResult Hit;
+
+    const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params);
+    if (!bHit)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] No hit."));
+        return;
+    }
+
+    AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
+    if (!Mirror)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Hit %s, not a mirror."), *GetNameSafe(Hit.GetActor()));
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Requesting mirror payload on %s"), *Mirror->GetName());
+
+    if (HasAuthority())
+    {
+        Server_DebugTriggerMirrorActor_Implementation(Mirror);
+    }
+    else
+    {
+        Server_DebugTriggerMirrorActor(Mirror);
+    }
+}
+
+void AGvTThiefCharacter::Server_DebugTriggerMirrorActor_Implementation(AGvTMirrorActor* Mirror)
+{
+    if (!Mirror)
+    {
+        return;
+    }
+
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            FGvTScareEvent Event = Director->MakeMirrorEvent(this);
+            Event.SourceActor = Mirror;
+            Event.WorldHint = Mirror->GetActorLocation();
+
+            UE_LOG(LogTemp, Warning,
+                TEXT("[Debug] Server mirror payload requested for %s using %s"),
+                *GetName(),
+                *GetNameSafe(Mirror));
+
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Debug_RequestGhostChaseScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestGhostChaseScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestGhostChaseScare();
+}
+
+void AGvTThiefCharacter::Debug_RequestGhostScare()
+{
+    if (HasAuthority())
+    {
+        Server_DebugRequestGhostScare_Implementation();
+        return;
+    }
+
+    Server_DebugRequestGhostScare();
+}
+
+void AGvTThiefCharacter::Server_DebugRequestGhostChaseScare_Implementation()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            const FGvTScareEvent Event = Director->MakeGhostChaseEvent(this);
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation()
+{
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            const FGvTScareEvent Event = Director->MakeGhostScareEvent(this);
+            Director->DispatchScareEvent(Event);
+        }
+    }
+}
+
+void AGvTThiefCharacter::PlayLocalHauntGhostScare(const FGvTScareEvent& Event)
+{
+    UGvTScareComponent* ScareComp = FindComponentByClass<UGvTScareComponent>();
+    if (!ScareComp)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Scare] Local haunt scare failed: %s has no scare component"), *GetName());
+        return;
+    }
+
+    if (!ScareComp->TryBeginLocalHauntGhostScare(Event))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[GhostScareFix] Force clearing stuck scare state"));
+        ScareComp->EndScareLifecycle();
+
+        return;
+    }
+
+    if (!LocalHauntGhostClass)
+    {
+        UE_LOG(LogTemp, Error, TEXT("[Scare] Local haunt scare failed: LocalHauntGhostClass is not assigned on %s"), *GetName());
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    TSubclassOf<AGvTGhostCharacterBase> SpawnClass = LocalHauntGhostClass;
+
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            if (AGvTGhostCharacterBase* PrimaryGhost = Director->GetPrimaryGhost())
+            {
+                SpawnClass = PrimaryGhost->GetClass();
+            }
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[GhostScareTest] Spawning local ghost class=%s (override=%s)"),
+        *GetNameSafe(SpawnClass),
+        *GetNameSafe(LocalHauntGhostClass));
+
+    AGvTGhostCharacterBase* LocalGhost = World->SpawnActor<AGvTGhostCharacterBase>(
+        SpawnClass,
+        GetActorLocation(),
+        FRotator::ZeroRotator,
+        SpawnParams);;
+
+    if (!LocalGhost)
+    {
+        UE_LOG(LogTemp, Error, TEXT("[Scare] Local haunt scare failed: could not spawn local ghost."));
+        return;
+    }
+
+    //LocalGhost->SetReplicates(false);
+    //LocalGhost->SetReplicateMovement(false);
+
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            if (AGvTGhostCharacterBase* PrimaryGhost = Director->GetPrimaryGhost())
+            {
+                LocalGhost->InitializeGhost(
+                    TEXT("LocalGhostScare"),
+                    PrimaryGhost->GetGhostModelData(),
+                    PrimaryGhost->GetGhostTypeData(),
+                    PrimaryGhost->GetRuntimeConfig());
+            }
+        }
+    }
+
+    LocalGhost->BeginHauntGhostScare(this, Event.ScareTag);
 }

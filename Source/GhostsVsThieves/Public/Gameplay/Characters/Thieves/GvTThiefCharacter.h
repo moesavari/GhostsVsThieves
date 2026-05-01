@@ -13,6 +13,7 @@ class UInputAction;
 class UGvTNoiseEmitterComponent;
 class UGvTInteractionComponent;
 class UGvTDirectorSubsystem;
+class AGvTGhostCharacterBase;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -38,7 +39,7 @@ public:
     void Client_PlayLocalScareStun(float Duration);
 
     UFUNCTION(Client, Reliable)
-    void Client_PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event);
+    void Client_PlayLocalGhostScare(const FGvTScareEvent& Event);
 
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
@@ -56,12 +57,6 @@ public:
     void Debug_RequestMirrorScare();
 
     UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestCrawlerChaseScare();
-
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestCrawlerOverheadScare();
-
-    UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestRearAudioStingScare();
 
     UFUNCTION(BlueprintCallable, Category = "Debug")
@@ -70,14 +65,17 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestDoorSlamBehindScare();
 
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestLightChaseScare();
+
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestGhostChaseScare();
+
+    UFUNCTION(BlueprintCallable, Category = "Debug")
+    void Debug_RequestGhostScare();
+
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestMirrorScare();
-
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestCrawlerChaseScare();
-
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestCrawlerOverheadScare();
 
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestRearAudioStingScare();
@@ -87,6 +85,21 @@ public:
 
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestDoorSlamBehindScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestLightChaseScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugTriggerMirrorActor(AGvTMirrorActor* Mirror);
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestGhostChaseScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestGhostScare();
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scare|Local")
+    TSubclassOf<AGvTGhostCharacterBase> LocalHauntGhostClass;
 
 protected:
     virtual void BeginPlay() override;
@@ -109,6 +122,7 @@ protected:
 
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnInteractPressed();
+
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnPhotoPressed();
 
@@ -175,6 +189,7 @@ protected:
 private:
     void ClearScareStun();
     void ClearScareStun(int32 ClearCountAtScheduleTime);
+    void PlayLocalHauntGhostScare(const FGvTScareEvent& Event);
 
     FTimerHandle TimerHandle_ClearScareStun;
 };

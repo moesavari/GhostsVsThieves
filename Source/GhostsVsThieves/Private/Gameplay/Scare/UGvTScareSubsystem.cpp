@@ -1,6 +1,6 @@
 #include "Gameplay/Scare/UGvTScareSubsystem.h"
 #include "Gameplay/Scare/GvTScareDefinition.h"
-#include "Gameplay/Scare/UGvTGhostProfileAsset.h"
+#include "Gameplay/Ghosts/GvTGhostTypeData.h"
 #include "HAL/IConsoleManager.h"
 
 static TAutoConsoleVariable<int32> CVarGvTScareDebug(
@@ -35,28 +35,9 @@ void UGvTScareSubsystem::RegisterScareDefinition(UGvTScareDefinition* Def)
 	UE_LOG(LogTemp, Log, TEXT("Registered Scare: %s"), *GetNameSafe(Def));
 }
 
-void UGvTScareSubsystem::RegisterGhostProfile(UGvTGhostProfileAsset* Profile)
-{
-	if (Profile && Profile->GhostTag.IsValid())
-	{
-		GhostProfiles.Add(Profile->GhostTag, Profile);
-	}
-
-	UE_LOG(LogTemp, Log, TEXT("Registered GhostProfile: %s"), *GetNameSafe(Profile));
-}
-
-const UGvTGhostProfileAsset* UGvTScareSubsystem::GetGhostProfile(FGameplayTag GhostTag) const
-{
-	if (const TObjectPtr<UGvTGhostProfileAsset>* Found = GhostProfiles.Find(GhostTag))
-	{
-		return Found->Get();
-	}
-	return nullptr;
-}
-
 const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeighted(
 	const FGameplayTagContainer& ContextTags,
-	const UGvTGhostProfileAsset* GhostProfile,
+	const UGvTGhostTypeData* GhostType,
 	uint8 PanicTier,
 	const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 	float NowSeconds,
@@ -90,7 +71,7 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeighted(
 			continue;
 		}
 
-		const float W = ComputeFinalWeight(Def, ContextTags, GhostProfile, PanicTier, LastTagTimeSeconds, NowSeconds);
+		const float W = ComputeFinalWeight(Def, ContextTags, GhostType, PanicTier, LastTagTimeSeconds, NowSeconds);
 		if (W <= KINDA_SMALL_NUMBER)
 		{
 			continue;
@@ -122,7 +103,7 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeighted(
 
 const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeightedDebug(
 	const FGameplayTagContainer& ContextTags,
-	const UGvTGhostProfileAsset* GhostProfile,
+	const UGvTGhostTypeData* GhostType,
 	uint8 PanicTier,
 	const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 	float NowSeconds,
@@ -176,6 +157,13 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeightedDebug(
 			continue;
 		}
 
+		if (GhostType && GhostType->AllowedScareTags.Num() > 0 && !GhostType->AllowedScareTags.HasTagExact(Def->ScareTag))
+		{
+			Row.FilterReason = TEXT("Not allowed by GhostType");
+			OutDebugRows.Add(Row);
+			continue;
+		}
+
 		float W = Def->BaseWeight;
 		if (W <= 0.f)
 		{
@@ -187,13 +175,13 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeightedDebug(
 		Row.TierMult = (1.0f + 0.08f * float(PanicTier));
 		W *= Row.TierMult;
 
-		Row.GhostMult = 1.f;
-		if (GhostProfile)
+		Row.GhostTypeMult = 1.f;
+		if (GhostType)
 		{
-			if (const float* Mult = GhostProfile->TagMultipliers.Find(Def->ScareTag))
+			if (const float* Mult = GhostType->ScareTagMultipliers.Find(Def->ScareTag))
 			{
-				Row.GhostMult = FMath::Max(0.f, *Mult);
-				W *= Row.GhostMult;
+				Row.GhostTypeMult = FMath::Max(0.f, *Mult);
+				W *= Row.GhostTypeMult;
 			}
 		}
 
@@ -252,9 +240,9 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeightedDebug(
 		}
 
 		Viable.Sort([](const FGvTScareWeightDebugRow& A, const FGvTScareWeightDebugRow& B)
-			{
-				return A.Final > B.Final;
-			});
+		{
+			return A.Final > B.Final;
+		});
 
 		const int32 TopN = FMath::Clamp(CVarGvTScareDebugTopN.GetValueOnGameThread(), 1, 20);
 
@@ -264,8 +252,8 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeightedDebug(
 		for (int32 i = 0; i < FMath::Min(TopN, Viable.Num()); ++i)
 		{
 			const auto& R = Viable[i];
-			UE_LOG(LogTemp, Log, TEXT("  #%d %s Final=%.3f (Base=%.2f Tier=%.2f Ghost=%.2f Ctx=%.2f Repeat=%.2f)"),
-				i + 1, *R.Tag.ToString(), R.Final, R.Base, R.TierMult, R.GhostMult, R.ContextMult, R.RepeatMult);
+			UE_LOG(LogTemp, Log, TEXT("  #%d %s Final=%.3f (Base=%.2f Tier=%.2f GhostType=%.2f Ctx=%.2f Repeat=%.2f)"),
+				i + 1, *R.Tag.ToString(), R.Final, R.Base, R.TierMult, R.GhostTypeMult, R.ContextMult, R.RepeatMult);
 		}
 	}
 
@@ -298,13 +286,18 @@ const UGvTScareDefinition* UGvTScareSubsystem::PickScareWeightedDebug(
 float UGvTScareSubsystem::ComputeFinalWeight(
 	const UGvTScareDefinition* Def,
 	const FGameplayTagContainer& ContextTags,
-	const UGvTGhostProfileAsset* GhostProfile,
+	const UGvTGhostTypeData* GhostType,
 	uint8 PanicTier,
 	const TMap<FGameplayTag, float>& LastTagTimeSeconds,
 	float NowSeconds
 ) const
 {
 	if (!Def)
+	{
+		return 0.f;
+	}
+
+	if (GhostType && GhostType->AllowedScareTags.Num() > 0 && !GhostType->AllowedScareTags.HasTagExact(Def->ScareTag))
 	{
 		return 0.f;
 	}
@@ -317,9 +310,9 @@ float UGvTScareSubsystem::ComputeFinalWeight(
 
 	W *= (1.0f + 0.08f * float(PanicTier));
 
-	if (GhostProfile)
+	if (GhostType)
 	{
-		if (const float* Mult = GhostProfile->TagMultipliers.Find(Def->ScareTag))
+		if (const float* Mult = GhostType->ScareTagMultipliers.Find(Def->ScareTag))
 		{
 			W *= FMath::Max(0.f, *Mult);
 		}

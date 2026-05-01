@@ -106,3 +106,57 @@ struct FGvTScareState
 	UPROPERTY(BlueprintReadOnly)
 	uint8 LastPanicTier = 0;
 };
+
+USTRUCT(BlueprintType)
+struct FGvTGhostHuntRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Hunt")
+	TObjectPtr<AActor> TargetActor = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Hunt")
+	float Intensity01 = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Hunt")
+	int32 MaxGhostsToDispatch = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Hunt")
+	bool bAllowMultipleGhosts = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Hunt")
+	FGameplayTag RequestedHauntTag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Hunt")
+	FGameplayTagContainer ContextTags;
+};
+
+USTRUCT(BlueprintType)
+struct FGvTGhostEventRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	TObjectPtr<AActor> TargetActor = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	float Intensity01 = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	FVector WorldLocation = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	TObjectPtr<AActor> SourceActor = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	bool bVictimLocalOnly = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	bool bRequiresWorldGhost = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	FGameplayTag RequestedEventTag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Event")
+	FGameplayTagContainer ContextTags;
+};

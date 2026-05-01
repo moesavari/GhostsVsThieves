@@ -7,14 +7,14 @@ namespace GvTScareTags
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.Mirror"));
 	}
 
-	FGameplayTag CrawlerChase()
+	FGameplayTag GhostChase()
 	{
-		return FGameplayTag::RequestGameplayTag(TEXT("Scare.Crawler.Chase"));
+		return FGameplayTag::RequestGameplayTag(TEXT("Scare.GhostChase"));
 	}
 
-	FGameplayTag CrawlerOverhead()
+	FGameplayTag GhostScare()
 	{
-		return FGameplayTag::RequestGameplayTag(TEXT("Scare.Crawler.Overhead"));
+		return FGameplayTag::RequestGameplayTag(TEXT("Scare.GhostScare"));
 	}
 
 	FGameplayTag LightChase()
@@ -22,12 +22,12 @@ namespace GvTScareTags
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.LightChase"));
 	}
 
-	FGameplayTag GvTScareTags::RearAudioSting()
+	FGameplayTag RearAudioSting()
 	{
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.RearAudioSting"));
 	}
 
-	FGameplayTag GvTScareTags::GhostScream()
+	FGameplayTag GhostScream()
 	{
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.GhostScream"));
 	}

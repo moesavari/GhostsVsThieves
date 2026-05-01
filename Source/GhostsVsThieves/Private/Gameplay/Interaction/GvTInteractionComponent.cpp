@@ -162,10 +162,24 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	FGvTInteractionSpec Spec;
 	IGvTInteractable::Execute_GetInteractionSpec(HitActor, OwnerPawn, Verb, Spec);
 
-	// Instant interactions resolve immediately (no lock-in)
 	if (Spec.CastTime <= KINDA_SMALL_NUMBER)
 	{
 		IGvTInteractable::Execute_CompleteInteract(HitActor, OwnerPawn, Verb);
+
+		if (GetOwner()->HasAuthority())
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UGameInstance* GI = World->GetGameInstance())
+				{
+					if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+					{
+						Director->OnPlayerInteractionEvent(OwnerPawn, HitActor);
+					}
+				}
+			}
+		}
+
 		return;
 	}
 
@@ -231,6 +245,19 @@ void UGvTInteractionComponent::CompleteInteraction()
 	if (Target->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
 		IGvTInteractable::Execute_CompleteInteract(Target, OwnerPawn, Verb);
+		if (GetOwner()->HasAuthority())
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UGameInstance* GI = World->GetGameInstance())
+				{
+					if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+					{
+						Director->OnPlayerInteractionEvent(OwnerPawn, Target);
+					}
+				}
+			}
+		}
 	}
 
 	if (GetOwner()->HasAuthority())

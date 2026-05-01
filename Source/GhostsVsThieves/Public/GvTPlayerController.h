@@ -55,4 +55,7 @@ private:
     TWeakObjectPtr<AActor> CurrentHighlightedActor;
     TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
     FTimerHandle TimerHandle_BindHUDRetry;
+
+    float LastLoggedPanic01 = -1.f;
+    float LastLoggedPanicLogTime = -1000.f;
 };

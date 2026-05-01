@@ -11,6 +11,6 @@ void UGvTAnimNotify_CrawlerDragStep::Notify(USkeletalMeshComponent* MeshComp, UA
 
 	if (Ghost->HasAuthority())
 	{
-		Ghost->OnCrawlerDragStep();
+		//Ghost->OnCrawlerDragStep();
 	}
 }

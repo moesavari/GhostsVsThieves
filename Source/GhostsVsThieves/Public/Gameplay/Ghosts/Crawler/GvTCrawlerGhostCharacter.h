@@ -1,17 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
-#include "Net/UnrealNetwork.h"
-#include "Systems/EGvTCrawlerGhostState.h"
-#include "Systems/Noise/GvTScareAudioTypes.h"
+#include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
 #include "GvTCrawlerGhostCharacter.generated.h"
 
-class UAudioComponent;
-class USoundBase;
-
 UCLASS(BlueprintType)
-class GHOSTSVSTHIEVES_API AGvTCrawlerGhostCharacter : public ACharacter
+class GHOSTSVSTHIEVES_API AGvTCrawlerGhostCharacter : public AGvTGhostCharacterBase
 {
 	GENERATED_BODY()
 
@@ -21,167 +15,20 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-
-	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "GvT|Crawler|Chase")
-	void Server_StartChase(APawn* Victim);
-
-	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "GvT|Crawler|Overhead")
-	void Server_StartOverheadScare(APawn* Victim, bool bVictimOnly = true);
-
-	UFUNCTION(BlueprintCallable, Server, Reliable)
-	void Server_DragStep();
-
-	UFUNCTION(BlueprintPure, Category = "Crawler")
-	EGvTCrawlerGhostState GetState() const { return State; }
-
-	UFUNCTION(BlueprintPure, Category = "Crawler|Anim")
-	float GetReplicatedSpeed() const { return ReplicatedSpeed; }
-
-	void StartLocalOverheadScare(APawn* Victim);
-
-	void StopAndDie();
-
-	void OnCrawlerDragStep();
+	virtual void BeginHauntGhostScare(AActor* Target, FGameplayTag ScareTag) override;
 
 protected:
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	void OnRep_State();
+	void BeginGhostScare_Local(ACharacter* TargetCharacter);
 
-	void SetState(EGvTCrawlerGhostState NewState);
-	void StartOverhead_Internal(APawn* Victim);
-	void EndOverhead();
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Ghost|Crawler|Overhead")
+	float OverheadForwardOffset = 40.f;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Ghost|Crawler|Overhead")
+	float OverheadHeightOffset = 120.f;
 
-	void SnapToGround();
-	void OverheadTick(float DeltaSeconds);
-	bool GetVictimCamera(FVector& OutCamLoc, FRotator& OutCamRot) const;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Ghost|Crawler|Overhead")
+	float OverheadPitchOffset = -45.f;
 
-	UFUNCTION(BlueprintCallable, Category="GvT|Crawler|Chase")
-	APawn* GetTargetVictim() const { return TargetVictim; }
-
-	UPROPERTY(Replicated, BlueprintReadOnly, Category="GvT|Crawler|Chase")
-	TObjectPtr<APawn> TargetVictim;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Chase", meta=(ClampMin="0.05", ClampMax="2.0"))
-	float RepathInterval = 0.25f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Chase", meta=(ClampMin="0.0", ClampMax="5000.0"))
-	float AcceptRadius = 60.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Chase", meta=(ClampMin="0.0", ClampMax="5000.0"))
-	float KillDistance = 140.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Chase", meta=(ClampMin="0.0", ClampMax="100000.0"))
-	float MaxChaseDistance = 6000.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Movement", meta=(ClampMin="0.0", ClampMax="2000.0"))
-	float MaxSpeed = 350.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Movement", meta=(ClampMin="0.0", ClampMax="5000.0"))
-	float Acceleration = 2048.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Movement", meta=(ClampMin="0.0", ClampMax="5000.0"))
-	float BrakingDecel = 2048.f;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Chase|AnimDrive")
-	bool bUseDragStepMovement = true;
-
-	// ----------------------------
-	// Overhead scare tuning
-	// ----------------------------
-	/** Upward trace distance from victim camera to find ceiling. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead", meta=(ClampMin="0.0"))
-	float OverheadTraceUpDistance = 1000.f;
-
-	/** Clearance below the hit ceiling point. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead", meta=(ClampMin="0.0"))
-	float OverheadCeilingClearance = 100.f;
-
-	/** Extra forward offset from the camera's forward (feels "in front"). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	float OverheadForwardOffset = 80.f;
-
-	/** Additional framing offsets (camera-relative). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	float OverheadFaceForward = 50.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	float OverheadFaceDown = 25.f;
-
-	/** Start/end pitch (deg) used during overhead scare. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	float OverheadPitchStartDeg = -45.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	float OverheadPitchEndDeg = 8.f;
-
-	/** How long the overhead scare lasts (seconds). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead", meta=(ClampMin="0.01"))
-	float OverheadDuration = 0.8f;
-
-	/** If true, automatically transition into chase after overhead ends. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	bool bOverheadAutoStartChase = false;
-
-	/** If true, destroy the ghost after overhead ends (if not auto-chasing). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead")
-	bool bOverheadAutoVanish = true;
-
-	/** Degrees/sec yaw turn speed while facing the victim during overhead. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="GvT|Crawler|Overhead", meta=(ClampMin="0.0"))
-	float OverheadTurnSpeedDegPerSec = 6000.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Crawler|DragStep")
-	float DragStepDistance = 55.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Crawler|DragStep")
-	float DragStepDuration = 0.18f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Crawler|DragStep")
-	float DragStepForwardBias = 1.0f;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Chase|Grounding")
-	bool bSnapToGroundInChase = true;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Chase|Grounding", meta = (ClampMin = "0.0"))
-	float GroundTraceUp = 50.f;
-
-	UPROPERTY(EditDefaultsOnly, Category = "Chase|Grounding", meta = (ClampMin = "0.0"))
-	float GroundTraceDown = 300.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Crawler|DragStep")
-	bool bDragStepUseVelocityDir = true;
-
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Crawler")
-	EGvTCrawlerGhostState State = EGvTCrawlerGhostState::IdleCeiling;
-
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "Crawler|Anim")
-	float ReplicatedSpeed = 0.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Crawler|Audio")
-	FGvTScareAudioSet OverheadAudio;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Crawler|Audio")
-	FGvTScareAudioSet ChaseAudio;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UAudioComponent> ActiveSustainAudio = nullptr;
-
-	void PlayScareAudioStart(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
-	void StartScareAudioSustain(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
-	void StopScareAudioSustain(const FGvTScareAudioSet& AudioSet);
-	void PlayScareAudioEnd(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
-	void StopCurrentScareAudio(bool bPlayEnd, const FGvTScareAudioSet* AudioSet, bool bAttachToActor);
-
-private:
-	void ChaseTick(float DeltaSeconds);
-	void TryKillVictim();
-	void ApplyDragStep();
-
-	float RepathTimer = 0.f;
-	bool bOverheadActive = false;
-	float OverheadStartTime = 0.f;
-
-	bool bLocalOverheadOnly = false;
-	bool bDisableOverheadVictimTracking = false;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Ghost|Crawler|Overhead")
+	float OverheadDuration = 1.2f;
 };

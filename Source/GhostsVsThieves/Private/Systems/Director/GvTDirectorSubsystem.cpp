@@ -1,7 +1,7 @@
 ﻿#include "Systems/Director/GvTDirectorSubsystem.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Scare/GvTScareTags.h"
-#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "GvTPlayerState.h"
 #include "GvTGameStateBase.h"
 #include "GameFramework/PlayerController.h"
@@ -12,9 +12,14 @@
 #include "TimerManager.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Camera/PlayerCameraManager.h"
-#include "GvTPlayerState.h"
 #include "EngineUtils.h"
 #include "Systems/GvTPowerBoxActor.h"
+#include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
+#include "Gameplay/Ghosts/GvTGhostModelData.h"
+#include "Gameplay/Ghosts/GvTGhostTypeData.h"
+#include "Gameplay/Ghosts/GvTGhostRuntimeTypes.h"
+#include "Systems/Spawn/GvTGhostSpawnPoint.h"
+#include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 
 static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
@@ -34,13 +39,13 @@ static EGvTPanicSource GvTMapScareTagToPanicSource(const FGameplayTag& ScareTag)
 	{
 		return EGvTPanicSource::MirrorScare;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare()))
 	{
-		return EGvTPanicSource::CrawlerOverhead;
+		return EGvTPanicSource::GhostScare;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostChase()))
 	{
-		return EGvTPanicSource::CrawlerChaseStart;
+		return EGvTPanicSource::GhostChaseStart;
 	}
 	if (ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
 	{
@@ -64,11 +69,11 @@ static EGvTPanicSource GvTMapScareTagToPanicSource(const FGameplayTag& ScareTag)
 
 static float GvTGetPressureGain01ForScareTag(const FGameplayTag& ScareTag, bool bTriggerLocalFlicker)
 {
-	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostChase()))
 	{
 		return 0.35f;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare()))
 	{
 		return 0.22f;
 	}
@@ -111,6 +116,7 @@ void UGvTDirectorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void UGvTDirectorSubsystem::Deinitialize()
 {
 	StopDirector();
+	ClearRoundGhosts();
 
 	Super::Deinitialize();
 	UE_LOG(LogTemp, Log, TEXT("GvT Director Subsystem Deinitialized"));
@@ -259,7 +265,7 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 	}
 	else
 	{
-		Event = MakeCrawlerOverheadEvent(Target);
+		Event = MakeGhostScareEvent(Target);
 	}
 
 	UGvTScareComponent* ScareComp = Target->FindComponentByClass<UGvTScareComponent>();
@@ -410,6 +416,14 @@ AActor* UGvTDirectorSubsystem::ChooseHighestPanicTarget() const
 
 bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 {
+	if (!CanPrimaryGhostUseScareTag(Event.ScareTag))
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[Director] Blocked scare %s (not allowed by active ghost type)"),
+			*Event.ScareTag.ToString());
+		return false;
+	}
+
 	AActor* Target = Event.TargetActor;
 	if (!IsValid(Target))
 	{
@@ -447,14 +461,13 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 			return false;
 		}
 
-		const bool bSlammed = Door->TriggerScareSlam();
+		const bool bSlammed = Door->TriggerScareSlam(false);
 		if (!bSlammed)
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Director] DoorSlamBehind failed: %s was not slam-eligible."), *GetNameSafe(Door));
 			return false;
 		}
 
-		// Panic only if the target is actually close enough to the slammed door.
 		const float PanicRadius = FMath::Max(0.f, DoorSlamPanicRadius);
 		const float DistSq = FVector::DistSquared(TargetPawn->GetActorLocation(), Door->GetActorLocation());
 		const bool bTargetWithinPanicVicinity = DistSq <= FMath::Square(PanicRadius);
@@ -493,7 +506,7 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		FGvTPanicEvent PanicEvent;
 		PanicEvent.Source = GvTMapScareTagToPanicSource(Event.ScareTag);
 		PanicEvent.PanicDelta01 =
-			(Event.bAffectsPanic && Event.PanicAmount > 0.f && !Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+			(Event.bAffectsPanic && Event.PanicAmount > 0.f)
 			? (Event.PanicAmount / 100.f)
 			: 0.f;
 		PanicEvent.HauntPressureDelta01 = GvTGetPressureGain01ForScareTag(Event.ScareTag, Event.bTriggerLocalFlicker);
@@ -523,15 +536,19 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch Mirror to %s"), *GetNameSafe(Target));
-		ScareComp->RequestMirrorScare(Event.Intensity01, Event.Duration > 0.f ? Event.Duration : 1.5f);
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Director] Dispatch Mirror to %s Mirror=%s"),
+			*GetNameSafe(Target),
+			*GetNameSafe(Event.SourceActor));
+
+		ScareComp->RequestMirrorScareFromEvent(Event);
 		return true;
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostChase()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch Crawler Chase to %s"), *GetNameSafe(Target));
-		ScareComp->RequestCrawlerChaseFromEvent(Target);
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch GhostChase to %s"), *GetNameSafe(Target));
+		ScareComp->RequestGhostChaseFromEvent(Target);
 		return true;
 	}
 
@@ -556,16 +573,23 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		return true;
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare()))
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[Director] Dispatch CrawlerOverhead to %s NetMode=%s LocalRole=%d RemoteRole=%d"),
+			TEXT("[Director] Dispatch GhostScare to %s NetMode=%s LocalRole=%d RemoteRole=%d"),
 			*GetNameSafe(Target),
 			GvTNetModeToString(Target->GetNetMode()),
 			(int32)Target->GetLocalRole(),
 			(int32)Target->GetRemoteRole());
 
-		ScareComp->RequestCrawlerOverheadFromEvent(Event);
+		if (AGvTThiefCharacter* ThiefTarget = Cast<AGvTThiefCharacter>(Target))
+		{
+			ThiefTarget->Client_PlayLocalGhostScare(Event);
+		}
+		else
+		{
+			ScareComp->RequestGhostScareFromEvent(Event);
+		}
 		return true;
 	}
 
@@ -584,15 +608,66 @@ bool UGvTDirectorSubsystem::DispatchScareEventSimple(
 	}
 
 	FGvTScareEvent Event;
-	Event.TargetActor = TargetPawn;
-	Event.ScareTag = ScareTag;
-	Event.SourceActor = SourceActor;
-	Event.WorldHint = TargetPawn->GetActorLocation();
-	Event.PanicAmount = 10.f;
-	Event.Intensity01 = 1.0f;
-	Event.Duration = 1.5f;
-	Event.bAffectsPanic = true;
-	Event.bTriggerLocalFlicker = false;
+
+	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
+	{
+		Event = SourceActor ? MakeMirrorEventForActor(TargetPawn, SourceActor) : MakeMirrorEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare()))
+	{
+		Event = MakeGhostScareEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::GhostChase()))
+	{
+		Event = MakeGhostChaseEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		Event = MakeLightChaseEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		Event = MakeRearAudioStingEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		Event = MakeGhostScreamEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+	{
+		Event = MakeDoorSlamBehindEvent(TargetPawn, SourceActor);
+	}
+	else
+	{
+		Event.TargetActor = TargetPawn;
+		Event.ScareTag = ScareTag;
+		Event.SourceActor = SourceActor;
+		Event.WorldHint = TargetPawn->GetActorLocation();
+		Event.PanicAmount = 10.f;
+		Event.Intensity01 = 1.0f;
+		Event.Duration = 1.5f;
+		Event.bAffectsPanic = true;
+		Event.bTriggerLocalFlicker = false;
+	}
+
+	if (SourceActor && !Event.SourceActor)
+	{
+		Event.SourceActor = SourceActor;
+	}
+	if (!Event.TargetActor)
+	{
+		Event.TargetActor = TargetPawn;
+	}
+	if (Event.WorldHint.IsNearlyZero())
+	{
+		Event.WorldHint = TargetPawn->GetActorLocation();
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Director] DispatchScareEventSimple built tag=%s target=%s panic=%.1f duration=%.2f"),
+		*Event.ScareTag.ToString(),
+		*GetNameSafe(Event.TargetActor),
+		Event.PanicAmount,
+		Event.Duration);
 
 	return DispatchScareEvent(Event);
 }
@@ -617,10 +692,13 @@ bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event,
 	if (Event.bTriggerLocalFlicker)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Trigger LOCAL flicker"));
-		TargetScareComp->Debug_RequestLocalHouseLightFlicker(
-			FMath::Clamp(Event.Intensity01, 0.f, 1.f),
-			Event.Duration > 0.f ? Event.Duration : 1.5f
-		);
+		const FGvTLightFlickerEvent FlickerEvent =
+			TargetScareComp->MakeLightFlickerEvent(
+				FMath::Clamp(Event.Intensity01, 0.f, 1.f),
+				Event.Duration > 0.f ? Event.Duration : 1.5f,
+				true);
+
+		TargetScareComp->Client_PlayLightFlicker(FlickerEvent);
 		return true;
 	}
 
@@ -638,34 +716,44 @@ FGvTScareEvent UGvTDirectorSubsystem::MakeMirrorEvent(AActor* Target) const
 	Event.bTriggerGroupFlicker = false;
 	Event.bAffectsPanic = true;
 	Event.PanicAmount = MirrorPanicAmount;
+	Event.WorldHint = Target ? Target->GetActorLocation() : FVector::ZeroVector;
+	Event.SourceActor = nullptr;
 	return Event;
 }
 
-FGvTScareEvent UGvTDirectorSubsystem::MakeCrawlerOverheadEvent(AActor* Target) const
+FGvTScareEvent UGvTDirectorSubsystem::MakeMirrorEventForActor(AActor* Target, AActor* MirrorActor) const
+{
+	FGvTScareEvent Event = MakeMirrorEvent(Target);
+	Event.SourceActor = MirrorActor;
+	Event.WorldHint = MirrorActor ? MirrorActor->GetActorLocation() : FVector::ZeroVector;
+	return Event;
+}
+
+FGvTScareEvent UGvTDirectorSubsystem::MakeGhostScareEvent(AActor* Target) const
 {
 	FGvTScareEvent Event;
-	Event.ScareTag = GvTScareTags::CrawlerOverhead();
+	Event.ScareTag = GvTScareTags::GhostScare();
 	Event.TargetActor = Target;
 	Event.Intensity01 = 1.0f;
-	Event.Duration = CrawlerOverheadDuration;
-	Event.bTriggerLocalFlicker = bCrawlerOverheadTriggersLocalFlicker;
+	Event.Duration = GhostScareDuration;
+	Event.bTriggerLocalFlicker = bGhostScareTriggersLocalFlicker;
 	Event.bTriggerGroupFlicker = false;
 	Event.bAffectsPanic = true;
-	Event.PanicAmount = CrawlerOverheadPanicAmount;
+	Event.PanicAmount = GhostScarePanicAmount;
 	return Event;
 }
 
-FGvTScareEvent UGvTDirectorSubsystem::MakeCrawlerChaseEvent(AActor* Target) const
+FGvTScareEvent UGvTDirectorSubsystem::MakeGhostChaseEvent(AActor* Target) const
 {
 	FGvTScareEvent Event;
-	Event.ScareTag = GvTScareTags::CrawlerChase();
+	Event.ScareTag = GvTScareTags::GhostChase();
 	Event.TargetActor = Target;
 	Event.Intensity01 = 1.0f;
-	Event.Duration = CrawlerChaseDuration;
+	Event.Duration = GhostChaseDuration;
 	Event.bTriggerLocalFlicker = false;
-	Event.bTriggerGroupFlicker = bCrawlerChaseTriggersGroupFlicker;
+	Event.bTriggerGroupFlicker = bGhostChaseTriggersGroupFlicker;
 	Event.bAffectsPanic = true;
-	Event.PanicAmount = CrawlerChasePanicAmount;
+	Event.PanicAmount = GhostChasePanicAmount;
 	return Event;
 }
 
@@ -814,6 +902,15 @@ float UGvTDirectorSubsystem::ScoreTarget(APawn* Pawn) const
 		return -1.f;
 	}
 
+	const AGvTGhostCharacterBase* ActiveGhost = GetPrimaryGhost();
+	const FGvTGhostRuntimeConfig* Runtime = ActiveGhost ? &ActiveGhost->GetRuntimeConfig() : nullptr;
+
+	float AggressionMult = Runtime ? Runtime->HuntAggressionMultiplier : 1.0f;
+	float NoiseMult = Runtime ? Runtime->NoiseInterestMultiplier : 1.0f;
+	float PanicMult = Runtime ? Runtime->PanicBiasMultiplier : 1.0f;
+	float IsolationMult = Runtime ? Runtime->IsolationBiasMultiplier : 1.0f;
+	float PressureMult = Runtime ? Runtime->RecentHauntPressureBiasMultiplier : 1.0f;
+
 	const float Panic01 = FMath::Clamp(PS->GetPanic01(), 0.f, 1.f);
 	const float Pressure01 = FMath::Clamp(PS->GetRecentHauntPressure01(), 0.f, 1.f);
 	const float Isolation01 = ComputeIsolationScore(Pawn);
@@ -822,10 +919,10 @@ float UGvTDirectorSubsystem::ScoreTarget(APawn* Pawn) const
 	const float BusyPenalty01 = ScareComp->IsScareBusy() ? 1.f : 0.f;
 
 	float Score = BaseTargetScore;
-	Score += Panic01 * PanicTargetWeight;
-	Score += Isolation01 * IsolationTargetWeight;
-	Score += Noise01 * NearbyNoiseTargetWeight;
-	Score -= Pressure01 * HauntPressurePenaltyWeight;
+	Score += Panic01 * PanicTargetWeight * AggressionMult * PanicMult;
+	Score += Isolation01 * IsolationTargetWeight * IsolationMult;
+	Score += Noise01 * NearbyNoiseTargetWeight * NoiseMult;
+	Score -= Pressure01 * HauntPressurePenaltyWeight * PressureMult;
 	Score -= RecentTargetPenalty01 * RecentTargetPenaltyWeight;
 	Score -= BusyPenalty01 * BusyTargetPenalty;
 
@@ -1046,14 +1143,14 @@ float UGvTDirectorSubsystem::GetDispatchTensionImpulse(const FGvTScareEvent& Eve
 		return MirrorDispatchTensionImpulse;
 	}
 
-	if (Event.ScareTag == GvTScareTags::CrawlerOverhead())
+	if (Event.ScareTag == GvTScareTags::GhostScare())
 	{
-		return CrawlerOverheadDispatchTensionImpulse;
+		return GhostScareDispatchTensionImpulse;
 	}
 
-	if (Event.ScareTag == GvTScareTags::CrawlerChase())
+	if (Event.ScareTag == GvTScareTags::GhostChase())
 	{
-		return CrawlerChaseDispatchTensionImpulse;
+		return GhostChaseDispatchTensionImpulse;
 	}
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
@@ -1161,26 +1258,28 @@ AGvTDoorActor* UGvTDirectorSubsystem::ChooseBestDoorSlamTarget(APawn* TargetPawn
 	TArray<AActor*> FoundDoors;
 	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGvTDoorActor::StaticClass(), FoundDoors);
 
-	AGvTDoorActor* BestDoor = nullptr;
-	float BestScore = -1.f;
+	AGvTDoorActor* BestBehindDoor = nullptr;
+	float BestBehindScore = -1.f;
 
 	for (AActor* Actor : FoundDoors)
 	{
 		AGvTDoorActor* Door = Cast<AGvTDoorActor>(Actor);
-		if (!Door)
+		if (!Door || Door->IsLocked())
 		{
 			continue;
 		}
 
+		// No closed-door fallback: DoorSlamBehind is only valid when a readable,
+		// already-open door can slam shut.
 		const float Score = ScoreDoorForSlam(TargetPawn, Door);
-		if (Score > BestScore)
+		if (Score > BestBehindScore)
 		{
-			BestScore = Score;
-			BestDoor = Door;
+			BestBehindScore = Score;
+			BestBehindDoor = Door;
 		}
 	}
 
-	return BestDoor;
+	return BestBehindDoor;
 }
 
 AActor* UGvTDirectorSubsystem::FindBestDoorSlamDoor(AActor* Target) const
@@ -1207,14 +1306,20 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 		return;
 	}
 
-	const float Panic = PS->GetPanic01();
-	const float Pressure = PS->GetRecentHauntPressure01();
+	if (IsInteractionReactionOnCooldown(Pawn))
+	{
+		UE_LOG(LogTemp, Verbose,
+			TEXT("[Director] Interaction reaction cooldown active for %s"),
+			*GetNameSafe(Pawn));
+		return;
+	}
 
 	bool bIsElectrical = false;
 	bool bIsValuable = false;
 	bool bIsNoisy = false;
 	float ItemValue01 = 0.f;
 
+	// Current simple actor-tag path
 	if (TargetActor)
 	{
 		if (TargetActor->ActorHasTag(TEXT("Electrical")))
@@ -1234,15 +1339,25 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 		}
 	}
 
-	float ReactionChance = 0.10f;
-	ReactionChance += Panic * 0.35f;
-	ReactionChance += Pressure * 0.25f;
+	const float ReactionChance = ComputeInteractionReactionChance(
+		Pawn,
+		TargetActor,
+		bIsElectrical,
+		bIsValuable,
+		bIsNoisy,
+		ItemValue01);
 
-	if (bIsElectrical) ReactionChance += 0.35f;
-	if (bIsValuable)   ReactionChance += 0.20f;
-	if (bIsNoisy)      ReactionChance += 0.25f;
-
-	ReactionChance = FMath::Clamp(ReactionChance, 0.f, 0.95f);
+	UE_LOG(LogTemp, Verbose,
+		TEXT("[Director] InteractionEvent Target=%s Source=%s Chance=%.2f Elec=%d Value=%d Noisy=%d Loot=%d Panic=%.2f Pressure=%.2f"),
+		*GetNameSafe(Pawn),
+		*GetNameSafe(TargetActor),
+		ReactionChance,
+		bIsElectrical ? 1 : 0,
+		bIsValuable ? 1 : 0,
+		bIsNoisy ? 1 : 0,
+		PS->GetLoot(),
+		PS->GetPanic01(),
+		PS->GetRecentHauntPressure01());
 
 	if (FMath::FRand() > ReactionChance)
 	{
@@ -1250,6 +1365,7 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 	}
 
 	TriggerInteractionReaction(Pawn, TargetActor, bIsElectrical, bIsValuable, bIsNoisy, ItemValue01);
+	MarkInteractionReactionTriggered(Pawn);
 }
 
 void UGvTDirectorSubsystem::TriggerInteractionReaction(
@@ -1265,89 +1381,38 @@ void UGvTDirectorSubsystem::TriggerInteractionReaction(
 		return;
 	}
 
-	AGvTPlayerState* PS = Pawn->GetPlayerState<AGvTPlayerState>();
-	if (!PS)
+	const UGvTScareComponent* ScareComp = Pawn->FindComponentByClass<UGvTScareComponent>();
+	if (!ScareComp || ScareComp->IsScareBusy())
 	{
+		UE_LOG(LogTemp, Verbose,
+			TEXT("[Director] Interaction reaction skipped for %s because scare component is busy"),
+			*GetNameSafe(Pawn));
 		return;
 	}
 
-	const float Panic = PS->GetPanic01();
-	FGameplayTag ChosenScare;
+	const FGameplayTag ChosenScare = ChooseWeightedInteractionScare(
+		Pawn,
+		TargetActor,
+		bIsElectrical,
+		bIsValuable,
+		bIsNoisy,
+		ItemValue01);
 
-	if (bIsElectrical)
+	if (!ChosenScare.IsValid())
 	{
-		const float Roll = FMath::FRand();
-
-		if (Roll < 0.7f)
-		{
-			if (AGvTPowerBoxActor* Power = FindPowerBoxInWorld())
-			{
-				Power->ForcePowerStateFromGhost(EGvTHousePowerState::Off);
-			}
-
-			ChosenScare = GvTScareTags::LightChase();
-		}
-		else
-		{
-			ChosenScare = GvTScareTags::GhostScream();
-		}
+		UE_LOG(LogTemp, Verbose,
+			TEXT("[Director] No weighted scare selected for %s"),
+			*GetNameSafe(Pawn));
+		return;
 	}
-	else if (bIsValuable)
-	{
-		const float Roll = FMath::FRand();
 
-		if (Roll < 0.5f)
-		{
-			ChosenScare = GvTScareTags::GhostScream();
-		}
-		else
-		{
-			ChosenScare = GvTScareTags::RearAudioSting();
-		}
-	}
-	else if (bIsNoisy)
-	{
-		if (Panic > 0.5f)
-		{
-			ChosenScare = GvTScareTags::CrawlerChase();
-		}
-		else
-		{
-			ChosenScare = GvTScareTags::RearAudioSting();
-		}
-	}
-	else
-	{
-		const float Roll = FMath::FRand();
+	LastInteractionScareByPlayer.Add(Pawn, ChosenScare);
 
-		if (Panic < 0.3f)
-		{
-			ChosenScare = (Roll < 0.5f)
-				? GvTScareTags::RearAudioSting()
-				: GvTScareTags::LightChase();
-		}
-		else if (Panic < 0.7f)
-		{
-			if (Roll < 0.4f)
-			{
-				ChosenScare = GvTScareTags::Mirror();
-			}
-			else if (Roll < 0.8f)
-			{
-				ChosenScare = GvTScareTags::GhostScream();
-			}
-			else
-			{
-				ChosenScare = GvTScareTags::LightChase();
-			}
-		}
-		else
-		{
-			ChosenScare = (Roll < 0.5f)
-				? GvTScareTags::CrawlerOverhead()
-				: GvTScareTags::CrawlerChase();
-		}
-	}
+	UE_LOG(LogTemp, Log,
+		TEXT("[Director] Weighted interaction scare selected: Target=%s Source=%s Tag=%s"),
+		*GetNameSafe(Pawn),
+		*GetNameSafe(TargetActor),
+		*ChosenScare.ToString());
 
 	DispatchScareEventSimple(ChosenScare, Pawn, TargetActor);
 }
@@ -1366,4 +1431,858 @@ AGvTPowerBoxActor* UGvTDirectorSubsystem::FindPowerBoxInWorld()
 	}
 
 	return nullptr;
+}
+
+void UGvTDirectorSubsystem::AddScareWeight(
+	TArray<FGvTWeightedScareChoice>& Choices,
+	const FGameplayTag& Tag,
+	float Weight)
+{
+	if (!Tag.IsValid() || FMath::IsNearlyZero(Weight))
+	{
+		return;
+	}
+
+	for (FGvTWeightedScareChoice& Entry : Choices)
+	{
+		if (Entry.ScareTag == Tag)
+		{
+			Entry.Weight = FMath::Max(0.f, Entry.Weight + Weight);
+			return;
+		}
+	}
+
+	if (Weight > 0.f)
+	{
+		FGvTWeightedScareChoice NewEntry;
+		NewEntry.ScareTag = Tag;
+		NewEntry.Weight = Weight;
+		Choices.Add(NewEntry);
+	}
+}
+
+FGameplayTag UGvTDirectorSubsystem::PickWeightedScare(const TArray<FGvTWeightedScareChoice>& Choices)
+{
+	float TotalWeight = 0.f;
+
+	for (const FGvTWeightedScareChoice& Entry : Choices)
+	{
+		if (Entry.Weight > 0.f)
+		{
+			TotalWeight += Entry.Weight;
+		}
+	}
+
+	if (TotalWeight <= KINDA_SMALL_NUMBER)
+	{
+		return FGameplayTag();
+	}
+
+	const float Roll = FMath::FRandRange(0.f, TotalWeight);
+	float Running = 0.f;
+
+	for (const FGvTWeightedScareChoice& Entry : Choices)
+	{
+		if (Entry.Weight <= 0.f)
+		{
+			continue;
+		}
+
+		Running += Entry.Weight;
+		if (Roll <= Running)
+		{
+			return Entry.ScareTag;
+		}
+	}
+
+	return Choices.Num() > 0 ? Choices.Last().ScareTag : FGameplayTag();
+}
+
+FGameplayTag UGvTDirectorSubsystem::ChooseWeightedInteractionScare(
+	APawn* Pawn,
+	AActor* TargetActor,
+	bool bIsElectrical,
+	bool bIsValuable,
+	bool bIsNoisy,
+	float ItemValue01) const
+{
+	if (!Pawn)
+	{
+		return FGameplayTag();
+	}
+
+	const UGvTGhostTypeData* GhostType = GetPrimaryGhostType();
+	const UGvTScareComponent* ScareComp = Pawn->FindComponentByClass<UGvTScareComponent>();
+	const bool bBusy = ScareComp && ScareComp->IsScareBusy();
+
+	if (bBusy)
+	{
+		return FGameplayTag();
+	}
+
+	const AGvTPlayerState* PS = Pawn->GetPlayerState<AGvTPlayerState>();
+	const float Panic = PS ? PS->GetPanic01() : 0.f;
+	const float Pressure = PS ? PS->GetRecentHauntPressure01() : 0.f;
+
+	const int32 PanicStage = PS
+		? FMath::Clamp(FMath::FloorToInt(Panic * 5.0f), 0, 4)
+		: 0;
+
+	TArray<FGvTWeightedScareChoice> Choices;
+
+	// Base pool
+	AddScareWeight(Choices, GvTScareTags::RearAudioSting(), 0.70f);
+	AddScareWeight(Choices, GvTScareTags::GhostScream(), 1.05f);
+	AddScareWeight(Choices, GvTScareTags::LightChase(), 0.80f);
+	AddScareWeight(Choices, GvTScareTags::Mirror(), 0.85f);
+
+	// Heavier pool
+	AddScareWeight(Choices, GvTScareTags::GhostScare(), 0.10f + (Panic * 0.95f) + (Pressure * 0.40f));
+	AddScareWeight(Choices, GvTScareTags::GhostChase(), 0.05f + (Panic * 0.80f) + (Pressure * 0.55f));
+
+	// ---------- Context shaping ----------
+
+	if (bIsElectrical)
+	{
+		AddScareWeight(Choices, GvTScareTags::LightChase(), 1.75f);
+		AddScareWeight(Choices, GvTScareTags::GhostScream(), 0.65f);
+		AddScareWeight(Choices, GvTScareTags::Mirror(), 0.10f);
+	}
+
+	if (bIsValuable)
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostScream(), 1.00f);
+		AddScareWeight(Choices, GvTScareTags::Mirror(), 0.75f + (ItemValue01 * 0.65f));
+		AddScareWeight(Choices, GvTScareTags::RearAudioSting(), 0.35f);
+		AddScareWeight(Choices, GvTScareTags::GhostScare(), 0.20f + (ItemValue01 * 0.30f));
+	}
+
+	if (bIsNoisy)
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostScream(), 0.55f);
+		AddScareWeight(Choices, GvTScareTags::RearAudioSting(), 0.45f);
+		AddScareWeight(Choices, GvTScareTags::GhostChase(), 1.20f);
+	}
+
+	const AGvTGhostCharacterBase* ActiveGhost = GetPrimaryGhost();
+	const FGvTGhostRuntimeConfig* Runtime = ActiveGhost ? &ActiveGhost->GetRuntimeConfig() : nullptr;
+
+	if (Runtime)
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostChase(),
+			Runtime->HuntAggressionMultiplier * 0.5f);
+
+		AddScareWeight(Choices, GvTScareTags::LightChase(),
+			Runtime->ElectricalInterestMultiplier * 0.6f);
+
+		AddScareWeight(Choices, GvTScareTags::GhostScream(),
+			Runtime->NoiseInterestMultiplier * 0.35f);
+
+		AddScareWeight(Choices, GvTScareTags::RearAudioSting(),
+			Runtime->NoiseInterestMultiplier * 0.30f);
+
+		AddScareWeight(Choices, GvTScareTags::Mirror(),
+			Runtime->ValuableItemInterestMultiplier * 0.20f);
+	}
+
+	// ---------- Panic-stage shaping ----------
+
+	if (PanicStage <= 0)
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostScare(), -999.f);
+		AddScareWeight(Choices, GvTScareTags::GhostChase(), -999.f);
+
+		AddScareWeight(Choices, GvTScareTags::RearAudioSting(), 0.10f);
+		AddScareWeight(Choices, GvTScareTags::GhostScream(), 0.20f);
+		AddScareWeight(Choices, GvTScareTags::Mirror(), 0.25f);
+	}
+	else if (PanicStage == 1)
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostScare(), -0.20f);
+		AddScareWeight(Choices, GvTScareTags::GhostChase(), -0.55f);
+
+		AddScareWeight(Choices, GvTScareTags::Mirror(), 0.45f);
+		AddScareWeight(Choices, GvTScareTags::GhostScream(), 0.35f);
+		AddScareWeight(Choices, GvTScareTags::RearAudioSting(), -0.10f);
+	}
+	else if (PanicStage == 2)
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostScare(), 0.65f);
+		AddScareWeight(Choices, GvTScareTags::GhostChase(), 0.80f);
+		AddScareWeight(Choices, GvTScareTags::Mirror(), 0.20f);
+	}
+	else
+	{
+		AddScareWeight(Choices, GvTScareTags::GhostScare(), 1.00f);
+		AddScareWeight(Choices, GvTScareTags::GhostChase(), 1.20f);
+		AddScareWeight(Choices, GvTScareTags::RearAudioSting(), -0.20f);
+	}
+
+	ApplyAntiRepeatBias(Pawn, Choices);
+
+	for (const FGvTWeightedScareChoice& Entry : Choices)
+	{
+		if (Entry.ScareTag.IsValid() && Entry.Weight > 0.f)
+		{
+			UE_LOG(LogTemp, Verbose,
+				TEXT("[DirectorWeight] Target=%s Source=%s Tag=%s Weight=%.2f Stage=%d Panic=%.2f Pressure=%.2f Elec=%d Value=%d Noisy=%d"),
+				*GetNameSafe(Pawn),
+				*GetNameSafe(TargetActor),
+				*Entry.ScareTag.ToString(),
+				Entry.Weight,
+				PanicStage,
+				Panic,
+				Pressure,
+				bIsElectrical ? 1 : 0,
+				bIsValuable ? 1 : 0,
+				bIsNoisy ? 1 : 0);
+		}
+	}
+
+	// Filter out invalid scares based on active ghost type
+	TArray<FGvTWeightedScareChoice> FilteredChoices;
+
+	for (const FGvTWeightedScareChoice& Entry : Choices)
+	{
+		if (Entry.Weight <= 0.f || !Entry.ScareTag.IsValid())
+		{
+			continue;
+		}
+
+		if (!CanPrimaryGhostUseScareTag(Entry.ScareTag))
+		{
+			continue;
+		}
+
+		FilteredChoices.Add(Entry);
+	}
+
+	if (FilteredChoices.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Director] No valid scare choices after ghost-type filtering"));
+		return FGameplayTag();
+	}
+
+	return PickWeightedScare(FilteredChoices); 
+}
+
+bool UGvTDirectorSubsystem::IsInteractionReactionOnCooldown(APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return true;
+	}
+
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	const float* LastTime = LastInteractionReactionTime.Find(Pawn);
+	if (!LastTime)
+	{
+		return false;
+	}
+
+	const float Now = World->GetTimeSeconds();
+	return (Now - *LastTime) < InteractionReactionMinGapSeconds;
+}
+
+void UGvTDirectorSubsystem::MarkInteractionReactionTriggered(APawn* Pawn)
+{
+	if (!Pawn)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	LastInteractionReactionTime.Add(Pawn, World->GetTimeSeconds());
+}
+
+float UGvTDirectorSubsystem::ComputeInteractionReactionChance(
+	APawn* Pawn,
+	AActor* TargetActor,
+	bool bIsElectrical,
+	bool bIsValuable,
+	bool bIsNoisy,
+	float ItemValue01) const
+{
+	if (!Pawn)
+	{
+		return 0.f;
+	}
+
+	const AGvTPlayerState* PS = Pawn->GetPlayerState<AGvTPlayerState>();
+	if (!PS)
+	{
+		return 0.f;
+	}
+
+	const float Panic = PS->GetPanic01();
+	const float Pressure = PS->GetRecentHauntPressure01();
+
+	const float LootPressure01 = FMath::Clamp(
+		float(PS->GetLoot()) / FMath::Max(1.f, LootPressureMaxLootValue),
+		0.f,
+		1.f);
+
+	float ReactionChance = BaseInteractionReactionChance;
+
+	ReactionChance += Panic * 0.20f;
+	ReactionChance += Pressure * 0.18f;
+	ReactionChance += LootPressure01 * (LootPressureChanceBonus + 0.10f);
+
+	if (bIsElectrical) ReactionChance += 0.15f;
+	if (bIsValuable)   ReactionChance += 0.25f;
+	if (bIsNoisy)      ReactionChance += 0.12f;
+
+	ReactionChance += FMath::Clamp(ItemValue01, 0.f, 1.f) * 0.15f;
+
+	if (PS->GetLoot() >= 300)
+	{
+		ReactionChance += 0.08f;
+	}
+	if (PS->GetLoot() >= 500)
+	{
+		ReactionChance += 0.10f;
+	}
+	if (PS->GetLoot() >= 800)
+	{
+		ReactionChance += 0.10f;
+	}
+
+	return FMath::Clamp(ReactionChance, 0.f, 0.95f);
+}
+
+void UGvTDirectorSubsystem::ApplyAntiRepeatBias(
+	APawn* Pawn,
+	TArray<FGvTWeightedScareChoice>& Choices) const
+{
+	if (!Pawn)
+	{
+		return;
+	}
+
+	const FGameplayTag* LastTag = LastInteractionScareByPlayer.Find(Pawn);
+	if (!LastTag || !LastTag->IsValid())
+	{
+		return;
+	}
+
+	for (FGvTWeightedScareChoice& Entry : Choices)
+	{
+		if (Entry.ScareTag == *LastTag)
+		{
+			Entry.Weight *= AntiRepeatWeightMultiplier;
+			break;
+		}
+	}
+}
+
+void UGvTDirectorSubsystem::InitializeRoundGhosts()
+{
+	UWorld* World = GetWorld();
+	if (!World || World->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+
+	ClearRoundGhosts();
+
+	if (AvailableGhostModels.Num() == 0 || AvailableGhostTypes.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Cannot initialize round ghosts. Missing model/type assets."));
+		return;
+	}
+
+	const int32 GhostCount = FMath::Max(1, NumGhostsThisRound);
+
+	for (int32 Index = 0; Index < GhostCount; ++Index)
+	{
+		FGvTGhostRoundSpawnSpec SpawnSpec;
+		if (!BuildRoundGhostSpawnSpec(Index, SpawnSpec))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Director] Failed to build round ghost spawn spec for slot %d"), Index);
+			continue;
+		}
+
+		FGvTGhostRuntimeConfig RuntimeConfig;
+		if (!BuildRuntimeConfig(SpawnSpec.ModelData, SpawnSpec.TypeData, RuntimeConfig))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Director] Failed to build runtime config for %s"), *SpawnSpec.GhostId.ToString());
+			continue;
+		}
+
+		FActorSpawnParameters Params;
+		Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+		AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(
+			SpawnSpec.ModelData->GhostActorClass,
+			SpawnSpec.SpawnTransform,
+			Params);
+
+		if (!Ghost)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[Director] Failed to spawn ghost for slot %d"), Index);
+			continue;
+		}
+
+		Ghost->InitializeGhost(SpawnSpec.GhostId, SpawnSpec.ModelData, SpawnSpec.TypeData, RuntimeConfig);
+		Ghost->SetGhostPresenceActive(false);
+		ActiveGhosts.Add(Ghost);
+
+		UE_LOG(LogTemp, Log,
+			TEXT("[Director] Spawned dormant %s using Model=%s Type=%s Spawn=%s"),
+			*SpawnSpec.GhostId.ToString(),
+			*GetNameSafe(SpawnSpec.ModelData),
+			*GetNameSafe(SpawnSpec.TypeData),
+			*SpawnSpec.SpawnTransform.GetLocation().ToCompactString());
+	}
+}
+
+void UGvTDirectorSubsystem::ClearRoundGhosts()
+{
+	for (AGvTGhostCharacterBase* Ghost : ActiveGhosts)
+	{
+		if (IsValid(Ghost))
+		{
+			Ghost->Destroy();
+		}
+	}
+
+	ActiveGhosts.Reset();
+}
+
+bool UGvTDirectorSubsystem::BuildRuntimeConfig(
+	const UGvTGhostModelData* ModelData,
+	const UGvTGhostTypeData* TypeData,
+	FGvTGhostRuntimeConfig& OutConfig) const
+{
+	if (!ModelData || !TypeData)
+	{
+		return false;
+	}
+
+	OutConfig.WalkSpeed = ModelData->BaseWalkSpeed * TypeData->WalkSpeedMultiplier;
+	OutConfig.RunSpeed = ModelData->BaseRunSpeed * TypeData->RunSpeedMultiplier;
+	OutConfig.Acceleration = ModelData->BaseAcceleration * TypeData->AccelerationMultiplier;
+	OutConfig.BrakingDecel = ModelData->BaseBrakingDecel * TypeData->BrakingMultiplier;
+
+	OutConfig.NoiseInterestMultiplier = TypeData->NoiseInterestMultiplier;
+	OutConfig.ElectricalInterestMultiplier = TypeData->ElectricalInterestMultiplier;
+	OutConfig.LightInterestMultiplier = TypeData->LightInterestMultiplier;
+	OutConfig.ValuableItemInterestMultiplier = TypeData->ValuableItemInterestMultiplier;
+	OutConfig.MedicalItemInterestMultiplier = TypeData->MedicalItemInterestMultiplier;
+
+	OutConfig.HuntAggressionMultiplier = TypeData->HuntAggressionMultiplier;
+	OutConfig.RoamChanceMultiplier = TypeData->RoamChanceMultiplier;
+	OutConfig.ScareFrequencyMultiplier = TypeData->ScareFrequencyMultiplier;
+
+	OutConfig.PanicBiasMultiplier = TypeData->PanicBiasMultiplier;
+	OutConfig.IsolationBiasMultiplier = TypeData->IsolationBiasMultiplier;
+	OutConfig.RecentHauntPressureBiasMultiplier = TypeData->RecentHauntPressureBiasMultiplier;
+	OutConfig.DarknessBiasMultiplier = TypeData->DarknessBiasMultiplier;
+
+	OutConfig.KillDistanceMultiplier = TypeData->KillDistanceMultiplier;
+	OutConfig.MaxChaseDistanceMultiplier = TypeData->MaxChaseDistanceMultiplier;
+	OutConfig.DoorOpenChance = TypeData->DoorOpenChance;
+
+	OutConfig.AllowedScareTags = TypeData->AllowedScareTags;
+	OutConfig.TypeTags = TypeData->TypeTags;
+
+	return true;
+}
+
+AGvTGhostCharacterBase* UGvTDirectorSubsystem::GetPrimaryGhost() const
+{
+	for (AGvTGhostCharacterBase* Ghost : ActiveGhosts)
+	{
+		if (IsValid(Ghost))
+		{
+			return Ghost;
+		}
+	}
+
+	return nullptr;
+}
+
+AGvTGhostCharacterBase* UGvTDirectorSubsystem::GetGhostById(FName GhostId) const
+{
+	if (GhostId.IsNone())
+	{
+		return nullptr;
+	}
+
+	for (AGvTGhostCharacterBase* Ghost : ActiveGhosts)
+	{
+		if (IsValid(Ghost) && Ghost->GetGhostId() == GhostId)
+		{
+			return Ghost;
+		}
+	}
+
+	return nullptr;
+}
+
+const UGvTGhostModelData* UGvTDirectorSubsystem::GetPrimaryGhostModel() const
+{
+	if (const AGvTGhostCharacterBase* Ghost = GetPrimaryGhost())
+	{
+		return Ghost->GetGhostModelData();
+	}
+
+	return nullptr;
+}
+
+const UGvTGhostTypeData* UGvTDirectorSubsystem::GetPrimaryGhostType() const
+{
+	if (const AGvTGhostCharacterBase* Ghost = GetPrimaryGhost())
+	{
+		return Ghost->GetGhostTypeData();
+	}
+
+	return nullptr;
+}
+
+bool UGvTDirectorSubsystem::CanPrimaryGhostUseScareTag(FGameplayTag ScareTag) const
+{
+	if (const AGvTGhostCharacterBase* Ghost = GetPrimaryGhost())
+	{
+		return Ghost->CanUseScareTag(ScareTag);
+	}
+
+	// No active round ghost yet: allow for legacy fallback.
+	return true;
+}
+
+void UGvTDirectorSubsystem::StartRoundGhostSetup()
+{
+	UWorld* World = GetWorld();
+	if (!World || World->GetNetMode() == NM_Client)
+	{
+		return;
+	}
+
+	ClearRoundGhosts();
+	InitializeRoundGhosts();
+
+	if (AGvTGhostCharacterBase* Ghost = GetPrimaryGhost())
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[Director] PrimaryGhost=%s Model=%s Type=%s"),
+			*GetNameSafe(Ghost),
+			*GetNameSafe(Ghost->GetGhostModelData()),
+			*GetNameSafe(Ghost->GetGhostTypeData()));
+	}
+}
+
+void UGvTDirectorSubsystem::EndRoundGhostSetup()
+{
+	ClearRoundGhosts();
+}
+
+bool UGvTDirectorSubsystem::BuildRoundGhostSpawnSpec(int32 GhostIndex, FGvTGhostRoundSpawnSpec& OutSpec) const
+{
+	OutSpec = FGvTGhostRoundSpawnSpec();
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	if (AvailableGhostModels.Num() == 0 || AvailableGhostTypes.Num() == 0)
+	{
+		return false;
+	}
+
+	UGvTGhostModelData* ModelData = AvailableGhostModels.IsValidIndex(GhostIndex)
+		? AvailableGhostModels[GhostIndex]
+		: AvailableGhostModels[FMath::RandRange(0, AvailableGhostModels.Num() - 1)];
+
+	UGvTGhostTypeData* TypeData = AvailableGhostTypes.IsValidIndex(GhostIndex)
+		? AvailableGhostTypes[GhostIndex]
+		: AvailableGhostTypes[FMath::RandRange(0, AvailableGhostTypes.Num() - 1)];
+
+	if (!ModelData || !TypeData || !ModelData->GhostActorClass)
+	{
+		return false;
+	}
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(World, AGvTGhostSpawnPoint::StaticClass(), FoundActors);
+
+	TArray<AGvTGhostSpawnPoint*> ValidSpawnPoints;
+	for (AActor* Actor : FoundActors)
+	{
+		AGvTGhostSpawnPoint* SpawnPoint = Cast<AGvTGhostSpawnPoint>(Actor);
+		if (!SpawnPoint)
+		{
+			continue;
+		}
+
+		ValidSpawnPoints.Add(SpawnPoint);
+	}
+
+	if (ValidSpawnPoints.Num() == 0)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] No ghost spawn points found in world."));
+		return false;
+	}
+
+	AGvTGhostSpawnPoint* ChosenSpawn = ValidSpawnPoints[FMath::RandRange(0, ValidSpawnPoints.Num() - 1)];
+	if (!ChosenSpawn)
+	{
+		return false;
+	}
+
+	OutSpec.GhostId = FName(*FString::Printf(TEXT("Ghost_%02d"), GhostIndex + 1));
+	OutSpec.ModelData = ModelData;
+	OutSpec.TypeData = TypeData;
+	OutSpec.SpawnTransform = ChosenSpawn->GetActorTransform();
+
+	return true;
+}
+
+void UGvTDirectorSubsystem::ConfigureRoundGhostPool(
+	const TArray<UGvTGhostModelData*>& InModels,
+	const TArray<UGvTGhostTypeData*>& InTypes,
+	int32 InNumGhosts)
+{
+	AvailableGhostModels.Reset();
+	for (UGvTGhostModelData* Model : InModels)
+	{
+		if (IsValid(Model))
+		{
+			AvailableGhostModels.Add(Model);
+		}
+	}
+
+	AvailableGhostTypes.Reset();
+	for (UGvTGhostTypeData* Type : InTypes)
+	{
+		if (IsValid(Type))
+		{
+			AvailableGhostTypes.Add(Type);
+		}
+	}
+
+	NumGhostsThisRound = FMath::Max(1, InNumGhosts);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[Director] ConfigureRoundGhostPool Models=%d Types=%d NumGhosts=%d"),
+		AvailableGhostModels.Num(),
+		AvailableGhostTypes.Num(),
+		NumGhostsThisRound);
+}
+
+bool UGvTDirectorSubsystem::DispatchGhostHunt(const FGvTGhostHuntRequest& Request)
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	AGvTGhostCharacterBase* Ghost = GetPrimaryGhost();
+	if (!Ghost)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] DispatchGhostHunt failed: no primary ghost."));
+		return false;
+	}
+
+	APawn* TargetPawn = Cast<APawn>(Request.TargetActor);
+	if (!TargetPawn)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] DispatchGhostHunt failed: invalid target."));
+		return false;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Director] DispatchGhostHunt Ghost=%s Target=%s Intensity=%.2f MaxGhosts=%d Multi=%d"),
+		*GetNameSafe(Ghost),
+		*GetNameSafe(TargetPawn),
+		Request.Intensity01,
+		Request.MaxGhostsToDispatch,
+		Request.bAllowMultipleGhosts ? 1 : 0);
+
+	Ghost->BeginGhostChase(TargetPawn);
+	RememberTarget(TargetPawn);
+	LastGlobalHauntTime = World->GetTimeSeconds();
+
+	return true;
+}
+
+bool UGvTDirectorSubsystem::DispatchGhostEvent(const FGvTGhostEventRequest& Request)
+{
+	AActor* Target = Request.TargetActor;
+	if (!Target)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] DispatchGhostEvent failed: no target."));
+		return false;
+	}
+
+	FGvTScareEvent Event;
+
+	if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::Mirror()))
+	{
+		Event = Request.SourceActor ? MakeMirrorEventForActor(Target, Request.SourceActor) : MakeMirrorEvent(Target);
+	}
+	else if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::GhostScare()))
+	{
+		Event = MakeGhostScareEvent(Target);
+	}
+	else if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::GhostChase()))
+	{
+		Event = MakeGhostChaseEvent(Target);
+	}
+	else if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		Event = MakeLightChaseEvent(Target);
+	}
+	else if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		Event = MakeRearAudioStingEvent(Target);
+	}
+	else if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		Event = MakeGhostScreamEvent(Target);
+	}
+	else if (Request.RequestedEventTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+	{
+		Event = MakeDoorSlamBehindEvent(Target, Request.SourceActor);
+	}
+	else
+	{
+		Event.TargetActor = Target;
+		Event.ScareTag = Request.RequestedEventTag;
+		Event.Intensity01 = Request.Intensity01;
+		Event.Duration = 1.5f;
+		Event.PanicAmount = 10.f;
+		Event.bAffectsPanic = true;
+	}
+
+	if (Request.Intensity01 > 0.f)
+	{
+		Event.Intensity01 = Request.Intensity01;
+	}
+	if (Request.SourceActor && !Event.SourceActor)
+	{
+		Event.SourceActor = Request.SourceActor;
+	}
+	if (!Event.TargetActor)
+	{
+		Event.TargetActor = Target;
+	}
+	if (!Request.WorldLocation.IsNearlyZero())
+	{
+		Event.WorldHint = Request.WorldLocation;
+	}
+	else if (Event.WorldHint.IsNearlyZero())
+	{
+		Event.WorldHint = Target->GetActorLocation();
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Director] DispatchGhostEvent Tag=%s Target=%s Intensity=%.2f Panic=%.1f Duration=%.2f"),
+		*Event.ScareTag.ToString(),
+		*GetNameSafe(Target),
+		Event.Intensity01,
+		Event.PanicAmount,
+		Event.Duration);
+
+	return DispatchScareEvent(Event);
+}
+
+AGvTMirrorActor* UGvTDirectorSubsystem::ChooseMirrorForTarget(APawn* TargetPawn) const
+{
+	if (!TargetPawn || !GetWorld())
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> FoundActors;
+	UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGvTMirrorActor::StaticClass(), FoundActors);
+
+	AGvTMirrorActor* BestMirror = nullptr;
+	float BestScore = -FLT_MAX;
+
+	for (AActor* Actor : FoundActors)
+	{
+		AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Actor);
+		if (!Mirror)
+		{
+			continue;
+		}
+
+		if (!IsMirrorValidForTarget(Mirror, TargetPawn))
+		{
+			continue;
+		}
+
+		const float Score = ScoreMirrorForTarget(Mirror, TargetPawn);
+		if (Score > BestScore)
+		{
+			BestScore = Score;
+			BestMirror = Mirror;
+		}
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Director] ChooseMirrorForTarget Target=%s Chosen=%s Score=%.2f"),
+		*GetNameSafe(TargetPawn),
+		*GetNameSafe(BestMirror),
+		BestScore);
+
+	return BestMirror;
+}
+
+bool UGvTDirectorSubsystem::IsMirrorValidForTarget(const AGvTMirrorActor* Mirror, const APawn* TargetPawn) const
+{
+	if (!Mirror || !TargetPawn)
+	{
+		return false;
+	}
+
+	const float DistSq = FVector::DistSquared(Mirror->GetActorLocation(), TargetPawn->GetActorLocation());
+	if (DistSq > FMath::Square(MirrorMaxDistance))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+float UGvTDirectorSubsystem::ScoreMirrorForTarget(const AGvTMirrorActor* Mirror, const APawn* TargetPawn) const
+{
+	if (!Mirror || !TargetPawn)
+	{
+		return -FLT_MAX;
+	}
+
+	const FVector ToMirror = (Mirror->GetActorLocation() - TargetPawn->GetActorLocation());
+	const float Distance = ToMirror.Size();
+	const FVector ToMirrorDir = ToMirror.GetSafeNormal();
+
+	const FVector Forward = TargetPawn->GetActorForwardVector();
+	const float FacingDot = FVector::DotProduct(Forward, ToMirrorDir);
+
+	const float DistanceScore = 1.f - FMath::Clamp(Distance / MirrorMaxDistance, 0.f, 1.f);
+	const float FacingScore = FMath::GetMappedRangeValueClamped(
+		FVector2D(-1.f, 1.f),
+		FVector2D(0.f, 1.f),
+		FacingDot);
+
+	float Score = 0.f;
+	Score += DistanceScore * 0.7f;
+	Score += FacingScore * 0.3f;
+
+	return Score;
 }

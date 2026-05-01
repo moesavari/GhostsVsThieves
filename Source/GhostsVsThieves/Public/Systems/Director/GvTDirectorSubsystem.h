@@ -3,10 +3,29 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Gameplay/Scare/GvTScareTypes.h"
+#include "GameplayTagContainer.h"
+#include "Containers/Map.h"
+#include "Gameplay/Ghosts/GvTGhostRuntimeTypes.h"
 #include "GvTDirectorSubsystem.generated.h"
 
 class AGvTDoorActor;
 class AGvTPowerBoxActor;
+class UGvTGhostModelData;
+class UGvTGhostTypeData;
+class AGvTGhostCharacterBase;
+class AGvTMirrorActor;
+
+USTRUCT()
+struct FGvTWeightedScareChoice
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FGameplayTag ScareTag;
+
+	UPROPERTY()
+	float Weight = 0.f;
+};
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTDirectorSubsystem : public UGameInstanceSubsystem
@@ -38,10 +57,13 @@ public:
 	FGvTScareEvent MakeMirrorEvent(AActor* Target) const;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
-	FGvTScareEvent MakeCrawlerOverheadEvent(AActor* Target) const;
+	FGvTScareEvent MakeMirrorEventForActor(AActor* Target, AActor* MirrorActor) const;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
-	FGvTScareEvent MakeCrawlerChaseEvent(AActor* Target) const;
+	FGvTScareEvent MakeGhostScareEvent(AActor* Target) const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
+	FGvTScareEvent MakeGhostChaseEvent(AActor* Target) const;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	FGvTScareEvent MakeLightChaseEvent(AActor* Target) const;
@@ -77,6 +99,48 @@ public:
 
 	AGvTPowerBoxActor* FindPowerBoxInWorld();
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	void InitializeRoundGhosts();
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	void ClearRoundGhosts();
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
+	const TArray<AGvTGhostCharacterBase*>& GetActiveGhosts() const { return ActiveGhosts; }
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
+	AGvTGhostCharacterBase* GetPrimaryGhost() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
+	AGvTGhostCharacterBase* GetGhostById(FName GhostId) const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
+	const UGvTGhostModelData* GetPrimaryGhostModel() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
+	const UGvTGhostTypeData* GetPrimaryGhostType() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
+	bool CanPrimaryGhostUseScareTag(FGameplayTag ScareTag) const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	void StartRoundGhostSetup();
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	void EndRoundGhostSetup();
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	void ConfigureRoundGhostPool(
+		const TArray<UGvTGhostModelData*>& InModels,
+		const TArray<UGvTGhostTypeData*>& InTypes,
+		int32 InNumGhosts);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Dispatch")
+	bool DispatchGhostHunt(const FGvTGhostHuntRequest& Request);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Dispatch")
+	bool DispatchGhostEvent(const FGvTGhostEventRequest& Request);
+
 protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Runtime")
 	bool bEnableAutoHaunts = true;
@@ -99,23 +163,23 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|Mirror")
 	bool bMirrorTriggersLocalFlicker = true;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerOverhead", meta = (ClampMin = "0.10"))
-	float CrawlerOverheadDuration = 1.0f;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScare", meta = (ClampMin = "0.10"))
+	float GhostScareDuration = 1.0f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerOverhead", meta = (ClampMin = "0.0"))
-	float CrawlerOverheadPanicAmount = 10.0f;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScare", meta = (ClampMin = "0.0"))
+	float GhostScarePanicAmount = 10.0f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerOverhead")
-	bool bCrawlerOverheadTriggersLocalFlicker = false;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostScare")
+	bool bGhostScareTriggersLocalFlicker = false;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerChase", meta = (ClampMin = "0.10"))
-	float CrawlerChaseDuration = 12.0f;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostChase", meta = (ClampMin = "0.10"))
+	float GhostChaseDuration = 12.0f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerChase", meta = (ClampMin = "0.0"))
-	float CrawlerChasePanicAmount = 18.0f;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostChase", meta = (ClampMin = "0.0"))
+	float GhostChasePanicAmount = 18.0f;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|CrawlerChase")
-	bool bCrawlerChaseTriggersGroupFlicker = true;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|GhostChase")
+	bool bGhostChaseTriggersGroupFlicker = true;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|LightChase", meta = (ClampMin = "0.10"))
 	float LightChaseDuration = 1.1f;
@@ -234,10 +298,10 @@ protected:
 	float MirrorDispatchTensionImpulse = 0.10f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
-	float CrawlerOverheadDispatchTensionImpulse = 0.14f;
+	float GhostScareDispatchTensionImpulse = 0.14f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
-	float CrawlerChaseDispatchTensionImpulse = 0.20f;
+	float GhostChaseDispatchTensionImpulse = 0.20f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.1"))
 	float GlobalHauntCooldownMin = 4.0f;
@@ -260,6 +324,58 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
 	float DoorSlamDispatchTensionImpulse = 0.10f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Interaction")
+	float InteractionReactionMinGapSeconds = 2.25f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Interaction")
+	float BaseInteractionReactionChance = 0.22f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Interaction")
+	float LootPressureMaxLootValue = 750.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Interaction")
+	float LootPressureChanceBonus = 0.30f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Interaction")
+	float AntiRepeatWeightMultiplier = 0.30f;
+
+	UPROPERTY()
+	TMap<TWeakObjectPtr<APawn>, float> LastInteractionReactionTime;
+
+	UPROPERTY()
+	TMap<TWeakObjectPtr<APawn>, FGameplayTag> LastInteractionScareByPlayer;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Director|Ghosts")
+	int32 NumGhostsThisRound = 1;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Director|Ghosts")
+	TArray<TObjectPtr<UGvTGhostModelData>> AvailableGhostModels;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Director|Ghosts")
+	TArray<TObjectPtr<UGvTGhostTypeData>> AvailableGhostTypes;
+
+	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "GvT|Director|Ghosts")
+	TArray<TObjectPtr<AGvTGhostCharacterBase>> ActiveGhosts;
+
+	bool BuildRuntimeConfig(
+		const UGvTGhostModelData* ModelData,
+		const UGvTGhostTypeData* TypeData,
+		FGvTGhostRuntimeConfig& OutConfig) const;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Mirror")
+	float MirrorMaxDistance = 2000.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Mirror")
+	float MirrorPreferredFacingDot = -0.2f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Director|Mirror")
+	float MirrorRecentReusePenalty = 0.35f;
+
+	bool BuildRoundGhostSpawnSpec(int32 GhostIndex, FGvTGhostRoundSpawnSpec& OutSpec) const;
+
+	AGvTMirrorActor* ChooseMirrorForTarget(APawn* TargetPawn) const;
+	bool IsMirrorValidForTarget(const AGvTMirrorActor* Mirror, const APawn* TargetPawn) const;
+	float ScoreMirrorForTarget(const AGvTMirrorActor* Mirror, const APawn* TargetPawn) const;
 
 private:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
@@ -297,4 +413,27 @@ private:
 	AActor* ChooseHighestPanicTarget() const;
 	AGvTDoorActor* ChooseBestDoorSlamTarget(APawn* TargetPawn) const;
 	float ScoreDoorForSlam(const APawn* TargetPawn, const AGvTDoorActor* Door) const;
+
+	FGameplayTag ChooseWeightedInteractionScare(
+		APawn* Pawn,
+		AActor* TargetActor,
+		bool bIsElectrical,
+		bool bIsValuable,
+		bool bIsNoisy,
+		float ItemValue01) const;
+
+	static FGameplayTag PickWeightedScare(const TArray<FGvTWeightedScareChoice>& Choices);
+	static void AddScareWeight(TArray<FGvTWeightedScareChoice>& Choices, const FGameplayTag& Tag, float Weight);
+
+	float ComputeInteractionReactionChance(
+		APawn* Pawn,
+		AActor* TargetActor,
+		bool bIsElectrical,
+		bool bIsValuable,
+		bool bIsNoisy,
+		float ItemValue01) const;
+
+	bool IsInteractionReactionOnCooldown(APawn* Pawn) const;
+	void MarkInteractionReactionTriggered(APawn* Pawn);
+	void ApplyAntiRepeatBias(APawn* Pawn, TArray<FGvTWeightedScareChoice>& Choices) const;
 };

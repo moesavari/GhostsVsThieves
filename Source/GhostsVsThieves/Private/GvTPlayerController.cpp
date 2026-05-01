@@ -231,7 +231,18 @@ void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 		GvTHUD->UpdatePanicDisplay(NewPanic01);
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] Panic display updated: %.2f"), NewPanic01);
+	UWorld* World = GetWorld();
+	const float Now = World ? World->GetTimeSeconds() : 0.f;
+
+	const bool bBigStep = (LastLoggedPanic01 < 0.f) || (FMath::Abs(NewPanic01 - LastLoggedPanic01) >= 0.05f);
+	const bool bTimeElapsed = (Now - LastLoggedPanicLogTime) >= 1.5f;
+
+	if (bBigStep || bTimeElapsed)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[HUD] Panic display updated: %.2f"), NewPanic01);
+		LastLoggedPanic01 = NewPanic01;
+		LastLoggedPanicLogTime = Now;
+	}
 }
 
 void AGvTPlayerController::HandleHauntPressureChanged(float NewPressure01)

@@ -11,7 +11,6 @@
 class USoundBase;
 class UGvTScareSubsystem;
 class UGvTGhostProfileAsset;
-class AGvTMirrorActor;
 class AGvTThiefCharacter;
 
 UENUM(BlueprintType)
@@ -44,9 +43,6 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
-	void RequestMirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
-
 	UFUNCTION(BlueprintCallable, Category = "GvT|TEMP_DEPRECATED|GhostPresentation")
 	void RequestCrawlerChaseScare(AActor* Victim);
 
@@ -61,9 +57,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestLightChaseFromEvent(const FGvTScareEvent& Event);
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
-	void Test_MirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
 	void Debug_RequestCrawlerChase(APawn* Victim);
@@ -117,9 +110,6 @@ protected:
 	void Server_RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
 
 	UFUNCTION(Server, Reliable)
-	void Server_RequestMirrorActorScare(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds);
-
-	UFUNCTION(Server, Reliable)
 	void Server_ReportLightChaseResult(bool bSucceeded, float PanicAmount);
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Scare")
@@ -167,29 +157,8 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "Panic")
 	EGvTPanicBand CachedPanicBand = EGvTPanicBand::Calm;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
-	bool bEnableReflectScare = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
-	float ReflectTraceDistance = 1500.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
-	float ReflectSphereRadius = 35.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
-	float ReflectDotMin = 0.86f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
-	float ReflectCheckInterval = 0.05f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
-	float ReflectLifeSeconds = 0.6f;
-
 	UPROPERTY(Transient)
 	TWeakObjectPtr<class AGvTMirrorActor> LastTriggeredMirror;
-
-	UPROPERTY(Transient)
-	float NextAllowedReflectTime = 0.f;
 
 	UPROPERTY(ReplicatedUsing = OnRep_ScareState)
 	FGvTScareState ScareState;
@@ -241,12 +210,10 @@ private:
 	AGvTThiefCharacter* ChooseTargetThief(FRandomStream& Stream) const;
 
 	void Server_SchedulerTick();
-	void Client_ReflectTick();
 	bool Server_CanTriggerNow(float Now) const;
 	void Server_TriggerScare(float Now);
 
 	FTimerHandle SchedulerTimer;
-	FTimerHandle ReflectCheckTimer;
 
 	TMap<FGameplayTag, float> LastTagTimeSeconds;
 	bool bPendingSafetySpike = false;

@@ -1,5 +1,4 @@
 #include "Gameplay/Scare/UGvTScareComponent.h"
-#include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
@@ -85,18 +84,6 @@ void UGvTScareComponent::BeginPlay()
 		{
 			UE_LOG(LogTemp, Warning, TEXT("[Scare] Legacy scheduler DISABLED for %s"), *GetNameSafe(GetOwner()));
 		}
-	}
-
-	// Client-only mirror reflect checks
-	if (!IsServer() && bEnableReflectScare && GetNetMode() != NM_DedicatedServer)
-	{
-		GetWorld()->GetTimerManager().SetTimer(
-			ReflectCheckTimer,
-			this,
-			&UGvTScareComponent::Client_ReflectTick,
-			ReflectCheckInterval,
-			true
-		);
 	}
 
 	LifecycleState = EGvTScareLifecycleState::Idle;
@@ -323,24 +310,6 @@ void UGvTScareComponent::EndScareLifecycle()
 	UE_LOG(LogTemp, Warning,
 		TEXT("[ScareLifecycle] End Idle Owner=%s"),
 		*GetNameSafe(GetOwner()));
-}
-
-void UGvTScareComponent::RequestMirrorScare(float Intensity01, float LifeSeconds)
-{
-	if (!CanStartNewScare())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[ScareLifecycle] Mirror request ignored: owner %s is busy"), *GetNameSafe(GetOwner()));
-		return;
-	}
-
-	if (IsServer())
-	{
-		Client_PlayMirrorScare(Intensity01, LifeSeconds);
-	}
-	else
-	{
-		Test_MirrorScare(Intensity01, LifeSeconds);
-	}
 }
 
 void UGvTScareComponent::RequestCrawlerChaseFromEvent(AActor* Victim)
@@ -929,63 +898,6 @@ void UGvTScareComponent::PlayLightChaseStepEffects(const FVector& StepLocation, 
 //		Pitch);
 //}
 
-void UGvTScareComponent::Test_MirrorScare(float Intensity01, float LifeSeconds)
-{
-	APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
-	{
-		return;
-	}
-
-	APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController());
-	if (!PC)
-	{
-		return;
-	}
-
-	FVector CamLoc;
-	FRotator CamRot;
-	PC->GetPlayerViewPoint(CamLoc, CamRot);
-
-	const FVector Start = CamLoc;
-	const FVector End = Start + (CamRot.Vector() * ReflectTraceDistance);
-
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_MirrorTestTrace), false, OwnerPawn);
-	Params.AddIgnoredActor(OwnerPawn);
-
-	FHitResult Hit;
-	const bool bHit = GetWorld()->SweepSingleByChannel(
-		Hit,
-		Start,
-		End,
-		FQuat::Identity,
-		ECC_Visibility,
-		FCollisionShape::MakeSphere(ReflectSphereRadius),
-		Params);
-
-	if (!bHit)
-	{
-		return;
-	}
-
-	AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
-	if (!Mirror)
-	{
-		return;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Triggering mirror %s"), *Mirror->GetName());
-
-	if (IsServer())
-	{
-		Mirror->TriggerScare(Intensity01, LifeSeconds);
-	}
-	else
-	{
-		Server_RequestMirrorActorScare(Mirror, Intensity01, LifeSeconds);
-	}
-}
-
 void UGvTScareComponent::Debug_RequestCrawlerChase(APawn* Victim)
 {
 	if (!Victim)
@@ -1067,17 +979,13 @@ void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01
 {
 	if (!CanStartNewScare())
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("[MirrorClient] Owner=%s LocalRole=%d RemoteRole=%d LocallyControlled=%d"),
-			*GetNameSafe(GetOwner()),
-			(int32)GetOwner()->GetLocalRole(),
-			(int32)GetOwner()->GetRemoteRole(),
-			Cast<APawn>(GetOwner()) && Cast<APawn>(GetOwner())->IsLocallyControlled() ? 1 : 0);
 		return;
 	}
 
 	BeginLocalScareLifecycle(LifeSeconds, MirrorRecoveryDuration);
-	Test_MirrorScare(Intensity01, LifeSeconds);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ScareComponent] Mirror scare lifecycle started. Mirror presentation/perception is owned outside ScareComponent."));
 }
 
 void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& Event)
@@ -1155,23 +1063,6 @@ void UGvTScareComponent::Server_RequestCrawlerOverheadScare_Implementation(AActo
 {
 	UE_LOG(LogTemp, Warning,
 		TEXT("[ScareComponent] Server_RequestCrawlerOverheadScare deprecated. Close scare presentation belongs to Ghost system."));
-}
-
-void UGvTScareComponent::Server_RequestMirrorActorScare_Implementation(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds)
-{
-	if (!Mirror)
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Server_RequestMirrorActorScare failed: Mirror is null."));
-		return;
-	}
-
-	UE_LOG(LogTemp, Warning, TEXT("[MirrorTest] Server triggering mirror %s"), *Mirror->GetName());
-
-	if (AGvTAmbientAudioDirector* AmbientDirector = FindAmbientAudioDirector_Scare(this))
-	{
-		AmbientDirector->HandleScareStarted(GvTScareTags::Mirror(), Mirror->GetActorLocation(), Intensity01);
-	}
-	Mirror->TriggerScare(Intensity01, LifeSeconds);
 }
 
 void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01)
@@ -1493,88 +1384,6 @@ AGvTThiefCharacter* UGvTScareComponent::ChooseTargetThief(FRandomStream& Stream)
 
 	if (Candidates.Num() == 0) return nullptr;
 	return Candidates[Stream.RandRange(0, Candidates.Num() - 1)];
-}
-
-
-void UGvTScareComponent::Client_ReflectTick()
-{
-	if (!bEnableReflectScare)
-	{
-		return;
-	}
-
-	APawn* Pawn = Cast<APawn>(GetOwner());
-	if (!Pawn || !Pawn->IsLocallyControlled())
-	{
-		return;
-	}
-
-	APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
-	if (!PC)
-	{
-		return;
-	}
-
-	FVector CamLoc;
-	FRotator CamRot;
-	PC->GetPlayerViewPoint(CamLoc, CamRot);
-	const FVector CamFwd = CamRot.Vector();
-
-	const FVector Start = CamLoc;
-	const FVector End = Start + CamFwd * ReflectTraceDistance;
-
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvTReflectTrace), false, Pawn);
-	Params.AddIgnoredActor(Pawn);
-
-	FHitResult Hit;
-	const bool bHit = GetWorld()->SweepSingleByChannel(
-		Hit,
-		Start,
-		End,
-		FQuat::Identity,
-		ECC_Visibility,
-		FCollisionShape::MakeSphere(ReflectSphereRadius),
-		Params);
-
-	if (!bHit)
-	{
-		return;
-	}
-
-	AGvTMirrorActor* Mirror = Cast<AGvTMirrorActor>(Hit.GetActor());
-	if (!Mirror)
-	{
-		return;
-	}
-
-	const FVector ToCam = (CamLoc - Hit.ImpactPoint).GetSafeNormal();
-	const float Dot = FVector::DotProduct(CamFwd, -ToCam);
-
-	if (Dot < ReflectDotMin)
-	{
-		return;
-	}
-
-	const float Intensity01 = FMath::Clamp(
-		(Dot - ReflectDotMin) / FMath::Max(KINDA_SMALL_NUMBER, (1.f - ReflectDotMin)),
-		0.f,
-		1.f);
-
-	const float Now = GetWorld() ? GetWorld()->TimeSeconds : 0.f;
-
-	if (Now < NextAllowedReflectTime)
-	{
-		return;
-	}
-
-	if (LastTriggeredMirror.IsValid() && LastTriggeredMirror.Get() == Mirror)
-	{
-		return;
-	}
-
-	Server_RequestMirrorActorScare(Mirror, Intensity01, ReflectLifeSeconds);
-	LastTriggeredMirror = Mirror;
-	NextAllowedReflectTime = Now + ReflectLifeSeconds + 0.25f;
 }
 
 float UGvTScareComponent::ComputePressure01(float PlayerPanic01, float AvgPanic01, float TimeSinceLastScare01) const

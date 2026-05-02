@@ -1,0 +1,45 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/Character.h"
+#include "GameplayTagContainer.h"
+#include "GvTGhostCharacterBase.generated.h"
+
+UCLASS(Abstract, Blueprintable)
+class GHOSTSVSTHIEVES_API AGvTGhostCharacterBase : public ACharacter
+{
+	GENERATED_BODY()
+
+public:
+	AGvTGhostCharacterBase();
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost")
+	virtual void SetGhostPresenceActive(bool bActive);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Scare")
+	virtual void BeginGhostScare(AActor* Target, FGameplayTag ScareTag);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Event")
+	virtual void BeginGhostEvent(AActor* Target, FGameplayTag EventTag);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt")
+	virtual void BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag);
+
+protected:
+	virtual void BeginPlay() override;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
+	bool bStartHidden = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
+	bool bGhostPresenceActive = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
+	FGameplayTagContainer SupportedGhostScares;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
+	FGameplayTagContainer SupportedGhostEvents;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
+	FGameplayTagContainer SupportedGhostHaunts;
+};

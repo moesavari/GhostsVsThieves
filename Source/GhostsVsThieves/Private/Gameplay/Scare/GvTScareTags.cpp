@@ -36,4 +36,34 @@ namespace GvTScareTags
 	{
 		return FGameplayTag::RequestGameplayTag(TEXT("Scare.DoorSlamBehind"));
 	}
+
+	FGameplayTag GhostScare_Close()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("GhostScare.Close"));
+	}
+
+	FGameplayTag GhostScare_Scream()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("GhostScare.Scream"));
+	}
+
+	FGameplayTag GhostScare_AudioRear()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("GhostScare.AudioRear"));
+	}
+
+	FGameplayTag GhostEvent_DoorSlam()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.DoorSlam"));
+	}
+
+	FGameplayTag GhostEvent_Mirror()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.Mirror"));
+	}
+
+	FGameplayTag GhostHaunt_Chase()
+	{
+		return FGameplayTag::RequestGameplayTag(TEXT("GhostHaunt.Chase"));
+	}
 }

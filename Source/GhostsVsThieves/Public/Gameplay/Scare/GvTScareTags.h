@@ -12,4 +12,13 @@ namespace GvTScareTags
 	GHOSTSVSTHIEVES_API FGameplayTag DoorSlamBehind();
 	GHOSTSVSTHIEVES_API FGameplayTag RearAudioSting();
 	GHOSTSVSTHIEVES_API FGameplayTag GhostScream();
+
+	GHOSTSVSTHIEVES_API FGameplayTag GhostScare_Close();
+	GHOSTSVSTHIEVES_API FGameplayTag GhostScare_Scream();
+	GHOSTSVSTHIEVES_API FGameplayTag GhostScare_AudioRear();
+
+	GHOSTSVSTHIEVES_API FGameplayTag GhostEvent_DoorSlam();
+	GHOSTSVSTHIEVES_API FGameplayTag GhostEvent_Mirror();
+
+	GHOSTSVSTHIEVES_API FGameplayTag GhostHaunt_Chase();
 }

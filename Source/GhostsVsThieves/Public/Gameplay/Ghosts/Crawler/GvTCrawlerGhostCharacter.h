@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "GameFramework/Character.h"
+#include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 #include "Net/UnrealNetwork.h"
 #include "Systems/EGvTCrawlerGhostState.h"
 #include "Systems/Noise/GvTScareAudioTypes.h"
@@ -11,7 +11,7 @@ class UAudioComponent;
 class USoundBase;
 
 UCLASS(BlueprintType)
-class GHOSTSVSTHIEVES_API AGvTCrawlerGhostCharacter : public ACharacter
+class GHOSTSVSTHIEVES_API AGvTCrawlerGhostCharacter : public AGvTHauntGhostBase
 {
 	GENERATED_BODY()
 
@@ -20,7 +20,6 @@ public:
 
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
-
 
 	UFUNCTION(BlueprintCallable, Server, Reliable, Category = "GvT|Crawler|Chase")
 	void Server_StartChase(APawn* Victim);
@@ -42,6 +41,8 @@ public:
 	void StopAndDie();
 
 	void OnCrawlerDragStep();
+
+	virtual void BeginGhostScare(AActor* Target, FGameplayTag ScareTag) override;
 
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

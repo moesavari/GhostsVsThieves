@@ -13,6 +13,8 @@
 #include "Systems/Audio/GvTAmbientAudioDirector.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 
+#include "GameFramework/Character.h"
+
 namespace
 {
 	static AGvTAmbientAudioDirector* FindAmbientAudioDirector_Crawler(const UObject* WorldContextObject)
@@ -106,6 +108,30 @@ void AGvTCrawlerGhostCharacter::SetState(EGvTCrawlerGhostState NewState)
 
 	ForceNetUpdate();
 	OnRep_State();
+}
+
+void AGvTCrawlerGhostCharacter::BeginGhostScare(AActor* Target, FGameplayTag ScareTag)
+{
+	UE_LOG(LogTemp, Warning,
+		TEXT("[CrawlerGhost] BeginGhostScare Target=%s Tag=%s"),
+		*GetNameSafe(Target),
+		*ScareTag.ToString());
+
+	ACharacter* TargetCharacter = Cast<ACharacter>(Target);
+	if (!TargetCharacter)
+	{
+		return;
+	}
+
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
+	{
+		StartOverhead_Internal(TargetCharacter);
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[CrawlerGhost] Unsupported GhostScare tag: %s"),
+		*ScareTag.ToString());
 }
 
 void AGvTCrawlerGhostCharacter::Server_StartChase_Implementation(APawn* Victim)

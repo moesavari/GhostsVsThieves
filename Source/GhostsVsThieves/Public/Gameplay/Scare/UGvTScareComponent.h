@@ -11,7 +11,6 @@
 class USoundBase;
 class UGvTScareSubsystem;
 class UGvTGhostProfileAsset;
-class AGvTCrawlerGhostCharacter;
 class AGvTMirrorActor;
 class AGvTThiefCharacter;
 
@@ -48,10 +47,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestMirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
 
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
+	UFUNCTION(BlueprintCallable, Category = "GvT|TEMP_DEPRECATED|GhostPresentation")
 	void RequestCrawlerChaseScare(AActor* Victim);
 
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
+	UFUNCTION(BlueprintCallable, Category = "GvT|TEMP_DEPRECATED|GhostPresentation")
 	void RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
@@ -144,44 +143,11 @@ protected:
 	UFUNCTION()
 	void OnRep_Panic();
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
-	float CrawlerSpawnForward = 800.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
-	float CrawlerSpawnUp = 180.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
-	float OverheadSpawnForward = 80.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
-	float OverheadTraceUp = 800.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|Crawler")
-	float OverheadDropDown = 250.f;
-
-	UPROPERTY(EditAnywhere, Category = "GvT|Scare|Crawler")
-	TSubclassOf<AGvTCrawlerGhostCharacter> CrawlerGhostClass;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase")
-	TObjectPtr<USoundBase> LightChaseStepSfx = nullptr;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase")
-	TObjectPtr<USoundBase> LightChaseFinalSfx = nullptr;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase")
 	float LightChaseRecoveryDuration = 0.9f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
-	TObjectPtr<USoundBase> RearAudioStingSfx = nullptr;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
-	TObjectPtr<USoundBase> RearAudioStingFollowupSfx = nullptr;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
 	float RearAudioRecoveryDuration = 0.35f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
-	TObjectPtr<USoundBase> GhostScreamSfx = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
 	float GhostScreamRecoveryDuration = 0.55f;
@@ -200,9 +166,6 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "Panic")
 	EGvTPanicBand CachedPanicBand = EGvTPanicBand::Calm;
-
-	UPROPERTY(Transient)
-	TObjectPtr<AGvTCrawlerGhostCharacter> ActiveCrawlerGhost;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Reflect")
 	bool bEnableReflectScare = true;
@@ -255,11 +218,7 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Schedule")
 	bool bEnableLegacyAutoScheduler = false;
 
-	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
-	float CrawlerChaseActiveDuration = 12.0f;
-
 private:
-	void SpawnLocalCrawlerOverheadGhost(APawn* Victim);
 	void PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const;
 	FGvTLightFlickerEvent MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const;
 
@@ -309,15 +268,9 @@ private:
 
 	TArray<FVector> BuildLightChaseStepLocations(const FGvTScareEvent& Event) const;
 	void PlayLightChaseStepEffects(const FVector& StepLocation, bool bIsFinalStep);
-	void PlayLocalLightChaseSoundAtLocation(const FVector& WorldLocation, bool bIsFinalStep, float StepAlpha) const;
 
 	FVector ResolveLightChaseStepLocation(const FVector& RawStepLocation) const;
 	void CollapseLightChaseStepLocations(TArray<FVector>& StepLocations) const;
-
-	void PlayLocalRearAudioSting(const FGvTScareEvent& Event);
-	void PlayLocalGhostScreamShared(const FGvTScareEvent& Event);
-
-	FVector BuildRearAudioWorldLocation(const FGvTScareEvent& Event) const;
 
 	UPROPERTY(VisibleInstanceOnly, Category = "GvT|Scare|Lifecycle")
 	EGvTScareLifecycleState LifecycleState = EGvTScareLifecycleState::Idle;
@@ -327,9 +280,6 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
 	float MirrorRecoveryDuration = 0.75f;
-
-	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
-	float OverheadRecoveryDuration = 1.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Scare|Lifecycle")
 	float ChaseRecoveryDuration = 2.0f;
@@ -358,5 +308,4 @@ private:
 	FTimerHandle TimerHandle_ScareActiveFinish;
 	FTimerHandle TimerHandle_ScareRecoveryFinish;
 	FTimerHandle TimerHandle_LightChaseStep;
-	FTimerHandle TimerHandle_RearAudioFollowup;
 };

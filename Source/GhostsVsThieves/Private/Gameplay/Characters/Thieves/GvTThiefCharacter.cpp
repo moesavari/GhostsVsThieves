@@ -512,6 +512,45 @@ void AGvTThiefCharacter::Debug_RequestDoorSlamBehindScare()
     Server_DebugRequestDoorSlamBehindScare();
 }
 
+void AGvTThiefCharacter::Debug_RequestGhostScare(FGameplayTag GhostScareTag)
+{
+    if (GhostScareTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostScare.Scream"))))
+    {
+        Debug_RequestGhostScreamScare();
+        return;
+    }
+
+    if (GhostScareTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostScare.AudioRear"))))
+    {
+        Debug_RequestRearAudioStingScare();
+        return;
+    }
+
+    if (GhostScareTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostScare.Close"))))
+    {
+        Debug_RequestCrawlerOverheadScare();
+        return;
+    }
+}
+
+void AGvTThiefCharacter::Debug_RequestGhostEvent(FGameplayTag GhostEventTag)
+{
+    if (GhostEventTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.DoorSlam"))))
+    {
+        Debug_RequestDoorSlamBehindScare();
+        return;
+    }
+}
+
+void AGvTThiefCharacter::Debug_RequestGhostHaunt(FGameplayTag GhostHauntTag)
+{
+    if (GhostHauntTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostHaunt.Chase"))))
+    {
+        Debug_RequestCrawlerChaseScare();
+        return;
+    }
+}
+
 void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
 {
     if (UGameInstance* GI = GetGameInstance())

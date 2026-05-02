@@ -70,6 +70,15 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestDoorSlamBehindScare();
 
+    UFUNCTION(BlueprintCallable, Category = "Debug|Ghost")
+    void Debug_RequestGhostScare(FGameplayTag GhostScareTag);
+
+    UFUNCTION(BlueprintCallable, Category = "Debug|Ghost")
+    void Debug_RequestGhostEvent(FGameplayTag GhostEventTag);
+
+    UFUNCTION(BlueprintCallable, Category = "Debug|Ghost")
+    void Debug_RequestGhostHaunt(FGameplayTag GhostHauntTag);
+
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestMirrorScare();
 

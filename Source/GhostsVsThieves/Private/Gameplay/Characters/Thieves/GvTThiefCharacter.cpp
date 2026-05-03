@@ -19,7 +19,7 @@
 #include "TimerManager.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "World/Doors/GvTDoorActor.h"
-#include "Gameplay/Ghosts/Crawler/GvTCrawlerGhostCharacter.h"
+#include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {

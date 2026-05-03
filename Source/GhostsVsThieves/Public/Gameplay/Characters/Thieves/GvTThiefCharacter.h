@@ -14,7 +14,7 @@ class UInputAction;
 class UGvTNoiseEmitterComponent;
 class UGvTInteractionComponent;
 class UGvTDirectorSubsystem;
-class AGvTCrawlerGhostCharacter;
+class AGvTGhostCharacterBase;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter

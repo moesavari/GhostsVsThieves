@@ -19,6 +19,7 @@
 #include "TimerManager.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "World/Doors/GvTDoorActor.h"
+#include "Gameplay/Ghosts/Crawler/GvTCrawlerGhostCharacter.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -296,38 +297,6 @@ void AGvTThiefCharacter::Client_PlayLocalScareStun_Implementation(float Duration
     ApplyScareStun(Duration);
 }
 
-void AGvTThiefCharacter::Client_PlayLocalCrawlerOverheadScare_Implementation(const FGvTScareEvent& Event)
-{
-    UE_LOG(LogTemp, Warning,
-        TEXT("[ScareRPC] Client_PlayLocalCrawlerOverheadScare this=%s local=%d incomingTarget=%s"),
-        *GetNameSafe(this),
-        IsLocallyControlled() ? 1 : 0,
-        *GetNameSafe(Event.TargetActor));
-
-    if (!IsLocallyControlled())
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare ignored: %s is not locally controlled"), *GetName());
-        return;
-    }
-
-    UGvTScareComponent* ScareComp = FindComponentByClass<UGvTScareComponent>();
-    if (!ScareComp)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare failed: %s has no scare component"), *GetName());
-        return;
-    }
-
-    FGvTScareEvent LocalEvent = Event;
-    LocalEvent.TargetActor = this; // force victim identity from the RPC receiver
-
-    ScareComp->PlayLocalCrawlerOverheadScare(LocalEvent);
-
-    UE_LOG(LogTemp, Warning,
-        TEXT("[Scare] Client_PlayLocalCrawlerOverheadScare executed on %s finalTarget=%s"),
-        *GetNameSafe(this),
-        *GetNameSafe(LocalEvent.TargetActor));
-}
-
 void AGvTThiefCharacter::ApplyScareStun(float Duration)
 {
     UCharacterMovementComponent* MoveComp = GetCharacterMovement();
@@ -457,28 +426,6 @@ void AGvTThiefCharacter::Debug_RequestMirrorScare()
     Server_DebugRequestMirrorScare();
 }
 
-void AGvTThiefCharacter::Debug_RequestCrawlerChaseScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestCrawlerChaseScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestCrawlerChaseScare();
-}
-
-void AGvTThiefCharacter::Debug_RequestCrawlerOverheadScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestCrawlerOverheadScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestCrawlerOverheadScare();
-}
-
 void AGvTThiefCharacter::Debug_RequestRearAudioStingScare()
 {
     if (HasAuthority())
@@ -514,41 +461,35 @@ void AGvTThiefCharacter::Debug_RequestDoorSlamBehindScare()
 
 void AGvTThiefCharacter::Debug_RequestGhostScare(FGameplayTag GhostScareTag)
 {
-    if (GhostScareTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostScare.Scream"))))
+    if (!HasAuthority())
     {
-        Debug_RequestGhostScreamScare();
+        Server_DebugRequestGhostScare(GhostScareTag);
         return;
     }
 
-    if (GhostScareTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostScare.AudioRear"))))
-    {
-        Debug_RequestRearAudioStingScare();
-        return;
-    }
-
-    if (GhostScareTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostScare.Close"))))
-    {
-        Debug_RequestCrawlerOverheadScare();
-        return;
-    }
+    Server_DebugRequestGhostScare_Implementation(GhostScareTag);
 }
 
 void AGvTThiefCharacter::Debug_RequestGhostEvent(FGameplayTag GhostEventTag)
 {
-    if (GhostEventTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.DoorSlam"))))
+    if (!HasAuthority())
     {
-        Debug_RequestDoorSlamBehindScare();
+        Server_DebugRequestGhostEvent(GhostEventTag);
         return;
     }
+
+    Server_DebugRequestGhostEvent_Implementation(GhostEventTag);
 }
 
 void AGvTThiefCharacter::Debug_RequestGhostHaunt(FGameplayTag GhostHauntTag)
 {
-    if (GhostHauntTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostHaunt.Chase"))))
+    if (!HasAuthority())
     {
-        Debug_RequestCrawlerChaseScare();
+        Server_DebugRequestGhostHaunt(GhostHauntTag);
         return;
     }
+
+    Server_DebugRequestGhostHaunt_Implementation(GhostHauntTag);
 }
 
 void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
@@ -560,34 +501,6 @@ void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
             const FGvTScareEvent Event = Director->MakeMirrorEvent(this);
 
             UE_LOG(LogTemp, Warning, TEXT("[Debug] Server Mirror scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
-        }
-    }
-}
-
-void AGvTThiefCharacter::Server_DebugRequestCrawlerChaseScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
-    {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            const FGvTScareEvent Event = Director->MakeCrawlerChaseEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerChase scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
-        }
-    }
-}
-
-void AGvTThiefCharacter::Server_DebugRequestCrawlerOverheadScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
-    {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            const FGvTScareEvent Event = Director->MakeCrawlerOverheadEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server CrawlerOverhead scare requested for %s"), *GetName());
             Director->DispatchScareEvent(Event);
         }
     }
@@ -644,4 +557,129 @@ void AGvTThiefCharacter::Server_DebugRequestDoorSlamBehindScare_Implementation()
             Director->DispatchScareEvent(Event);
         }
     }
+}
+
+void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayTag GhostScareTag)
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    if (IsValid(DebugActiveCrawlerGhost))
+    {
+        DebugActiveCrawlerGhost->Destroy();
+        DebugActiveCrawlerGhost = nullptr;
+    }
+
+    const FVector SpawnLoc = GetActorLocation() + GetActorForwardVector() * 250.f + FVector(0.f, 0.f, 120.f);
+    const FRotator SpawnRot = (GetActorLocation() - SpawnLoc).Rotation();
+
+    FActorSpawnParameters Params;
+    Params.Owner = this;
+    Params.Instigator = this;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    TSubclassOf<AGvTCrawlerGhostCharacter> SpawnClass = DebugCrawlerGhostClass;
+
+    if (!SpawnClass)
+    {
+        SpawnClass = AGvTCrawlerGhostCharacter::StaticClass();
+    }
+
+    AGvTCrawlerGhostCharacter* Ghost = World->SpawnActor<AGvTCrawlerGhostCharacter>(
+        SpawnClass,
+        SpawnLoc,
+        SpawnRot,
+        Params);
+
+    if (!Ghost)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[DebugGhost] Failed to spawn crawler ghost for scare."));
+        return;
+    }
+
+    DebugActiveCrawlerGhost = Ghost;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[DebugGhost] Spawned crawler for GhostScare tag=%s Ghost=%s"),
+        *GhostScareTag.ToString(),
+        *GetNameSafe(Ghost));
+
+    Ghost->BeginGhostScare(this, GhostScareTag);
+}
+
+void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayTag GhostHauntTag)
+{
+    if (!HasAuthority())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    if (IsValid(DebugActiveCrawlerGhost))
+    {
+        DebugActiveCrawlerGhost->Destroy();
+        DebugActiveCrawlerGhost = nullptr;
+    }
+
+    const FVector SpawnLoc = GetActorLocation() - GetActorForwardVector() * 600.f + FVector(0.f, 0.f, 80.f);
+    const FRotator SpawnRot = (GetActorLocation() - SpawnLoc).Rotation();
+
+    FActorSpawnParameters Params;
+    Params.Owner = this;
+    Params.Instigator = this;
+    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+    TSubclassOf<AGvTCrawlerGhostCharacter> SpawnClass = DebugCrawlerGhostClass;
+
+    if (!SpawnClass)
+    {
+        SpawnClass = AGvTCrawlerGhostCharacter::StaticClass();
+    }
+
+    AGvTCrawlerGhostCharacter* Ghost = World->SpawnActor<AGvTCrawlerGhostCharacter>(
+        SpawnClass,
+        SpawnLoc,
+        SpawnRot,
+        Params);
+
+    if (!Ghost)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[DebugGhost] Failed to spawn crawler ghost for haunt."));
+        return;
+    }
+
+    DebugActiveCrawlerGhost = Ghost;
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[DebugGhost] Spawned crawler for GhostHaunt tag=%s Ghost=%s"),
+        *GhostHauntTag.ToString(),
+        *GetNameSafe(Ghost));
+
+    Ghost->BeginGhostHaunt(this, GhostHauntTag);
+}
+
+void AGvTThiefCharacter::Server_DebugRequestGhostEvent_Implementation(FGameplayTag GhostEventTag)
+{
+    if (GhostEventTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.DoorSlam"))))
+    {
+        Server_DebugRequestDoorSlamBehindScare_Implementation();
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[DebugGhost] Unsupported GhostEvent tag=%s"),
+        *GhostEventTag.ToString());
 }

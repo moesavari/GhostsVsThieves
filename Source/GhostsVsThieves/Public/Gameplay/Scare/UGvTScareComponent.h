@@ -43,23 +43,8 @@ public:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	UFUNCTION(BlueprintCallable, Category = "GvT|TEMP_DEPRECATED|GhostPresentation")
-	void RequestCrawlerChaseScare(AActor* Victim);
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|TEMP_DEPRECATED|GhostPresentation")
-	void RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
-	void RequestCrawlerChaseFromEvent(AActor* Victim);
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
-	void RequestCrawlerOverheadFromEvent(const FGvTScareEvent& Event);
-
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestLightChaseFromEvent(const FGvTScareEvent& Event);
-
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
-	void Debug_RequestCrawlerChase(APawn* Victim);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
 	void Debug_RequestGroupHouseLightFlicker(float Intensity01 = 1.f, float Duration = 2.f);
@@ -82,9 +67,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Panic")
 	EGvTPanicBand GetPanicBand() const;
 
-	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Crawler")
-	void PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event);
-
 	void Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01);
 
 	UFUNCTION(BlueprintPure, Category = "GvT|Scare|Lifecycle")
@@ -103,11 +85,6 @@ public:
 	void RequestGhostScreamFromEvent(const FGvTScareEvent& Event);
 
 protected:
-	UFUNCTION(Server, Reliable)
-	void Server_RequestCrawlerChaseScare(AActor* Victim);
-
-	UFUNCTION(Server, Reliable)
-	void Server_RequestCrawlerOverheadScare(AActor* Victim, bool bVictimOnly);
 
 	UFUNCTION(Server, Reliable)
 	void Server_ReportLightChaseResult(bool bSucceeded, float PanicAmount);
@@ -123,9 +100,6 @@ protected:
 
 	UFUNCTION(Client, Reliable)
 	void Client_PlayMirrorScare(float Intensity01, float LifeSeconds);
-
-	UFUNCTION(Client, Reliable)
-	void Client_StartCrawlerOverheadScare(const FGvTScareEvent& Event);
 
 	UFUNCTION()
 	void OnRep_ScareState();

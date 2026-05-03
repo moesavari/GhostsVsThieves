@@ -531,7 +531,7 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch Crawler Chase to %s"), *GetNameSafe(Target));
-		ScareComp->RequestCrawlerChaseFromEvent(Target);
+		//ScareComp->RequestCrawlerChaseFromEvent(Target);
 		return true;
 	}
 
@@ -565,7 +565,7 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 			(int32)Target->GetLocalRole(),
 			(int32)Target->GetRemoteRole());
 
-		ScareComp->RequestCrawlerOverheadFromEvent(Event);
+		//ScareComp->RequestCrawlerOverheadFromEvent(Event);
 		return true;
 	}
 

@@ -12,7 +12,6 @@
 #include "Net/UnrealNetwork.h"
 #include "Systems/Audio/GvTAmbientAudioDirector.h"
 #include "Gameplay/Scare/GvTScareTags.h"
-
 #include "GameFramework/Character.h"
 
 namespace
@@ -125,6 +124,8 @@ void AGvTCrawlerGhostCharacter::BeginGhostScare(AActor* Target, FGameplayTag Sca
 
 	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
 	{
+		UE_LOG(LogTemp, Warning, TEXT("[CrawlerGhost] Starting crawler close scare presentation."));
+
 		StartOverhead_Internal(TargetCharacter);
 		return;
 	}
@@ -134,11 +135,48 @@ void AGvTCrawlerGhostCharacter::BeginGhostScare(AActor* Target, FGameplayTag Sca
 		*ScareTag.ToString());
 }
 
+void AGvTCrawlerGhostCharacter::BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag)
+{
+	UE_LOG(LogTemp, Warning,
+		TEXT("[CrawlerGhost] BeginGhostHaunt Target=%s Tag=%s"),
+		*GetNameSafe(Target),
+		*HauntTag.ToString());
+
+	if (!HauntTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase()))
+	{
+		return;
+	}
+
+	APawn* VictimPawn = Cast<APawn>(Target);
+	if (!VictimPawn)
+	{
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		Server_StartChase_Implementation(VictimPawn);
+	}
+	else
+	{
+		Server_StartChase(VictimPawn);
+	}
+}
+
 void AGvTCrawlerGhostCharacter::Server_StartChase_Implementation(APawn* Victim)
 {
 	if (!HasAuthority() || !Victim)
 	{
 		return;
+	}
+
+	SetGhostPresenceActive(true);
+	SetActorHiddenInGame(false);
+
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetVisibility(true, true);
+		MeshComp->SetHiddenInGame(false, true);
 	}
 
 	TargetVictim = Victim;
@@ -424,6 +462,20 @@ void AGvTCrawlerGhostCharacter::StartOverhead_Internal(APawn* Victim)
 		return;
 	}
 
+	SetGhostPresenceActive(true);
+	SetActorHiddenInGame(false);
+
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetVisibility(true, true);
+		MeshComp->SetHiddenInGame(false, true);
+	}
+
+	if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Victim))
+	{
+		Thief->ApplyScareStun(OverheadDuration);
+	}
+
 	SetState(EGvTCrawlerGhostState::OverheadScare);
 
 	// Trace upward to find a ceiling above the player's camera.
@@ -471,7 +523,7 @@ void AGvTCrawlerGhostCharacter::StartOverhead_Internal(APawn* Victim)
 	PlayScareAudioStart(OverheadAudio, true);
 	StartScareAudioSustain(OverheadAudio, true);
 
-	SetState(EGvTCrawlerGhostState::IdleCeiling);
+	SetState(EGvTCrawlerGhostState::OverheadScare);
 }
 
 void AGvTCrawlerGhostCharacter::OverheadTick(float DeltaSeconds)

@@ -4,6 +4,7 @@
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
 #include "Gameplay/Scare/GvTScareTypes.h"
+#include "GameplayTagContainer.h"
 #include "GvTThiefCharacter.generated.h"
 
 class UCameraComponent;
@@ -13,6 +14,7 @@ class UInputAction;
 class UGvTNoiseEmitterComponent;
 class UGvTInteractionComponent;
 class UGvTDirectorSubsystem;
+class AGvTCrawlerGhostCharacter;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -37,9 +39,6 @@ public:
     UFUNCTION(Client, Reliable)
     void Client_PlayLocalScareStun(float Duration);
 
-    UFUNCTION(Client, Reliable)
-    void Client_PlayLocalCrawlerOverheadScare(const FGvTScareEvent& Event);
-
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
 
@@ -54,12 +53,6 @@ public:
 
     UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestMirrorScare();
-
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestCrawlerChaseScare();
-
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestCrawlerOverheadScare();
 
     UFUNCTION(BlueprintCallable, Category = "Debug")
     void Debug_RequestRearAudioStingScare();
@@ -83,12 +76,6 @@ public:
     void Server_DebugRequestMirrorScare();
 
     UFUNCTION(Server, Reliable)
-    void Server_DebugRequestCrawlerChaseScare();
-
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestCrawlerOverheadScare();
-
-    UFUNCTION(Server, Reliable)
     void Server_DebugRequestRearAudioStingScare();
 
     UFUNCTION(Server, Reliable)
@@ -96,6 +83,21 @@ public:
 
     UFUNCTION(Server, Reliable)
     void Server_DebugRequestDoorSlamBehindScare();
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestGhostScare(FGameplayTag GhostScareTag);
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestGhostHaunt(FGameplayTag GhostHauntTag);
+
+    UFUNCTION(Server, Reliable)
+    void Server_DebugRequestGhostEvent(FGameplayTag GhostEventTag);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug|Ghost")
+    TSubclassOf<AGvTCrawlerGhostCharacter> DebugCrawlerGhostClass;
+
+    UPROPERTY(Transient)
+    TObjectPtr<AGvTCrawlerGhostCharacter> DebugActiveCrawlerGhost = nullptr;
 
 protected:
     virtual void BeginPlay() override;

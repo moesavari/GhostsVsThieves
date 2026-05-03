@@ -43,6 +43,7 @@ public:
 	void OnCrawlerDragStep();
 
 	virtual void BeginGhostScare(AActor* Target, FGameplayTag ScareTag) override;
+	virtual void BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag) override;
 
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;

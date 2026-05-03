@@ -1,5 +1,4 @@
 #include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
-
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Systems/Audio/GvTAmbientAudioDirector.h"

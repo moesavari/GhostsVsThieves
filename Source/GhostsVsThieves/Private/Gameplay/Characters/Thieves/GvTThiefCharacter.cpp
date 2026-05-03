@@ -572,10 +572,10 @@ void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayT
         return;
     }
 
-    if (IsValid(DebugActiveCrawlerGhost))
+    if (IsValid(DebugActiveGhost))
     {
-        DebugActiveCrawlerGhost->Destroy();
-        DebugActiveCrawlerGhost = nullptr;
+        DebugActiveGhost->Destroy();
+        DebugActiveGhost = nullptr;
     }
 
     const FVector SpawnLoc = GetActorLocation() + GetActorForwardVector() * 250.f + FVector(0.f, 0.f, 120.f);
@@ -586,14 +586,14 @@ void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayT
     Params.Instigator = this;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    TSubclassOf<AGvTCrawlerGhostCharacter> SpawnClass = DebugCrawlerGhostClass;
+    TSubclassOf<AGvTGhostCharacterBase> SpawnClass = DebugGhostClass;
 
     if (!SpawnClass)
     {
-        SpawnClass = AGvTCrawlerGhostCharacter::StaticClass();
+        SpawnClass = AGvTGhostCharacterBase::StaticClass();
     }
 
-    AGvTCrawlerGhostCharacter* Ghost = World->SpawnActor<AGvTCrawlerGhostCharacter>(
+    AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(
         SpawnClass,
         SpawnLoc,
         SpawnRot,
@@ -605,7 +605,7 @@ void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayT
         return;
     }
 
-    DebugActiveCrawlerGhost = Ghost;
+    DebugActiveGhost = Ghost;
 
     UE_LOG(LogTemp, Warning,
         TEXT("[DebugGhost] Spawned crawler for GhostScare tag=%s Ghost=%s"),
@@ -628,10 +628,10 @@ void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayT
         return;
     }
 
-    if (IsValid(DebugActiveCrawlerGhost))
+    if (IsValid(DebugActiveGhost))
     {
-        DebugActiveCrawlerGhost->Destroy();
-        DebugActiveCrawlerGhost = nullptr;
+        DebugActiveGhost->Destroy();
+        DebugActiveGhost = nullptr;
     }
 
     const FVector SpawnLoc = GetActorLocation() - GetActorForwardVector() * 600.f + FVector(0.f, 0.f, 80.f);
@@ -642,14 +642,14 @@ void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayT
     Params.Instigator = this;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    TSubclassOf<AGvTCrawlerGhostCharacter> SpawnClass = DebugCrawlerGhostClass;
+    TSubclassOf<AGvTGhostCharacterBase> SpawnClass = DebugGhostClass;
 
     if (!SpawnClass)
     {
-        SpawnClass = AGvTCrawlerGhostCharacter::StaticClass();
+        SpawnClass = AGvTGhostCharacterBase::StaticClass();
     }
 
-    AGvTCrawlerGhostCharacter* Ghost = World->SpawnActor<AGvTCrawlerGhostCharacter>(
+    AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(
         SpawnClass,
         SpawnLoc,
         SpawnRot,
@@ -661,7 +661,7 @@ void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayT
         return;
     }
 
-    DebugActiveCrawlerGhost = Ghost;
+    DebugActiveGhost = Ghost;
 
     UE_LOG(LogTemp, Warning,
         TEXT("[DebugGhost] Spawned crawler for GhostHaunt tag=%s Ghost=%s"),

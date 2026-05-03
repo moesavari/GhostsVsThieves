@@ -94,10 +94,10 @@ public:
     void Server_DebugRequestGhostEvent(FGameplayTag GhostEventTag);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug|Ghost")
-    TSubclassOf<AGvTCrawlerGhostCharacter> DebugCrawlerGhostClass;
+    TSubclassOf<AGvTGhostCharacterBase> DebugGhostClass;
 
     UPROPERTY(Transient)
-    TObjectPtr<AGvTCrawlerGhostCharacter> DebugActiveCrawlerGhost = nullptr;
+    TObjectPtr<AGvTGhostCharacterBase> DebugActiveGhost;
 
 protected:
     virtual void BeginPlay() override;

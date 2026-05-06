@@ -2,6 +2,7 @@
 #include "GameFramework/GameStateBase.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/Controller.h"
 #include "GameplayTagsManager.h"
 #include "GvTPlayerState.h"
 #include "Net/UnrealNetwork.h"
@@ -639,57 +640,6 @@ TArray<FVector> UGvTScareComponent::BuildLightChaseStepLocations(const FGvTScare
 	return OutLocations;
 }
 
-//FVector UGvTScareComponent::BuildRearAudioWorldLocation(const FGvTScareEvent& Event) const
-//{
-//	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
-//	if (!OwnerPawn)
-//	{
-//		return FVector::ZeroVector;
-//	}
-//
-//	FVector ViewLoc = OwnerPawn->GetActorLocation() + FVector(0.f, 0.f, 60.f);
-//	FRotator ViewRot = OwnerPawn->GetActorRotation();
-//
-//	if (const APlayerController* PC = Cast<APlayerController>(OwnerPawn->GetController()))
-//	{
-//		PC->GetPlayerViewPoint(ViewLoc, ViewRot);
-//	}
-//	else if (const AController* Controller = OwnerPawn->GetController())
-//	{
-//		ViewRot = Controller->GetControlRotation();
-//	}
-//
-//	FVector Forward = FRotationMatrix(ViewRot).GetUnitAxis(EAxis::X);
-//	FVector Right = FRotationMatrix(ViewRot).GetUnitAxis(EAxis::Y);
-//
-//	Forward.Z = 0.f;
-//	Right.Z = 0.f;
-//	Forward = Forward.GetSafeNormal();
-//	Right = Right.GetSafeNormal();
-//
-//	if (Forward.IsNearlyZero())
-//	{
-//		Forward = OwnerPawn->GetActorForwardVector();
-//		Forward.Z = 0.f;
-//		Forward = Forward.GetSafeNormal();
-//	}
-//
-//	if (Right.IsNearlyZero())
-//	{
-//		Right = OwnerPawn->GetActorRightVector();
-//		Right.Z = 0.f;
-//		Right = Right.GetSafeNormal();
-//	}
-//
-//	FRandomStream Stream(Event.LocalSeed != 0 ? Event.LocalSeed : 1337);
-//	const float SideSign = (Stream.FRand() < 0.5f) ? 1.f : -1.f;
-//
-//	return ViewLoc
-//		- (Forward * Event.RearAudioBackOffset)
-//		+ (Right * Event.RearAudioSideOffset * SideSign)
-//		+ FVector(0.f, 0.f, Event.RearAudioUpOffset);
-//}
-
 void UGvTScareComponent::PlayLightChaseStepEffects(const FVector& StepLocation, bool bIsFinalStep)
 {
 	const int32 StepCount = FMath::Max(1, ActiveLightChaseStepLocations.Num());
@@ -711,15 +661,6 @@ void UGvTScareComponent::PlayLightChaseStepEffects(const FVector& StepLocation, 
 	FlickerEvent.Seed = ActiveLightChaseEvent.LocalSeed + (ActiveLightChaseStepIndex * 31);
 
 	PlayLocalLightFlicker(FlickerEvent);
-
-	//const APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	//FVector AudioLoc = StepLocation;
-
-	//if (OwnerPawn)
-	//{
-	//	const FVector TowardVictim = (OwnerPawn->GetActorLocation() - StepLocation).GetSafeNormal();
-	//	AudioLoc += TowardVictim * ActiveLightChaseEvent.LightChaseAudioLeadDistance;
-	//}
 
 	if (UWorld* World = GetWorld())
 	{
@@ -820,6 +761,119 @@ void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01
 		TEXT("[ScareComponent] Mirror scare lifecycle started. Mirror presentation/perception is owned outside ScareComponent."));
 }
 
+
+FVector UGvTScareComponent::ResolveRearAudioLocation(const FGvTScareEvent& Event) const
+{
+	if (!GetOwner())
+	{
+		return Event.WorldHint;
+	}
+
+	const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	FVector Origin = GetOwner()->GetActorLocation();
+	FVector Forward = GetOwner()->GetActorForwardVector();
+	FVector Right = GetOwner()->GetActorRightVector();
+
+	if (OwnerPawn)
+	{
+		if (const AController* Controller = OwnerPawn->GetController())
+		{
+			const FRotator ControlRot = Controller->GetControlRotation();
+			Forward = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::X);
+			Right = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::Y);
+		}
+	}
+
+	Forward.Z = 0.f;
+	Right.Z = 0.f;
+	Forward = Forward.GetSafeNormal();
+	Right = Right.GetSafeNormal();
+
+	if (Forward.IsNearlyZero())
+	{
+		Forward = FVector::ForwardVector;
+	}
+	if (Right.IsNearlyZero())
+	{
+		Right = FVector::RightVector;
+	}
+
+	FRandomStream Stream(Event.LocalSeed != 0 ? Event.LocalSeed : FMath::Rand());
+	const float SideSign = (Stream.FRand() < 0.5f) ? 1.f : -1.f;
+
+	return Origin
+		- Forward * FMath::Max(0.f, Event.RearAudioBackOffset)
+		+ Right * Event.RearAudioSideOffset * SideSign
+		+ FVector(0.f, 0.f, Event.RearAudioUpOffset);
+}
+
+void UGvTScareComponent::PlayLocalRearAudioSting(const FGvTScareEvent& Event)
+{
+	const FVector AudioLoc = ResolveRearAudioLocation(Event);
+
+	if (RearAudioStingSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			RearAudioStingSound,
+			AudioLoc,
+			FMath::Max(0.f, RearAudioVolumeMultiplier),
+			1.0f);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareComponent] RearAudioStingSound is not set on %s; BP_PlayScare still fired."),
+			*GetNameSafe(this));
+	}
+
+	if (Event.bTwoShotAudio && Event.FollowupDelay > 0.f && RearAudioStingSound)
+	{
+		FTimerHandle FollowupTimer;
+		FTimerDelegate FollowupDelegate;
+		FollowupDelegate.BindWeakLambda(this, [this, AudioLoc]()
+		{
+			if (RearAudioStingSound)
+			{
+				UGameplayStatics::PlaySoundAtLocation(
+					this,
+					RearAudioStingSound,
+					AudioLoc,
+					FMath::Max(0.f, RearAudioVolumeMultiplier),
+					1.0f);
+			}
+		});
+
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().SetTimer(FollowupTimer, FollowupDelegate, Event.FollowupDelay, false);
+		}
+	}
+}
+
+void UGvTScareComponent::PlayLocalGhostScream(const FGvTScareEvent& Event)
+{
+	const FVector AudioLoc = !Event.WorldHint.IsNearlyZero()
+		? Event.WorldHint
+		: (GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector);
+
+	if (GhostScreamSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this,
+			GhostScreamSound,
+			AudioLoc,
+			FMath::Max(0.f, GhostScreamVolumeMultiplier),
+			1.0f);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[ScareComponent] GhostScreamSound is not set on %s; BP_PlayScare still fired."),
+			*GetNameSafe(this));
+	}
+}
+
 void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& Event)
 {
 	static const FGameplayTag LightFlickerTag = FGameplayTag::RequestGameplayTag(TEXT("Scare.LightFlicker"));
@@ -830,27 +884,37 @@ void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& E
 		return;
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_AudioRear()))
 	{
 		if (CanStartNewScare())
 		{
-			BeginLocalScareLifecycle(FMath::Max(0.08f, Event.Duration), DefaultRecoveryDuration);
+			BeginLocalScareLifecycle(FMath::Max(0.08f, Event.Duration), RearAudioRecoveryDuration);
 		}
 
+		PlayLocalRearAudioSting(Event);
+		BP_PlayScare(Event);
+
 		UE_LOG(LogTemp, Warning,
-			TEXT("[ScareComponent] RearAudioSting received. Audio presentation moved to Ghost system."));
+			TEXT("[ScareComponent] Played RearAudioSting locally for %s."),
+			*GetNameSafe(GetOwner()));
 		return;
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
 	{
 		if (CanStartNewScare())
 		{
-			BeginLocalScareLifecycle(FMath::Max(0.10f, Event.Duration), DefaultRecoveryDuration);
+			BeginLocalScareLifecycle(FMath::Max(0.10f, Event.Duration), GhostScreamRecoveryDuration);
 		}
 
+		PlayLocalGhostScream(Event);
+		BP_PlayScare(Event);
+
 		UE_LOG(LogTemp, Warning,
-			TEXT("[ScareComponent] GhostScream received. Audio presentation moved to Ghost system."));
+			TEXT("[ScareComponent] Played GhostScream locally for %s."),
+			*GetNameSafe(GetOwner()));
 		return;
 	}
 
@@ -920,57 +984,6 @@ void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, f
 		}
 	}
 }
-
-//void UGvTScareComponent::SpawnLocalCrawlerOverheadGhost(APawn* Victim)
-//{
-//	if (!Victim || !CrawlerGhostClass || !GetWorld())
-//	{
-//		return;
-//	}
-//
-//	// Clean up any prior local-only overhead ghost on this client instance.
-//	if (IsValid(ActiveCrawlerGhost) && !ActiveCrawlerGhost->HasAuthority())
-//	{
-//		ActiveCrawlerGhost->Destroy();
-//		ActiveCrawlerGhost = nullptr;
-//	}
-//
-//	const FVector VictimLoc = Victim->GetActorLocation();
-//	const FVector SpawnLoc = VictimLoc + FVector(0.f, 0.f, 50.f);
-//	const FRotator SpawnRot = FRotator::ZeroRotator;
-//
-//	FActorSpawnParameters Params;
-//	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-//	Params.Owner = GetOwner();
-//
-//	AGvTCrawlerGhostCharacter* LocalGhost =
-//		GetWorld()->SpawnActor<AGvTCrawlerGhostCharacter>(CrawlerGhostClass, SpawnLoc, SpawnRot, Params);
-//
-//	UE_LOG(LogTemp, Warning,
-//		TEXT("[Scare] OverheadSpawn Victim=%s VictimLoc=%s Ghost=%s GhostLoc=%s Hidden=%d Collision=%d"),
-//		*GetNameSafe(Victim),
-//		*Victim->GetActorLocation().ToCompactString(),
-//		*GetNameSafe(LocalGhost),
-//		*LocalGhost->GetActorLocation().ToCompactString(),
-//		LocalGhost->IsHidden() ? 1 : 0,
-//		LocalGhost->GetActorEnableCollision() ? 1 : 0);
-//
-//	if (!LocalGhost)
-//	{
-//		UE_LOG(LogTemp, Warning, TEXT("[Scare] Failed to spawn local crawler overhead ghost."));
-//		return;
-//	}
-//
-//	LocalGhost->SetReplicates(false);
-//	LocalGhost->SetReplicateMovement(false);
-//
-//	ActiveCrawlerGhost = LocalGhost;
-//	LocalGhost->StartLocalOverheadScare(Victim);
-//
-//	UE_LOG(LogTemp, Warning, TEXT("[Scare] Spawned local-only crawler overhead ghost %s for victim %s"),
-//		*GetNameSafe(LocalGhost),
-//		*GetNameSafe(Victim));
-//}
 
 void UGvTScareComponent::PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const
 {

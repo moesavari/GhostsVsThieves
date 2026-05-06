@@ -24,8 +24,11 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void Server_RequestMirrorActorScare(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds);
 
+	UFUNCTION(Client, Reliable)
+	void Client_PlayMirrorActorScare(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Perception|Mirror")
-	bool bEnableMirrorReflectSense = true;
+	bool bEnableMirrorReflectSense = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Perception|Mirror")
 	float MirrorReflectTraceDistance = 1500.f;

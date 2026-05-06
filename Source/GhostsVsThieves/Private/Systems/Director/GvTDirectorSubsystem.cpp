@@ -1,4 +1,4 @@
-﻿#include "Systems/Director/GvTDirectorSubsystem.h"
+#include "Systems/Director/GvTDirectorSubsystem.h"
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
@@ -46,11 +46,13 @@ static EGvTPanicSource GvTMapScareTagToPanicSource(const FGameplayTag& ScareTag)
 	{
 		return EGvTPanicSource::LightFlicker;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostScare_AudioRear()))
 	{
 		return EGvTPanicSource::RearAudioSting;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
 	{
 		return EGvTPanicSource::GhostScream;
 	}
@@ -80,11 +82,13 @@ static float GvTGetPressureGain01ForScareTag(const FGameplayTag& ScareTag, bool 
 	{
 		return 0.14f;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostScare_AudioRear()))
 	{
 		return 0.10f;
 	}
-	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
 	{
 		return 0.20f;
 	}
@@ -523,15 +527,7 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch Mirror to %s"), *GetNameSafe(Target));
-		//ScareComp->RequestMirrorScare(Event.Intensity01, Event.Duration > 0.f ? Event.Duration : 1.5f);
-		return true;
-	}
-
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch Crawler Chase to %s"), *GetNameSafe(Target));
-		//ScareComp->RequestCrawlerChaseFromEvent(Target);
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Mirror event routed through ThiefPerception/debug path for now."));
 		return true;
 	}
 
@@ -542,30 +538,19 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		return true;
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch RearAudioSting to %s"), *GetNameSafe(Target));
-		ScareComp->RequestRearAudioStingFromEvent(Event);
-		return true;
-	}
-
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
-	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch GhostScream near %s"), *GetNameSafe(Target));
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch GhostScream to %s"), *GetNameSafe(Target));
 		ScareComp->RequestGhostScreamFromEvent(Event);
 		return true;
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_AudioRear()))
 	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("[Director] Dispatch CrawlerOverhead to %s NetMode=%s LocalRole=%d RemoteRole=%d"),
-			*GetNameSafe(Target),
-			GvTNetModeToString(Target->GetNetMode()),
-			(int32)Target->GetLocalRole(),
-			(int32)Target->GetRemoteRole());
-
-		//ScareComp->RequestCrawlerOverheadFromEvent(Event);
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch RearAudioSting to %s"), *GetNameSafe(Target));
+		ScareComp->RequestRearAudioStingFromEvent(Event);
 		return true;
 	}
 
@@ -584,15 +569,41 @@ bool UGvTDirectorSubsystem::DispatchScareEventSimple(
 	}
 
 	FGvTScareEvent Event;
+
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare_AudioRear()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()))
+	{
+		Event = MakeRearAudioStingEvent(TargetPawn);
+		Event.ScareTag = GvTScareTags::GhostScare_AudioRear();
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostScream()))
+	{
+		Event = MakeGhostScreamEvent(TargetPawn);
+		Event.ScareTag = GvTScareTags::GhostScare_Scream();
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
+	{
+		Event = MakeLightChaseEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
+	{
+		Event = MakeMirrorEvent(TargetPawn);
+	}
+	else
+	{
+		Event.TargetActor = TargetPawn;
+		Event.ScareTag = ScareTag;
+		Event.WorldHint = TargetPawn->GetActorLocation();
+		Event.PanicAmount = 10.f;
+		Event.Intensity01 = 1.0f;
+		Event.Duration = 1.5f;
+		Event.bAffectsPanic = true;
+		Event.bTriggerLocalFlicker = false;
+	}
+
 	Event.TargetActor = TargetPawn;
-	Event.ScareTag = ScareTag;
 	Event.SourceActor = SourceActor;
-	Event.WorldHint = TargetPawn->GetActorLocation();
-	Event.PanicAmount = 10.f;
-	Event.Intensity01 = 1.0f;
-	Event.Duration = 1.5f;
-	Event.bAffectsPanic = true;
-	Event.bTriggerLocalFlicker = false;
 
 	return DispatchScareEvent(Event);
 }

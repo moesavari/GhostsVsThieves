@@ -15,6 +15,7 @@ class UGvTNoiseEmitterComponent;
 class UGvTInteractionComponent;
 class UGvTDirectorSubsystem;
 class AGvTGhostCharacterBase;
+class UGvTThiefPerceptionComponent;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -51,17 +52,14 @@ public:
     UFUNCTION(Server, Reliable)
     void Server_SetDead(AActor* Killer);
 
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestMirrorScare();
+    UFUNCTION(BlueprintCallable, Category = "GvT|Ghost")
+    void RequestGhostScare(FGameplayTag GhostScareTag);
 
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestRearAudioStingScare();
+    UFUNCTION(BlueprintCallable, Category = "GvT|Ghost")
+    void RequestGhostEvent(FGameplayTag GhostEventTag);
 
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestGhostScreamScare();
-
-    UFUNCTION(BlueprintCallable, Category = "Debug")
-    void Debug_RequestDoorSlamBehindScare();
+    UFUNCTION(BlueprintCallable, Category = "GvT|Ghost")
+    void RequestGhostHaunt(FGameplayTag GhostHauntTag);
 
     UFUNCTION(BlueprintCallable, Category = "Debug|Ghost")
     void Debug_RequestGhostScare(FGameplayTag GhostScareTag);
@@ -73,31 +71,31 @@ public:
     void Debug_RequestGhostHaunt(FGameplayTag GhostHauntTag);
 
     UFUNCTION(Server, Reliable)
-    void Server_DebugRequestMirrorScare();
+    void Server_RequestGhostScare(FGameplayTag GhostScareTag);
 
     UFUNCTION(Server, Reliable)
-    void Server_DebugRequestRearAudioStingScare();
+    void Server_RequestGhostHaunt(FGameplayTag GhostHauntTag);
 
     UFUNCTION(Server, Reliable)
-    void Server_DebugRequestGhostScreamScare();
+    void Server_RequestGhostEvent(FGameplayTag GhostEventTag);
 
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestDoorSlamBehindScare();
+    UFUNCTION(Client, Reliable)
+    void Client_PlayGhostScare(FGameplayTag GhostScareTag);
 
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestGhostScare(FGameplayTag GhostScareTag);
-
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestGhostHaunt(FGameplayTag GhostHauntTag);
-
-    UFUNCTION(Server, Reliable)
-    void Server_DebugRequestGhostEvent(FGameplayTag GhostEventTag);
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Perception")
+    UGvTThiefPerceptionComponent* ThiefPerceptionComponent;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug|Ghost")
     TSubclassOf<AGvTGhostCharacterBase> DebugGhostClass;
 
     UPROPERTY(Transient)
     TObjectPtr<AGvTGhostCharacterBase> DebugActiveGhost;
+
+    UPROPERTY(Transient)
+    TObjectPtr<AGvTGhostCharacterBase> LocalActiveScareGhost;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Debug|Ghost", meta = (ClampMin = "0.0"))
+    float DebugGhostScareRequestCooldown = 1.25f;
 
 protected:
     virtual void BeginPlay() override;
@@ -120,6 +118,7 @@ protected:
 
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnInteractPressed();
+
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnPhotoPressed();
 
@@ -187,5 +186,8 @@ private:
     void ClearScareStun();
     void ClearScareStun(int32 ClearCountAtScheduleTime);
 
+    float LastGhostScareRequestWorldTime = -1000.f;
+
     FTimerHandle TimerHandle_ClearScareStun;
+    FTimerHandle TimerHandle_LocalCloseScareCleanup;
 };

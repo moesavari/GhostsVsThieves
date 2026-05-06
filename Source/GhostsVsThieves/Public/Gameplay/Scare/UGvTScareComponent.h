@@ -113,8 +113,20 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
 	float RearAudioRecoveryDuration = 0.35f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
+	TObjectPtr<USoundBase> RearAudioStingSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|RearAudio")
+	float RearAudioVolumeMultiplier = 1.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
 	float GhostScreamRecoveryDuration = 0.55f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
+	TObjectPtr<USoundBase> GhostScreamSound = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
+	float GhostScreamVolumeMultiplier = 1.0f;
 
 	UFUNCTION(BlueprintPure, Category = "Panic")
 	bool IsCriticalPanic() const { return Panic >= CriticalThreshold; }
@@ -163,6 +175,9 @@ protected:
 
 private:
 	void PlayLocalLightFlicker(const FGvTLightFlickerEvent& Event) const;
+	void PlayLocalRearAudioSting(const FGvTScareEvent& Event);
+	void PlayLocalGhostScream(const FGvTScareEvent& Event);
+	FVector ResolveRearAudioLocation(const FGvTScareEvent& Event) const;
 	FGvTLightFlickerEvent MakeLightFlickerEvent(float Intensity01, float Duration, bool bWholeHouse) const;
 
 	void UpdatePanicBand();

@@ -2,13 +2,14 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "Gameplay/Ghosts/GvTEventGhostBase.h"
 #include "GvTReflectGhostActor.generated.h"
 
 class UStaticMeshComponent;
 class UMaterialInstanceDynamic;
 
 UCLASS(BlueprintType)
-class GHOSTSVSTHIEVES_API AGvTReflectGhostActor : public AActor
+class GHOSTSVSTHIEVES_API AGvTReflectGhostActor : public AGvTEventGhostBase
 {
 	GENERATED_BODY()
 
@@ -24,11 +25,13 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void BeginPlay() override;
 
-	UStaticMeshComponent* GetMesh() const { return Mesh; }
+	UStaticMeshComponent* GetReflectMesh() const { return ReflectMesh; }
+
+	virtual void BeginGhostEvent(AActor* Target, FGameplayTag EventTag) override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Mirror")
-	TObjectPtr<UStaticMeshComponent> Mesh;
+	TObjectPtr<UStaticMeshComponent> ReflectMesh;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialInstanceDynamic> MID;

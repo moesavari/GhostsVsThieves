@@ -120,7 +120,7 @@ void UGvTThiefPerceptionComponent::Test_MirrorScare(float Intensity01, float Lif
 
 	if (IsServer())
 	{
-		Mirror->TriggerScare(Intensity01, LifeSeconds);
+		Mirror->TriggerReflectLocal(Intensity01, LifeSeconds);
 	}
 	else
 	{
@@ -228,5 +228,18 @@ void UGvTThiefPerceptionComponent::Server_RequestMirrorActorScare_Implementation
 			Intensity01);
 	}
 
-	Mirror->TriggerScare(Intensity01, LifeSeconds);
+	Client_PlayMirrorActorScare(Mirror, Intensity01, LifeSeconds);
+}
+
+void UGvTThiefPerceptionComponent::Client_PlayMirrorActorScare_Implementation(
+	AGvTMirrorActor* Mirror,
+	float Intensity01,
+	float LifeSeconds)
+{
+	if (!Mirror)
+	{
+		return;
+	}
+
+	Mirror->TriggerReflectLocal(Intensity01, LifeSeconds);
 }

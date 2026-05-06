@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "GameplayTagContainer.h"
+#include "Net/UnrealNetwork.h"
 #include "GvTGhostCharacterBase.generated.h"
 
 UCLASS(Abstract, Blueprintable)
@@ -25,14 +26,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt")
 	virtual void BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag);
 
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected:
 	virtual void BeginPlay() override;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
-	bool bStartHidden = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
-	bool bGhostPresenceActive = false;
+	UPROPERTY(ReplicatedUsing = OnRep_GhostPresenceActive, EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
+	bool bGhostPresenceActive = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
 	FGameplayTagContainer SupportedGhostScares;
@@ -42,4 +42,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost")
 	FGameplayTagContainer SupportedGhostHaunts;
+
+	UFUNCTION()
+	void OnRep_GhostPresenceActive();
+
+	void ApplyGhostPresenceActive();
 };

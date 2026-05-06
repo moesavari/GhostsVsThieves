@@ -24,12 +24,14 @@ namespace GvTScareTags
 
 	FGameplayTag GvTScareTags::RearAudioSting()
 	{
-		return FGameplayTag::RequestGameplayTag(TEXT("Scare.RearAudioSting"));
+		// Legacy accessor kept so older code paths still compile, but this is now a real GhostScare.
+		return GhostScare_AudioRear();
 	}
 
 	FGameplayTag GvTScareTags::GhostScream()
 	{
-		return FGameplayTag::RequestGameplayTag(TEXT("Scare.GhostScream"));
+		// Legacy accessor kept so older code paths still compile, but this is now a real GhostScare.
+		return GhostScare_Scream();
 	}
 
 	FGameplayTag DoorSlamBehind()

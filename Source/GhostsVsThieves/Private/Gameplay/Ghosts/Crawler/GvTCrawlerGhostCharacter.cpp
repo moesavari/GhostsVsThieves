@@ -171,13 +171,6 @@ void AGvTCrawlerGhostCharacter::Server_StartChase_Implementation(APawn* Victim)
 	}
 
 	SetGhostPresenceActive(true);
-	SetActorHiddenInGame(false);
-
-	if (USkeletalMeshComponent* MeshComp = GetMesh())
-	{
-		MeshComp->SetVisibility(true, true);
-		MeshComp->SetHiddenInGame(false, true);
-	}
 
 	TargetVictim = Victim;
 	SetState(EGvTCrawlerGhostState::HauntChase);
@@ -371,6 +364,11 @@ void AGvTCrawlerGhostCharacter::ChaseTick(float DeltaSeconds)
 
 void AGvTCrawlerGhostCharacter::TryKillVictim()
 {
+	if (!HasAuthority() || bLocalOverheadOnly || State != EGvTCrawlerGhostState::HauntChase)
+	{
+		return;
+	}
+
 	if (!IsValid(TargetVictim))
 	{
 		return;
@@ -463,13 +461,6 @@ void AGvTCrawlerGhostCharacter::StartOverhead_Internal(APawn* Victim)
 	}
 
 	SetGhostPresenceActive(true);
-	SetActorHiddenInGame(false);
-
-	if (USkeletalMeshComponent* MeshComp = GetMesh())
-	{
-		MeshComp->SetVisibility(true, true);
-		MeshComp->SetHiddenInGame(false, true);
-	}
 
 	if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Victim))
 	{

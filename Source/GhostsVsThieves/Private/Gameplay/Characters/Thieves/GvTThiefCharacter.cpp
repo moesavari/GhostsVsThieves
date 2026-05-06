@@ -20,6 +20,7 @@
 #include "Gameplay/Scare/UGvTScareComponent.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
+#include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -46,7 +47,8 @@ AGvTThiefCharacter::AGvTThiefCharacter()
 
     InteractionComponent = CreateDefaultSubobject<UGvTInteractionComponent>(TEXT("InteractionComponent"));
 
-}
+    ThiefPerceptionComponent = CreateDefaultSubobject<UGvTThiefPerceptionComponent>(TEXT("ThiefPerception"));
+ }
 
 void AGvTThiefCharacter::BeginPlay()
 {
@@ -305,15 +307,20 @@ void AGvTThiefCharacter::ApplyScareStun(float Duration)
         return;
     }
 
-    ScareStunCount++;
+    // Stuns are an on/off lock, not a stack.
+    // Spamming a scare used to increment ScareStunCount while reusing one timer handle,
+    // which could leave the player stuck/"dead" after the final timer only decremented once.
+    const bool bWasAlreadyStunned = ScareStunCount > 0;
+    ScareStunCount = 1;
 
     bInteractionLockMove = true;
     bInteractionLockLook = true;
 
     UE_LOG(LogTemp, Warning,
-        TEXT("[Scare] ApplyScareStun %.2fs on %s Count=%d ModeBefore=%d"),
+        TEXT("[Scare] ApplyScareStun %.2fs on %s Refresh=%d Count=%d ModeBefore=%d"),
         Duration,
         *GetName(),
+        bWasAlreadyStunned ? 1 : 0,
         ScareStunCount,
         (int32)MoveComp->MovementMode);
 
@@ -415,153 +422,71 @@ void AGvTThiefCharacter::OnRep_IsDead()
     }
 }
 
-void AGvTThiefCharacter::Debug_RequestMirrorScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestMirrorScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestMirrorScare();
-}
-
-void AGvTThiefCharacter::Debug_RequestRearAudioStingScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestRearAudioStingScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestRearAudioStingScare();
-}
-
-void AGvTThiefCharacter::Debug_RequestGhostScreamScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestGhostScreamScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestGhostScreamScare();
-}
-
-void AGvTThiefCharacter::Debug_RequestDoorSlamBehindScare()
-{
-    if (HasAuthority())
-    {
-        Server_DebugRequestDoorSlamBehindScare_Implementation();
-        return;
-    }
-
-    Server_DebugRequestDoorSlamBehindScare();
-}
-
 void AGvTThiefCharacter::Debug_RequestGhostScare(FGameplayTag GhostScareTag)
 {
-    if (!HasAuthority())
-    {
-        Server_DebugRequestGhostScare(GhostScareTag);
-        return;
-    }
-
-    Server_DebugRequestGhostScare_Implementation(GhostScareTag);
+    RequestGhostScare(GhostScareTag);
 }
 
 void AGvTThiefCharacter::Debug_RequestGhostEvent(FGameplayTag GhostEventTag)
 {
-    if (!HasAuthority())
-    {
-        Server_DebugRequestGhostEvent(GhostEventTag);
-        return;
-    }
-
-    Server_DebugRequestGhostEvent_Implementation(GhostEventTag);
+    RequestGhostEvent(GhostEventTag);
 }
 
 void AGvTThiefCharacter::Debug_RequestGhostHaunt(FGameplayTag GhostHauntTag)
 {
-    if (!HasAuthority())
+    RequestGhostHaunt(GhostHauntTag);
+}
+
+void AGvTThiefCharacter::RequestGhostScare(FGameplayTag GhostScareTag)
+{
+    if (!GhostScareTag.IsValid())
     {
-        Server_DebugRequestGhostHaunt(GhostHauntTag);
         return;
     }
 
-    Server_DebugRequestGhostHaunt_Implementation(GhostHauntTag);
-}
-
-void AGvTThiefCharacter::Server_DebugRequestMirrorScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
+    if (!HasAuthority())
     {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            const FGvTScareEvent Event = Director->MakeMirrorEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server Mirror scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
-        }
+        Server_RequestGhostScare(GhostScareTag);
+        return;
     }
+
+    Server_RequestGhostScare_Implementation(GhostScareTag);
 }
 
-void AGvTThiefCharacter::Server_DebugRequestRearAudioStingScare_Implementation()
+void AGvTThiefCharacter::RequestGhostEvent(FGameplayTag GhostEventTag)
 {
-    if (UGameInstance* GI = GetGameInstance())
+    if (GhostEventTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
     {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        if (ThiefPerceptionComponent)
         {
-            const FGvTScareEvent Event = Director->MakeRearAudioStingEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server RearAudioSting scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
+            ThiefPerceptionComponent->Test_MirrorScare(1.f, 1.5f);
         }
+        return;
     }
+
+    if (!HasAuthority())
+    {
+        Server_RequestGhostEvent(GhostEventTag);
+        return;
+    }
+
+    Server_RequestGhostEvent_Implementation(GhostEventTag);
 }
 
-void AGvTThiefCharacter::Server_DebugRequestGhostScreamScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
-    {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            const FGvTScareEvent Event = Director->MakeGhostScreamEvent(this);
-
-            UE_LOG(LogTemp, Warning, TEXT("[Debug] Server GhostScream scare requested for %s"), *GetName());
-            Director->DispatchScareEvent(Event);
-        }
-    }
-}
-
-void AGvTThiefCharacter::Server_DebugRequestDoorSlamBehindScare_Implementation()
-{
-    if (UGameInstance* GI = GetGameInstance())
-    {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
-        {
-            AGvTDoorActor* Door = Cast<AGvTDoorActor>(Director->FindBestDoorSlamDoor(this));
-            if (!Door)
-            {
-                UE_LOG(LogTemp, Warning, TEXT("[Debug] DoorSlamBehind failed: no valid open door for %s"), *GetName());
-                return;
-            }
-
-            const FGvTScareEvent Event = Director->MakeDoorSlamBehindEvent(this, Door);
-
-            UE_LOG(LogTemp, Warning,
-                TEXT("[Debug] Server DoorSlamBehind scare requested for %s using %s"),
-                *GetName(),
-                *GetNameSafe(Door));
-
-            Director->DispatchScareEvent(Event);
-        }
-    }
-}
-
-void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayTag GhostScareTag)
+void AGvTThiefCharacter::RequestGhostHaunt(FGameplayTag GhostHauntTag)
 {
     if (!HasAuthority())
+    {
+        Server_RequestGhostHaunt(GhostHauntTag);
+        return;
+    }
+
+    Server_RequestGhostHaunt_Implementation(GhostHauntTag);
+}
+
+void AGvTThiefCharacter::Client_PlayGhostScare_Implementation(FGameplayTag GhostScareTag)
+{
+    if (!IsLocallyControlled())
     {
         return;
     }
@@ -572,10 +497,41 @@ void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayT
         return;
     }
 
-    if (IsValid(DebugActiveGhost))
+    if (!GhostScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
     {
-        DebugActiveGhost->Destroy();
-        DebugActiveGhost = nullptr;
+        UE_LOG(LogTemp, Warning,
+            TEXT("[GhostScare] Ignored local model spawn for non-model scare tag=%s. Audio/scream scares route through ScareComponent."),
+            *GhostScareTag.ToString());
+        return;
+    }
+
+    if (IsScareStunned())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Close scare ignored: target is already scare-stunned."));
+        return;
+    }
+
+    if (UGvTScareComponent* ScareComp = FindComponentByClass<UGvTScareComponent>())
+    {
+        if (ScareComp->IsScareBusy())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Close scare ignored: ScareComponent is busy."));
+            return;
+        }
+    }
+
+    if (IsValid(LocalActiveScareGhost))
+    {
+        UE_LOG(LogTemp, Warning,
+            TEXT("[GhostScare] Close scare ignored: local scare ghost is still active (%s)."),
+            *GetNameSafe(LocalActiveScareGhost));
+        return;
+    }
+
+    if (!DebugGhostClass)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Ghost presentation class is not set."));
+        return;
     }
 
     const FVector SpawnLoc = GetActorLocation() + GetActorForwardVector() * 250.f + FVector(0.f, 0.f, 120.f);
@@ -586,36 +542,109 @@ void AGvTThiefCharacter::Server_DebugRequestGhostScare_Implementation(FGameplayT
     Params.Instigator = this;
     Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    TSubclassOf<AGvTGhostCharacterBase> SpawnClass = DebugGhostClass;
-
-    if (!SpawnClass)
-    {
-        SpawnClass = AGvTGhostCharacterBase::StaticClass();
-    }
-
     AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(
-        SpawnClass,
+        DebugGhostClass,
         SpawnLoc,
         SpawnRot,
         Params);
 
     if (!Ghost)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[DebugGhost] Failed to spawn crawler ghost for scare."));
+        UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Failed to spawn local ghost presentation."));
         return;
     }
 
-    DebugActiveGhost = Ghost;
+    Ghost->SetReplicates(false);
+    Ghost->SetReplicateMovement(false);
+    LocalActiveScareGhost = Ghost;
 
     UE_LOG(LogTemp, Warning,
-        TEXT("[DebugGhost] Spawned crawler for GhostScare tag=%s Ghost=%s"),
+        TEXT("[GhostScare] Local target-only scare tag=%s Ghost=%s Target=%s"),
         *GhostScareTag.ToString(),
-        *GetNameSafe(Ghost));
+        *GetNameSafe(Ghost),
+        *GetName());
 
     Ghost->BeginGhostScare(this, GhostScareTag);
+
+    constexpr float LocalCloseScareCleanupDelay = 1.25f;
+    TWeakObjectPtr<AGvTGhostCharacterBase> SpawnedGhost = Ghost;
+    GetWorldTimerManager().SetTimer(
+        TimerHandle_LocalCloseScareCleanup,
+        FTimerDelegate::CreateWeakLambda(this, [this, SpawnedGhost]()
+            {
+                if (SpawnedGhost.IsValid())
+                {
+                    SpawnedGhost->Destroy();
+                }
+
+                if (LocalActiveScareGhost == SpawnedGhost.Get())
+                {
+                    LocalActiveScareGhost = nullptr;
+                }
+            }),
+        LocalCloseScareCleanupDelay,
+        false);
 }
 
-void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayTag GhostHauntTag)
+void AGvTThiefCharacter::Server_RequestGhostScare_Implementation(FGameplayTag GhostScareTag)
+{
+    if (!HasAuthority() || !GhostScareTag.IsValid())
+    {
+        return;
+    }
+
+    if (UWorld* World = GetWorld())
+    {
+        const float Now = World->GetTimeSeconds();
+        if (DebugGhostScareRequestCooldown > 0.f &&
+            Now - LastGhostScareRequestWorldTime < DebugGhostScareRequestCooldown)
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[GhostScare] Request ignored by cooldown. Tag=%s Remaining=%.2f"),
+                *GhostScareTag.ToString(),
+                DebugGhostScareRequestCooldown - (Now - LastGhostScareRequestWorldTime));
+            return;
+        }
+
+        LastGhostScareRequestWorldTime = Now;
+    }
+
+    if (GhostScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()) && IsScareStunned())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Request ignored: target is already scare-stunned."));
+        return;
+    }
+
+    // Close scare is the only current GhostScare that needs a target-local ghost model.
+    // AudioRear/Scream are real GhostScares too, but their presentation is owned by ScareComponent/audio, not a crawler spawn.
+    if (GhostScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
+    {
+        if (IsLocallyControlled())
+        {
+            Client_PlayGhostScare_Implementation(GhostScareTag);
+        }
+        else
+        {
+            Client_PlayGhostScare(GhostScareTag);
+        }
+        return;
+    }
+
+    if (UGameInstance* GI = GetGameInstance())
+    {
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            Director->DispatchScareEventSimple(GhostScareTag, this, this);
+            return;
+        }
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[GhostScare] Failed to route tag=%s: DirectorSubsystem unavailable."),
+        *GhostScareTag.ToString());
+}
+
+void AGvTThiefCharacter::Server_RequestGhostHaunt_Implementation(FGameplayTag GhostHauntTag)
 {
     if (!HasAuthority())
     {
@@ -646,7 +675,8 @@ void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayT
 
     if (!SpawnClass)
     {
-        SpawnClass = AGvTGhostCharacterBase::StaticClass();
+        UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] Ghost class is not set."));
+        return;
     }
 
     AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(
@@ -657,29 +687,53 @@ void AGvTThiefCharacter::Server_DebugRequestGhostHaunt_Implementation(FGameplayT
 
     if (!Ghost)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[DebugGhost] Failed to spawn crawler ghost for haunt."));
+        UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] Failed to spawn ghost."));
         return;
     }
 
     DebugActiveGhost = Ghost;
 
     UE_LOG(LogTemp, Warning,
-        TEXT("[DebugGhost] Spawned crawler for GhostHaunt tag=%s Ghost=%s"),
+        TEXT("[GhostHaunt] Spawned group-visible haunt tag=%s Ghost=%s Target=%s"),
         *GhostHauntTag.ToString(),
-        *GetNameSafe(Ghost));
+        *GetNameSafe(Ghost),
+        *GetName());
 
     Ghost->BeginGhostHaunt(this, GhostHauntTag);
 }
 
-void AGvTThiefCharacter::Server_DebugRequestGhostEvent_Implementation(FGameplayTag GhostEventTag)
+void AGvTThiefCharacter::Server_RequestGhostEvent_Implementation(FGameplayTag GhostEventTag)
 {
-    if (GhostEventTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.DoorSlam"))))
+    if (GhostEventTag.MatchesTagExact(GvTScareTags::GhostEvent_DoorSlam()))
     {
-        Server_DebugRequestDoorSlamBehindScare_Implementation();
+        if (UGameInstance* GI = GetGameInstance())
+        {
+            if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+            {
+                AGvTDoorActor* Door = Cast<AGvTDoorActor>(Director->FindBestDoorSlamDoor(this));
+                if (!Door)
+                {
+                    UE_LOG(LogTemp, Warning,
+                        TEXT("[GhostEvent] DoorSlam failed: no valid door for %s"),
+                        *GetName());
+                    return;
+                }
+
+                const FGvTScareEvent Event = Director->MakeDoorSlamBehindEvent(this, Door);
+
+                UE_LOG(LogTemp, Warning,
+                    TEXT("[GhostEvent] DoorSlam requested for %s using %s"),
+                    *GetName(),
+                    *GetNameSafe(Door));
+
+                Director->DispatchScareEvent(Event);
+            }
+        }
+
         return;
     }
 
     UE_LOG(LogTemp, Warning,
-        TEXT("[DebugGhost] Unsupported GhostEvent tag=%s"),
+        TEXT("[GhostEvent] Unsupported GhostEvent tag=%s"),
         *GhostEventTag.ToString());
 }

@@ -1,28 +1,48 @@
 #include "Gameplay/Ghosts/Mirror/GvTReflectGhostActor.h"
-
+#include "Components/CapsuleComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Components/ArrowComponent.h"
 
 AGvTReflectGhostActor::AGvTReflectGhostActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.TickInterval = 0.f;
 
-	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
-	SetRootComponent(Mesh);
+	GetCapsuleComponent()->SetVisibility(false, true);
+	GetCapsuleComponent()->SetHiddenInGame(true);
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetCapsuleComponent()->bHiddenInSceneCapture = true;
 
-	Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	Mesh->SetGenerateOverlapEvents(false);
+	if (GetMesh())
+	{
+		GetMesh()->SetVisibility(false, true);
+		GetMesh()->SetHiddenInGame(true);
+		GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		GetMesh()->bHiddenInSceneCapture = true;
+	}
+
+	if (UArrowComponent* Arrow = GetArrowComponent())
+	{
+		Arrow->SetVisibility(false, true);
+		Arrow->SetHiddenInGame(true);
+		Arrow->bHiddenInSceneCapture = true;
+	}
+
+	ReflectMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("ReflectMesh"));
+	ReflectMesh->SetupAttachment(GetRootComponent());
+	ReflectMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ReflectMesh->SetGenerateOverlapEvents(false);
 }
 
 void AGvTReflectGhostActor::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (UMaterialInterface* Mat = Mesh->GetMaterial(0))
+	if (UMaterialInterface* Mat = ReflectMesh->GetMaterial(0))
 	{
 		MID = UMaterialInstanceDynamic::Create(Mat, this);
-		Mesh->SetMaterial(0, MID);
+		ReflectMesh->SetMaterial(0, MID);
 	}
 
 	StopReflect();
@@ -86,4 +106,14 @@ void AGvTReflectGhostActor::Tick(float DeltaSeconds)
 	{
 		StopReflect();
 	}
+}
+
+void AGvTReflectGhostActor::BeginGhostEvent(AActor* Target, FGameplayTag EventTag)
+{
+	UE_LOG(LogTemp, Warning,
+		TEXT("[ReflectGhost] BeginGhostEvent Target=%s Tag=%s"),
+		*GetNameSafe(Target),
+		*EventTag.ToString());
+
+	StartReflect(1.f, 0.6f);
 }

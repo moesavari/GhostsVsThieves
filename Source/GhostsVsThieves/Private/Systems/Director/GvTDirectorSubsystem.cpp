@@ -14,7 +14,12 @@
 #include "Camera/PlayerCameraManager.h"
 #include "GvTPlayerState.h"
 #include "EngineUtils.h"
+#include "NavigationSystem.h"
 #include "Systems/GvTPowerBoxActor.h"
+#include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
+#include "Gameplay/Ghosts/GvTGhostSpawnPoint.h"
+#include "Gameplay/Ghosts/GvTGhostModelData.h"
+#include "Gameplay/Ghosts/GvTGhostTypeData.h"
 
 static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
@@ -606,6 +611,218 @@ bool UGvTDirectorSubsystem::DispatchScareEventSimple(
 	Event.SourceActor = SourceActor;
 
 	return DispatchScareEvent(Event);
+}
+
+
+TSubclassOf<AGvTGhostCharacterBase> UGvTDirectorSubsystem::ChooseHauntGhostClass() const
+{
+	TArray<TSubclassOf<AGvTGhostCharacterBase>> Candidates;
+
+	for (const UGvTGhostModelData* Model : GhostModels)
+	{
+		if (Model && Model->bCanHaunt && *Model->GhostClass)
+		{
+			Candidates.Add(Model->GhostClass);
+		}
+	}
+
+	for (TSubclassOf<AGvTGhostCharacterBase> GhostClass : HauntGhostClasses)
+	{
+		if (*GhostClass)
+		{
+			Candidates.Add(GhostClass);
+		}
+	}
+
+	if (Candidates.Num() == 0)
+	{
+		return nullptr;
+	}
+
+	return Candidates[FMath::RandRange(0, Candidates.Num() - 1)];
+}
+
+FTransform UGvTDirectorSubsystem::ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag) const
+{
+	if (!TargetPawn)
+	{
+		return FTransform::Identity;
+	}
+
+	const FVector TargetLoc = TargetPawn->GetActorLocation();
+	FVector SpawnLoc = TargetLoc - TargetPawn->GetActorForwardVector() * HauntSpawnIdealDistance + FVector(0.f, 0.f, 80.f);
+	bool bUsedSpawnPoint = false;
+
+	if (bUseGhostSpawnPoints)
+	{
+		AGvTGhostSpawnPoint* BestPoint = nullptr;
+		float BestScore = -FLT_MAX;
+
+		if (UWorld* World = GetWorld())
+		{
+			for (TActorIterator<AGvTGhostSpawnPoint> It(World); It; ++It)
+			{
+				AGvTGhostSpawnPoint* Point = *It;
+				if (!Point || !Point->SupportsHauntTag(HauntTag))
+				{
+					continue;
+				}
+
+				const float Score = Point->ScoreForTarget(TargetPawn, HauntSpawnIdealDistance, HauntSpawnMinDistance, HauntSpawnMaxDistance);
+				if (Score > BestScore)
+				{
+					BestScore = Score;
+					BestPoint = Point;
+				}
+			}
+		}
+
+		if (BestPoint)
+		{
+			// Designers place spawn points on the floor. Character actor locations are capsule centers,
+			// so add a small Z offset and do NOT let nav projection jump us to another floor.
+			SpawnLoc = BestPoint->GetActorLocation() + FVector(0.f, 0.f, HauntSpawnPointZOffset);
+			bUsedSpawnPoint = true;
+
+			UE_LOG(LogTemp, Warning,
+				TEXT("[GhostSpawn] Using spawn point=%s raw=%s final=%s tag=%s"),
+				*GetNameSafe(BestPoint),
+				*BestPoint->GetActorLocation().ToString(),
+				*SpawnLoc.ToString(),
+				*HauntTag.ToString());
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[GhostSpawn] No valid indoor spawn point found for target=%s tag=%s. Falling back behind target."),
+				*GetNameSafe(TargetPawn),
+				*HauntTag.ToString());
+		}
+	}
+
+	if (!bUsedSpawnPoint)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
+			{
+				FNavLocation ProjectedLoc;
+				if (NavSys->ProjectPointToNavigation(SpawnLoc, ProjectedLoc, FVector(300.f, 300.f, 600.f)))
+				{
+					SpawnLoc = ProjectedLoc.Location;
+				}
+			}
+
+			FHitResult GroundHit;
+			FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_HauntSpawnGroundSnap), false, TargetPawn);
+			Params.AddIgnoredActor(TargetPawn);
+			if (World->LineTraceSingleByChannel(
+				GroundHit,
+				SpawnLoc + FVector(0.f, 0.f, 600.f),
+				SpawnLoc - FVector(0.f, 0.f, 1200.f),
+				ECC_Visibility,
+				Params))
+			{
+				SpawnLoc.Z = GroundHit.ImpactPoint.Z + HauntSpawnPointZOffset;
+			}
+		}
+	}
+
+	const FRotator SpawnRot = (TargetLoc - SpawnLoc).Rotation();
+	return FTransform(SpawnRot, SpawnLoc);
+}
+
+AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* TargetPawn, FGameplayTag HauntTag, TSubclassOf<AGvTGhostCharacterBase> FallbackGhostClass)
+{
+	UWorld* World = GetWorld();
+	if (!TargetPawn || !World)
+	{
+		return nullptr;
+	}
+
+	const TWeakObjectPtr<APawn> TargetKey(TargetPawn);
+	const float Now = World->GetTimeSeconds();
+	if (const float* LastRequestTime = LastManualHauntRequestTimeByTarget.Find(TargetKey))
+	{
+		const float Elapsed = Now - *LastRequestTime;
+		if (Elapsed < ManualHauntRequestCooldown)
+		{
+			if (const TWeakObjectPtr<AGvTGhostCharacterBase>* ExistingPtr = ActiveHauntGhostByTarget.Find(TargetKey))
+			{
+				if (ExistingPtr->IsValid())
+				{
+					UE_LOG(LogTemp, Warning,
+						TEXT("[GhostHaunt] Request ignored by cooldown. Target=%s Existing=%s Remaining=%.2f"),
+						*GetNameSafe(TargetPawn),
+						*GetNameSafe(ExistingPtr->Get()),
+						ManualHauntRequestCooldown - Elapsed);
+					return ExistingPtr->Get();
+				}
+			}
+		}
+	}
+
+	LastManualHauntRequestTimeByTarget.Add(TargetKey, Now);
+
+	if (const TWeakObjectPtr<AGvTGhostCharacterBase>* ExistingPtr = ActiveHauntGhostByTarget.Find(TargetKey))
+	{
+		if (ExistingPtr->IsValid())
+		{
+			if (!bReplaceExistingTargetHaunt)
+			{
+				UE_LOG(LogTemp, Warning,
+					TEXT("[GhostHaunt] Request ignored: target already has active haunt. Target=%s Existing=%s"),
+					*GetNameSafe(TargetPawn),
+					*GetNameSafe(ExistingPtr->Get()));
+				return ExistingPtr->Get();
+			}
+
+			UE_LOG(LogTemp, Warning,
+				TEXT("[GhostHaunt] Replacing active haunt for target=%s OldGhost=%s"),
+				*GetNameSafe(TargetPawn),
+				*GetNameSafe(ExistingPtr->Get()));
+
+			ExistingPtr->Get()->Destroy();
+		}
+	}
+
+	TSubclassOf<AGvTGhostCharacterBase> SpawnClass = ChooseHauntGhostClass();
+	if (!SpawnClass && *FallbackGhostClass)
+	{
+		SpawnClass = FallbackGhostClass;
+	}
+
+	if (!SpawnClass)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] No haunt ghost class/model configured on Director."));
+		return nullptr;
+	}
+
+	const FTransform SpawnTransform = ChooseHauntSpawnTransform(TargetPawn, HauntTag);
+
+	FActorSpawnParameters Params;
+	Params.Owner = TargetPawn;
+	Params.Instigator = TargetPawn;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+
+	AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(SpawnClass, SpawnTransform, Params);
+	if (!Ghost)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] Failed to spawn haunt ghost class=%s."), *GetNameSafe(SpawnClass));
+		return nullptr;
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[GhostHaunt] Spawned group-visible haunt tag=%s Ghost=%s Target=%s Spawn=%s"),
+		*HauntTag.ToString(),
+		*GetNameSafe(Ghost),
+		*GetNameSafe(TargetPawn),
+		*Ghost->GetActorLocation().ToString());
+
+	ActiveHauntGhostByTarget.Add(TargetKey, Ghost);
+
+	Ghost->BeginGhostHaunt(TargetPawn, HauntTag);
+	return Ghost;
 }
 
 bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event, UGvTScareComponent* TargetScareComp)

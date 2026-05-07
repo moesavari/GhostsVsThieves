@@ -651,55 +651,24 @@ void AGvTThiefCharacter::Server_RequestGhostHaunt_Implementation(FGameplayTag Gh
         return;
     }
 
-    UWorld* World = GetWorld();
-    if (!World)
-    {
-        return;
-    }
-
     if (IsValid(DebugActiveGhost))
     {
         DebugActiveGhost->Destroy();
         DebugActiveGhost = nullptr;
     }
 
-    const FVector SpawnLoc = GetActorLocation() - GetActorForwardVector() * 600.f + FVector(0.f, 0.f, 80.f);
-    const FRotator SpawnRot = (GetActorLocation() - SpawnLoc).Rotation();
-
-    FActorSpawnParameters Params;
-    Params.Owner = this;
-    Params.Instigator = this;
-    Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-    TSubclassOf<AGvTGhostCharacterBase> SpawnClass = DebugGhostClass;
-
-    if (!SpawnClass)
+    if (UGameInstance* GI = GetGameInstance())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] Ghost class is not set."));
-        return;
+        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        {
+            DebugActiveGhost = Director->SpawnHauntGhostForTarget(this, GhostHauntTag, DebugGhostClass);
+            return;
+        }
     }
-
-    AGvTGhostCharacterBase* Ghost = World->SpawnActor<AGvTGhostCharacterBase>(
-        SpawnClass,
-        SpawnLoc,
-        SpawnRot,
-        Params);
-
-    if (!Ghost)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] Failed to spawn ghost."));
-        return;
-    }
-
-    DebugActiveGhost = Ghost;
 
     UE_LOG(LogTemp, Warning,
-        TEXT("[GhostHaunt] Spawned group-visible haunt tag=%s Ghost=%s Target=%s"),
-        *GhostHauntTag.ToString(),
-        *GetNameSafe(Ghost),
-        *GetName());
-
-    Ghost->BeginGhostHaunt(this, GhostHauntTag);
+        TEXT("[GhostHaunt] Failed to route tag=%s: DirectorSubsystem unavailable."),
+        *GhostHauntTag.ToString());
 }
 
 void AGvTThiefCharacter::Server_RequestGhostEvent_Implementation(FGameplayTag GhostEventTag)

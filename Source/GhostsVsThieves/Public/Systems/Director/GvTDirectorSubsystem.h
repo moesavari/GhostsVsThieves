@@ -7,6 +7,9 @@
 
 class AGvTDoorActor;
 class AGvTPowerBoxActor;
+class AGvTGhostCharacterBase;
+class UGvTGhostModelData;
+class UGvTGhostTypeData;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTDirectorSubsystem : public UGameInstanceSubsystem
@@ -24,6 +27,9 @@ public:
 	bool DispatchScareEvent(const FGvTScareEvent& Event);
 
 	bool DispatchScareEventSimple(const FGameplayTag& ScareTag, APawn* TargetPawn, AActor* SourceActor);
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	AGvTGhostCharacterBase* SpawnHauntGhostForTarget(APawn* TargetPawn, FGameplayTag HauntTag, TSubclassOf<AGvTGhostCharacterBase> FallbackGhostClass = nullptr);
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director")
 	void StartDirector();
@@ -201,6 +207,38 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
 	float DoorSlamPanicRadius = 450.f;
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
+	TArray<TSubclassOf<AGvTGhostCharacterBase>> HauntGhostClasses;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
+	TArray<TObjectPtr<UGvTGhostModelData>> GhostModels;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
+	TArray<TObjectPtr<UGvTGhostTypeData>> GhostTypes;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
+	bool bUseGhostSpawnPoints = true;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
+	float HauntSpawnIdealDistance = 650.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
+	float HauntSpawnMinDistance = 250.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
+	float HauntSpawnMaxDistance = 1800.f;
+
+	// Spawn points are placed on the floor, while Character actor locations are capsule centers.
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
+	float HauntSpawnPointZOffset = 92.f;
+
+	// Prevent debug/manual haunt key spam from creating a ghost conga line.
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
+	float ManualHauntRequestCooldown = 0.75f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
+	bool bReplaceExistingTargetHaunt = true;
+
 	FTimerHandle TimerHandle_DirectorTick;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
@@ -297,4 +335,9 @@ private:
 	AActor* ChooseHighestPanicTarget() const;
 	AGvTDoorActor* ChooseBestDoorSlamTarget(APawn* TargetPawn) const;
 	float ScoreDoorForSlam(const APawn* TargetPawn, const AGvTDoorActor* Door) const;
+	TSubclassOf<AGvTGhostCharacterBase> ChooseHauntGhostClass() const;
+	FTransform ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag) const;
+
+	mutable TMap<TWeakObjectPtr<APawn>, TWeakObjectPtr<AGvTGhostCharacterBase>> ActiveHauntGhostByTarget;
+	mutable TMap<TWeakObjectPtr<APawn>, float> LastManualHauntRequestTimeByTarget;
 };

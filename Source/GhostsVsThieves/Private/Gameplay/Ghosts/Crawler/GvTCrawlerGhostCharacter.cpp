@@ -173,6 +173,8 @@ void AGvTCrawlerGhostCharacter::Server_StartChase_Implementation(APawn* Victim)
 	SetGhostPresenceActive(true);
 
 	TargetVictim = Victim;
+	SetAssignedChaseTarget(Victim);
+	SetCurrentChaseTarget(Victim);
 	SetState(EGvTCrawlerGhostState::HauntChase);
 
 	if (!GetController())
@@ -273,7 +275,7 @@ void AGvTCrawlerGhostCharacter::StopAndDie()
 		AmbientDirector->HandleScareEnded(GvTScareTags::CrawlerChase(), GetActorLocation(), 1.0f);
 	}
 
-	Destroy();
+	StartHauntDespawnSequence();
 }
 
 void AGvTCrawlerGhostCharacter::OnCrawlerDragStep()
@@ -386,7 +388,16 @@ void AGvTCrawlerGhostCharacter::TryKillVictim()
 			Thief->Server_SetDead(this);
 		}
 
-		StopAndDie();
+		if (bContinueHuntAfterKill)
+		{
+			TargetVictim = nullptr;
+			SetCurrentChaseTarget(nullptr);
+			SetState(EGvTCrawlerGhostState::IdleCeiling);
+		}
+		else
+		{
+			StopAndDie();
+		}
 	}
 }
 

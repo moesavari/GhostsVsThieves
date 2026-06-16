@@ -53,6 +53,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Door|Scare")
 	bool TriggerScareSlam();
 
+	UFUNCTION(BlueprintPure, Category = "Door")
+	bool IsOpen() const { return bIsOpen; }
+
+	UFUNCTION(BlueprintCallable, Category = "Door|Ghost")
+	bool OpenForGhost(AActor* GhostActor);
+
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Door")
 	USceneComponent* Root = nullptr;

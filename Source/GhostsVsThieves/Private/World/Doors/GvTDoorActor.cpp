@@ -336,6 +336,44 @@ bool AGvTDoorActor::IsOpenForScareSlam() const
 	return GetCurrentOpenAlpha() >= ScareSlamMinOpenAlpha;
 }
 
+
+bool AGvTDoorActor::OpenForGhost(AActor* GhostActor)
+{
+	if (!HasAuthority())
+	{
+		return false;
+	}
+
+	GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
+
+	if (bIsLocked)
+	{
+		bIsLocked = false;
+		Multicast_PlaySFX(SFX_Unlock);
+	}
+
+	if (bIsOpen && !bAnimating)
+	{
+		return true;
+	}
+
+	bIsOpen = true;
+	DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
+	ReplicatedAnimDuration = OpenDuration;
+	bReplicatedWasScareSlam = false;
+	StartDoorAnimWithDuration(true, OpenDuration, false);
+
+	Multicast_PlaySFX(SFX_OpenStart);
+
+	if (DoorNoiseEmitter)
+	{
+		DoorNoiseEmitter->EmitNoise(DoorNoiseTag, DoorNoiseRadius, 1.0f);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[Door] OpenForGhost Door=%s Ghost=%s"), *GetNameSafe(this), *GetNameSafe(GhostActor));
+	return true;
+}
+
 bool AGvTDoorActor::TriggerScareSlam()
 {
 	if (!HasAuthority())

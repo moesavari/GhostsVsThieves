@@ -119,6 +119,19 @@ protected:
 	void HandleBeginHauntAfterSpawnDelay();
 	void FinishDespawnSequence();
 
+	UPROPERTY(Transient)
+	FVector DefaultMeshRelativeLocation = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	FRotator DefaultMeshRelativeRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(Transient)
+	bool bCachedDefaultMeshTransform = false;
+
+	void CacheDefaultMeshTransform();
+	void ResetMeshVisualTransform();
+	void FlushClientMovementSmoothing();
+	void ConfigureClientGhostProxyMovement();
 
 	UFUNCTION()
 	void OnRep_HauntState(EGvTHauntGhostState OldState);

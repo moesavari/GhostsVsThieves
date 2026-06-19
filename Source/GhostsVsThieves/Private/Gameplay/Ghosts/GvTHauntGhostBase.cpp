@@ -13,6 +13,10 @@ AGvTHauntGhostBase::AGvTHauntGhostBase()
 {
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
+	SetReplicateMovement(true);
+
+	NetUpdateFrequency = 30.f;
+	MinNetUpdateFrequency = 15.f;
 }
 
 void AGvTHauntGhostBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -30,7 +34,13 @@ void AGvTHauntGhostBase::BeginPlay()
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->MaxWalkSpeed = RoamSpeed;
+
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
+		MoveComp->bNetworkSmoothingComplete = true;
 	}
+
+	CacheDefaultMeshTransform();
+	ConfigureClientGhostProxyMovement();
 }
 
 void AGvTHauntGhostBase::Tick(float DeltaSeconds)
@@ -214,10 +224,27 @@ void AGvTHauntGhostBase::StopGhostChase()
 		*GetNameSafe(this));
 }
 
-
 void AGvTHauntGhostBase::OnRep_HauntState(EGvTHauntGhostState OldState)
 {
-	EnterHauntState(HauntState, OldState);
+	if (OldState == HauntState)
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Error,
+		TEXT("[CLIENT STATE] Ghost=%s Old=%s New=%s Loc=%s MeshRel=%s"),
+		*GetNameSafe(this),
+		GetHauntStateName(OldState),
+		GetHauntStateName(HauntState),
+		*GetActorLocation().ToString(),
+		GetMesh() ? *GetMesh()->GetRelativeLocation().ToString() : TEXT("NoMesh"));
+
+	ResetMeshVisualTransform();
+
+	if (HauntState != EGvTHauntGhostState::Despawning)
+	{
+		ConfigureClientGhostProxyMovement();
+	}
 }
 
 bool AGvTHauntGhostBase::IsValidHauntVictim(const APawn* CandidatePawn) const
@@ -310,19 +337,17 @@ FVector AGvTHauntGhostBase::GetNavigationSafeGhostLocation(const FVector& Desire
 	}
 
 	FVector ResultLocation = DesiredLocation;
+
 	const UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World);
 	if (NavSys)
 	{
 		FNavLocation NavLocation;
 		if (NavSys->ProjectPointToNavigation(DesiredLocation, NavLocation))
 		{
-			ResultLocation = NavLocation.Location;
+			ResultLocation.X = NavLocation.Location.X;
+			ResultLocation.Y = NavLocation.Location.Y;
+			ResultLocation.Z = GetActorLocation().Z;
 		}
-	}
-
-	if (const UCapsuleComponent* Capsule = GetCapsuleComponent())
-	{
-		ResultLocation.Z += Capsule->GetScaledCapsuleHalfHeight();
 	}
 
 	return ResultLocation;
@@ -330,6 +355,11 @@ FVector AGvTHauntGhostBase::GetNavigationSafeGhostLocation(const FVector& Desire
 
 void AGvTHauntGhostBase::SnapGhostToNavigationSafeHeight()
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+
 	const FVector SafeLocation = GetNavigationSafeGhostLocation(GetActorLocation());
 	SetActorLocation(SafeLocation, false, nullptr, ETeleportType::TeleportPhysics);
 	ForceNetUpdate();
@@ -394,7 +424,7 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
-		AI->MoveToActor(CurrentTarget, CatchDistance * 0.5f);
+		AI->MoveToLocation(GetNavigationSafeGhostLocation(LastKnownTargetLocation));
 	}
 
 	TryCatchTarget();
@@ -426,11 +456,6 @@ void AGvTHauntGhostBase::TryCatchTarget()
 		*GetNameSafe(this),
 		*GetNameSafe(CurrentTarget));
 
-	// Later:
-	// - trigger panic
-	// - trigger scare/catch event
-	// - notify Director
-	// For now, stop chase so we can test safely.
 	StopGhostChase();
 }
 
@@ -570,6 +595,7 @@ void AGvTHauntGhostBase::EnterHauntState(EGvTHauntGhostState NewState, EGvTHaunt
 		{
 			MoveComp->MaxWalkSpeed = RoamSpeed;
 		}
+		ResetMeshVisualTransform();
 		break;
 	case EGvTHauntGhostState::SpawnIntro:
 		SetGhostPresenceActive(true);
@@ -579,18 +605,29 @@ void AGvTHauntGhostBase::EnterHauntState(EGvTHauntGhostState NewState, EGvTHaunt
 	case EGvTHauntGhostState::Roaming:
 	case EGvTHauntGhostState::Investigating:
 	case EGvTHauntGhostState::Searching:
-		SnapGhostToNavigationSafeHeight();
-		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		ResetMeshVisualTransform();
+
+		if (HasAuthority())
 		{
-			MoveComp->MaxWalkSpeed = RoamSpeed;
+			if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+			{
+				MoveComp->SetMovementMode(MOVE_Walking);
+				MoveComp->GravityScale = 1.f;
+				MoveComp->MaxWalkSpeed = RoamSpeed;
+			}
 		}
 		break;
 	case EGvTHauntGhostState::Chasing:
 		SetGhostPresenceActive(true);
-		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		ResetMeshVisualTransform();
+
+		if (HasAuthority())
 		{
-			MoveComp->SetMovementMode(MOVE_Walking);
-			MoveComp->MaxWalkSpeed = ChaseSpeed;
+			if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+			{
+				MoveComp->SetMovementMode(MOVE_Walking);
+				MoveComp->MaxWalkSpeed = ChaseSpeed;
+			}
 		}
 		break;
 	case EGvTHauntGhostState::Despawning:
@@ -638,4 +675,64 @@ bool AGvTHauntGhostBase::SetHauntState(EGvTHauntGhostState NewState)
 
 	ForceNetUpdate();
 	return true;
+}
+
+void AGvTHauntGhostBase::CacheDefaultMeshTransform()
+{
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		DefaultMeshRelativeLocation = MeshComp->GetRelativeLocation();
+		DefaultMeshRelativeRotation = MeshComp->GetRelativeRotation();
+		bCachedDefaultMeshTransform = true;
+	}
+}
+
+void AGvTHauntGhostBase::ResetMeshVisualTransform()
+{
+	if (!bCachedDefaultMeshTransform)
+	{
+		CacheDefaultMeshTransform();
+	}
+
+	if (USkeletalMeshComponent* MeshComp = GetMesh())
+	{
+		MeshComp->SetRelativeLocation(DefaultMeshRelativeLocation);
+		MeshComp->SetRelativeRotation(DefaultMeshRelativeRotation);
+		MeshComp->SetVisibility(true, true);
+	}
+}
+
+void AGvTHauntGhostBase::FlushClientMovementSmoothing()
+{
+	if (HasAuthority())
+	{
+		return;
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bNetworkSmoothingComplete = true;
+		MoveComp->SmoothCorrection(
+			GetActorLocation(),
+			GetActorQuat(),
+			GetActorLocation(),
+			GetActorQuat()
+		);
+	}
+}
+
+void AGvTHauntGhostBase::ConfigureClientGhostProxyMovement()
+{
+	if (HasAuthority())
+	{
+		return;
+	}
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->GravityScale = 0.f;
+		MoveComp->SetMovementMode(MOVE_Flying);
+		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
+		MoveComp->bNetworkSmoothingComplete = true;
+	}
 }

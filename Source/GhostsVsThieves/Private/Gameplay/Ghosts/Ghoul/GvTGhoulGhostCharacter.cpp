@@ -44,8 +44,6 @@ void AGvTGhoulGhostCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// Blueprint assets can serialize networking flags from older class defaults.
-	// Force haunt ghosts to remain group-visible at runtime, not owner-only.
 	bReplicates = true;
 	bAlwaysRelevant = true;
 	bOnlyRelevantToOwner = false;
@@ -491,6 +489,8 @@ void AGvTGhoulGhostCharacter::StartSearchFromLastKnownLocation()
 	SearchElapsedSeconds = 0.f;
 	SearchRepathTimer = SearchRepathInterval;
 	SetHauntState(EGvTHauntGhostState::Searching);
+	ForceNetUpdate();
+
 	SnapGhostToNavigationSafeHeight();
 
 	if (UCharacterMovementComponent* Move = GetCharacterMovement())

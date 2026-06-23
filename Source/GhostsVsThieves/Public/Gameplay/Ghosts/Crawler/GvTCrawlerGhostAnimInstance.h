@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Animation/AnimInstance.h"
-#include "Systems/EGvTCrawlerGhostState.h"
+#include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 #include "GvTCrawlerGhostAnimInstance.generated.h"
 
 /**
@@ -18,8 +18,7 @@ class GHOSTSVSTHIEVES_API UGvTCrawlerGhostAnimInstance : public UAnimInstance
 public:
 	/** Replicated/authoritative ghost state (owned by AGvTCrawlerGhost). */
 	UPROPERTY(BlueprintReadOnly, Category = "Crawler|Anim")
-	EGvTCrawlerGhostState GhostState = EGvTCrawlerGhostState::IdleCeiling;
-
+	EGvTHauntGhostState GhostState = EGvTHauntGhostState::Idle;
 	/** Current movement speed in UU/s (cm/s). */
 	UPROPERTY(BlueprintReadOnly, Category = "Crawler|Anim")
 	float Speed = 0.f;

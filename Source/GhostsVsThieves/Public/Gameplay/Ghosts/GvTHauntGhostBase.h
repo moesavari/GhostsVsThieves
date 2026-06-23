@@ -62,6 +62,18 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement")
 	float ChaseSpeed = 450.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement")
+	float MovementAcceptanceRadius = 80.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement")
+	bool bUseDirectChaseFallback = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement", meta = (ClampMin = "0.0"))
+	float DirectChaseFallbackSpeed = 420.f;
+
+	void ApplyDirectChaseFallback(AActor* Target, float DeltaSeconds);
+	virtual void HandleCaughtTarget(AActor* Target);
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Lifecycle", meta = (ClampMin = "0.0"))
 	float PreHauntDelaySeconds = 0.65f;
 
@@ -87,6 +99,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
 	float SearchRetargetDelaySeconds = 2.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
+	float SearchAfterLostSightSeconds = 6.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
+	float SearchRepathInterval = 1.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
+	float SearchPointRadius = 450.f;
+
 	// MVP/Normal: one kill ends the hunt. Later hard mode can enable this to keep hunting.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Difficulty")
 	bool bContinueHuntAfterKill = false;
@@ -105,6 +126,9 @@ protected:
 
 	FTimerHandle TimerHandle_BeginHauntAfterSpawn;
 	FTimerHandle TimerHandle_FinishDespawn;
+
+	float SearchElapsedSeconds = 0.f;
+	float SearchRepathTimer = 0.f;
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Ghost|Lifecycle")
 	void BP_OnGhostSpawnIntroStarted(FGameplayTag HauntTag);
@@ -130,8 +154,19 @@ protected:
 
 	void CacheDefaultMeshTransform();
 	void ResetMeshVisualTransform();
-	void FlushClientMovementSmoothing();
 	void ConfigureClientGhostProxyMovement();
+
+	virtual void StartSearchFromLastKnownLocation();
+	virtual void UpdateSearch(float DeltaSeconds);
+	virtual void MoveToSearchLocation(const FVector& SearchLocation);
+	virtual bool TryResumeChaseFromSearch();
+	virtual void HandleSearchExpired();
+
+	// Presentation hooks. Base owns behavior/state; derived ghosts only dress it up.
+	virtual void OnHauntChaseStarted(AActor* Target);
+	virtual void OnHauntChaseEnded();
+	virtual void OnHauntSearchStarted();
+	virtual void OnHauntTargetCaught(AActor* Target);
 
 	UFUNCTION()
 	void OnRep_HauntState(EGvTHauntGhostState OldState);

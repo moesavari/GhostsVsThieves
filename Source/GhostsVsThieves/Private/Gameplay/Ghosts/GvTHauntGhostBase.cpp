@@ -1,5 +1,4 @@
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
-
 #include "AIController.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "NavigationSystem.h"
@@ -17,6 +16,8 @@ AGvTHauntGhostBase::AGvTHauntGhostBase()
 
 	NetUpdateFrequency = 30.f;
 	MinNetUpdateFrequency = 15.f;
+
+	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
 
 void AGvTHauntGhostBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -55,6 +56,10 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 	if (HauntState == EGvTHauntGhostState::Chasing)
 	{
 		UpdateChase(DeltaSeconds);
+	}
+	else if (HauntState == EGvTHauntGhostState::Searching)
+	{
+		UpdateSearch(DeltaSeconds);
 	}
 }
 
@@ -187,12 +192,22 @@ void AGvTHauntGhostBase::StartGhostChase(AActor* Target)
 	LastKnownTargetLocation = Target->GetActorLocation();
 	LastTimeTargetSeen = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
 
+	SearchElapsedSeconds = 0.f;
+	SearchRepathTimer = 0.f;
+
 	SetGhostPresenceActive(true);
 	SetHauntState(EGvTHauntGhostState::Chasing);
 
 	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 	{
 		MoveComp->MaxWalkSpeed = ChaseSpeed;
+	}
+
+	OnHauntChaseStarted(Target);
+
+	if (AAIController* AI = Cast<AAIController>(GetController()))
+	{
+		AI->MoveToActor(Target, MovementAcceptanceRadius, true, true, true);
 	}
 
 	UE_LOG(LogTemp, Warning,
@@ -211,6 +226,7 @@ void AGvTHauntGhostBase::StopGhostChase()
 	GetWorldTimerManager().ClearTimer(TimerHandle_BeginHauntAfterSpawn);
 	ExitSpawnIntroHold();
 
+	OnHauntChaseEnded();
 	SetCurrentChaseTarget(nullptr);
 	SetHauntState(EGvTHauntGhostState::Idle);
 
@@ -390,73 +406,221 @@ bool AGvTHauntGhostBase::HasLineOfSightToTarget(AActor* Target) const
 
 void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 {
-	if (!CurrentTarget)
+	if (!HasAuthority())
 	{
-		StopGhostChase();
 		return;
 	}
 
-	const bool bHasLOS = HasLineOfSightToTarget(CurrentTarget);
+	AActor* Target = CurrentTarget.Get();
+	if (!IsValid(Target))
+	{
+		StartHauntDespawnSequence();
+		return;
+	}
 
+	const bool bHasLOS = HasLineOfSightToTarget(Target);
 	if (bHasLOS)
 	{
-		LastKnownTargetLocation = CurrentTarget->GetActorLocation();
+		LastKnownTargetLocation = Target->GetActorLocation();
 		LastTimeTargetSeen = GetWorld() ? GetWorld()->GetTimeSeconds() : LastTimeTargetSeen;
 	}
 
 	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
 	const bool bLostSightTooLong = !bHasLOS && (Now - LastTimeTargetSeen) > LoseSightGraceSeconds;
-
 	if (bLostSightTooLong)
 	{
-		SetHauntState(EGvTHauntGhostState::Searching);
-
-		if (AAIController* AI = Cast<AAIController>(GetController()))
-		{
-			AI->MoveToLocation(LastKnownTargetLocation);
-		}
-
-		UE_LOG(LogTemp, Warning,
-			TEXT("[HauntGhost] Lost target. Moving to last known location."));
-
+		StartSearchFromLastKnownLocation();
 		return;
 	}
 
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
-		AI->MoveToLocation(GetNavigationSafeGhostLocation(LastKnownTargetLocation));
+		AI->MoveToActor(Target, MovementAcceptanceRadius, true, true, true);
+	}
+
+	ApplyDirectChaseFallback(Target, DeltaSeconds);
+
+	if (GetName().Contains(TEXT("Ghoul")))
+	{
+		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[GhoulMoveDebug] Ghost=%s Target=%s Controller=%s Mode=%d Vel=%s Loc=%s TargetLoc=%s HasLOS=%d"),
+				*GetNameSafe(this),
+				*GetNameSafe(Target),
+				*GetNameSafe(GetController()),
+				(int32)MoveComp->MovementMode,
+				*GetVelocity().ToString(),
+				*GetActorLocation().ToString(),
+				*Target->GetActorLocation().ToString(),
+				HasLineOfSightToTarget(Target));
+		}
 	}
 
 	TryCatchTarget();
 }
 
-void AGvTHauntGhostBase::TryCatchTarget()
+void AGvTHauntGhostBase::StartSearchFromLastKnownLocation()
 {
-	if (!CurrentTarget)
+	if (!HasAuthority())
 	{
 		return;
 	}
 
-	const float Dist = FVector::Dist(GetActorLocation(), CurrentTarget->GetActorLocation());
+	SearchElapsedSeconds = 0.f;
+	SearchRepathTimer = SearchRepathInterval;
+	SetHauntState(EGvTHauntGhostState::Searching);
+	OnHauntSearchStarted();
+	MoveToSearchLocation(LastKnownTargetLocation);
 
+	UE_LOG(LogTemp, Warning,
+		TEXT("[HauntGhost] Lost LOS. Searching last known location. Ghost=%s LastKnown=%s"),
+		*GetNameSafe(this),
+		*LastKnownTargetLocation.ToString());
+}
+
+void AGvTHauntGhostBase::UpdateSearch(float DeltaSeconds)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	SearchElapsedSeconds += DeltaSeconds;
+
+	if (SearchElapsedSeconds >= SearchRetargetDelaySeconds && TryResumeChaseFromSearch())
+	{
+		return;
+	}
+
+	if (SearchAfterLostSightSeconds > 0.f && SearchElapsedSeconds >= SearchAfterLostSightSeconds)
+	{
+		HandleSearchExpired();
+		return;
+	}
+
+	SearchRepathTimer += DeltaSeconds;
+	if (SearchRepathTimer >= SearchRepathInterval)
+	{
+		SearchRepathTimer = 0.f;
+
+		FVector NextSearchLocation = LastKnownTargetLocation;
+		if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()))
+		{
+			FNavLocation NavLocation;
+			if (NavSys->GetRandomReachablePointInRadius(LastKnownTargetLocation, SearchPointRadius, NavLocation))
+			{
+				NextSearchLocation = NavLocation.Location;
+			}
+		}
+
+		MoveToSearchLocation(NextSearchLocation);
+	}
+}
+
+void AGvTHauntGhostBase::MoveToSearchLocation(const FVector& SearchLocation)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (AAIController* AI = Cast<AAIController>(GetController()))
+	{
+		const FVector SafeSearchLocation = GetNavigationSafeGhostLocation(SearchLocation);
+		AI->MoveToLocation(SafeSearchLocation, CatchDistance, true, true, true, true, nullptr, true);
+	}
+}
+
+bool AGvTHauntGhostBase::TryResumeChaseFromSearch()
+{
+	if (!HasAuthority())
+	{
+		return false;
+	}
+
+	APawn* VisibleVictim = FindBestVisibleVictim();
+	if (!IsValid(VisibleVictim))
+	{
+		return false;
+	}
+
+	SetCurrentChaseTarget(VisibleVictim);
+	LastKnownTargetLocation = VisibleVictim->GetActorLocation();
+	LastTimeTargetSeen = GetWorld() ? GetWorld()->GetTimeSeconds() : LastTimeTargetSeen;
+	SearchElapsedSeconds = 0.f;
+	SearchRepathTimer = 0.f;
+	SetHauntState(EGvTHauntGhostState::Chasing);
+	OnHauntChaseStarted(VisibleVictim);
+
+	if (AAIController* AI = Cast<AAIController>(GetController()))
+	{
+		AI->MoveToActor(VisibleVictim, MovementAcceptanceRadius, true, true, true);
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[HauntGhost] Search found visible victim. Ghost=%s Target=%s Assigned=%s"),
+		*GetNameSafe(this),
+		*GetNameSafe(VisibleVictim),
+		*GetNameSafe(AssignedChaseTarget.Get()));
+
+	return true;
+}
+
+void AGvTHauntGhostBase::HandleSearchExpired()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	StartHauntDespawnSequence();
+}
+
+void AGvTHauntGhostBase::TryCatchTarget()
+{
+	AActor* Target = CurrentTarget.Get();
+	if (!IsValid(Target))
+	{
+		return;
+	}
+
+	const float Dist = FVector::Dist(GetActorLocation(), Target->GetActorLocation());
 	if (Dist > CatchDistance)
 	{
 		return;
 	}
 
-	if (bRequireLineOfSightToCatch && !HasLineOfSightToTarget(CurrentTarget))
+	if (bRequireLineOfSightToCatch && !HasLineOfSightToTarget(Target))
 	{
-		UE_LOG(LogTemp, Verbose,
-			TEXT("[HauntGhost] In catch range but no LOS. Catch blocked."));
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning,
-		TEXT("[HauntGhost] Target caught/scared. Ghost=%s Target=%s"),
-		*GetNameSafe(this),
-		*GetNameSafe(CurrentTarget));
+	HandleCaughtTarget(Target);
+}
 
-	StopGhostChase();
+void AGvTHauntGhostBase::HandleCaughtTarget(AActor* Target)
+{
+	if (!HasAuthority() || !Target)
+	{
+		return;
+	}
+
+	OnHauntTargetCaught(Target);
+
+	if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Target))
+	{
+		Thief->Server_SetDead(this);
+	}
+
+	if (bContinueHuntAfterKill)
+	{
+		SetCurrentChaseTarget(nullptr);
+	}
+	else
+	{
+		StartHauntDespawnSequence();
+	}
 }
 
 void AGvTHauntGhostBase::StartHauntDespawnSequence()
@@ -469,6 +633,7 @@ void AGvTHauntGhostBase::StartHauntDespawnSequence()
 	GetWorldTimerManager().ClearTimer(TimerHandle_BeginHauntAfterSpawn);
 	GetWorldTimerManager().ClearTimer(TimerHandle_FinishDespawn);
 
+	OnHauntChaseEnded();
 	SetCurrentChaseTarget(nullptr);
 	AssignedChaseTarget = nullptr;
 	PendingHauntTarget = nullptr;
@@ -627,6 +792,12 @@ void AGvTHauntGhostBase::EnterHauntState(EGvTHauntGhostState NewState, EGvTHaunt
 			{
 				MoveComp->SetMovementMode(MOVE_Walking);
 				MoveComp->MaxWalkSpeed = ChaseSpeed;
+
+				MoveComp->MaxWalkSpeed = ChaseSpeed;
+				MoveComp->MaxAcceleration = 2048.f;
+				MoveComp->BrakingDecelerationWalking = 2048.f;
+				MoveComp->GroundFriction = 8.f;
+				MoveComp->bOrientRotationToMovement = true;
 			}
 		}
 		break;
@@ -702,23 +873,21 @@ void AGvTHauntGhostBase::ResetMeshVisualTransform()
 	}
 }
 
-void AGvTHauntGhostBase::FlushClientMovementSmoothing()
-{
-	if (HasAuthority())
-	{
-		return;
-	}
 
-	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
-	{
-		MoveComp->bNetworkSmoothingComplete = true;
-		MoveComp->SmoothCorrection(
-			GetActorLocation(),
-			GetActorQuat(),
-			GetActorLocation(),
-			GetActorQuat()
-		);
-	}
+void AGvTHauntGhostBase::OnHauntChaseStarted(AActor* Target)
+{
+}
+
+void AGvTHauntGhostBase::OnHauntChaseEnded()
+{
+}
+
+void AGvTHauntGhostBase::OnHauntSearchStarted()
+{
+}
+
+void AGvTHauntGhostBase::OnHauntTargetCaught(AActor* Target)
+{
 }
 
 void AGvTHauntGhostBase::ConfigureClientGhostProxyMovement()
@@ -735,4 +904,29 @@ void AGvTHauntGhostBase::ConfigureClientGhostProxyMovement()
 		MoveComp->NetworkSmoothingMode = ENetworkSmoothingMode::Disabled;
 		MoveComp->bNetworkSmoothingComplete = true;
 	}
+}
+
+void AGvTHauntGhostBase::ApplyDirectChaseFallback(AActor* Target, float DeltaSeconds)
+{
+	if (!HasAuthority() || !Target || !bUseDirectChaseFallback)
+	{
+		return;
+	}
+
+	FVector ToTarget = Target->GetActorLocation() - GetActorLocation();
+	ToTarget.Z = 0.f;
+
+	if (ToTarget.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector Direction = ToTarget.GetSafeNormal();
+	AddMovementInput(Direction, 1.f);
+
+	SetActorRotation(FMath::RInterpTo(
+		GetActorRotation(),
+		Direction.Rotation(),
+		DeltaSeconds,
+		8.f));
 }

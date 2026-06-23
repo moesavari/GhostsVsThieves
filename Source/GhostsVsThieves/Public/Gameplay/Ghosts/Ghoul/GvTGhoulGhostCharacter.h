@@ -6,7 +6,6 @@
 #include "GvTGhoulGhostCharacter.generated.h"
 
 class UAudioComponent;
-class USoundBase;
 
 UCLASS(BlueprintType)
 class GHOSTSVSTHIEVES_API AGvTGhoulGhostCharacter : public AGvTHauntGhostBase
@@ -43,26 +42,15 @@ public:
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
-	virtual void UpdateChase(float DeltaSeconds) override;
-	void ChaseTick(float DeltaSeconds);
-	bool FindPathAwareFallbackDirection(FVector& OutDirection);
-	bool ApplyPathAwareFallbackMove(const FVector& Direction, float DeltaSeconds);
-	void TryCatchVictim();
-	bool HasLineOfSightToVictim() const;
-	void SwitchTargetVictim(APawn* NewVictim);
-	void StartSearchFromLastKnownLocation();
-	void SearchTick(float DeltaSeconds);
-	void MoveToSearchLocation(const FVector& SearchLocation);
-	bool TryResumeChaseFromSearch();
-	void HandleSearchExpired();
-	void StopAndVanish();
+	virtual void OnHauntChaseStarted(AActor* Target) override;
+	virtual void OnHauntChaseEnded() override;
+	virtual void OnHauntSearchStarted() override;
+	virtual void OnHauntTargetCaught(AActor* Target) override;
+
 	void TryOpenNearbyDoors();
 	void BeginCloseScarePresentation(AActor* Target);
 	void EndCloseScarePresentation();
 	void FaceTargetFlat(const AActor* Target, float DeltaSeconds, float TurnSpeedDegPerSecond);
-	void FaceMovementDirection(const FVector& Direction, float DeltaSeconds, float TurnSpeedDegPerSecond);
-	FVector GetBoundedTargetLocation() const;
-	bool IsLocationInsideHauntBounds(const FVector& Location) const;
 	void PlayScareAudioStart(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
 	void StartScareAudioSustain(const FGvTScareAudioSet& AudioSet, bool bAttachToActor);
 	void StopCurrentScareAudio(bool bPlayEnd, const FGvTScareAudioSet* AudioSet, bool bAttachToActor);
@@ -92,55 +80,7 @@ protected:
 	float BrakingDecel = 2048.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float RepathInterval = 0.25f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float AcceptRadius = 80.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
 	float GhoulCatchDistance = 135.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float MaxChaseDistance = 6000.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase")
-	bool bRequireLineOfSightToKeepChasing = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float LostLineOfSightGraceSeconds = 1.25f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float SearchAfterLostSightSeconds = 6.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Search", meta = (ClampMin = "0.0"))
-	float SearchRepathInterval = 1.25f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Search", meta = (ClampMin = "0.0"))
-	float SearchPointRadius = 450.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase")
-	bool bUseDirectChaseFallback = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float DirectChaseFallbackDelay = 0.85f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float DirectChaseMinSpeed = 12.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
-	float DirectChaseFallbackForceDelay = 0.25f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Catch", meta = (ClampMin = "0.0"))
-	float MinimumChaseTimeBeforeCatch = 0.75f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Catch", meta = (ClampMin = "0.0"))
-	float MinimumSpeedToCatch = 35.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Catch", meta = (ClampMin = "0.0"))
-	float ChaseProgressDistanceThreshold = 8.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Catch", meta = (ClampMin = "0.0"))
-	float MaxTimeSinceProgressForCatch = 1.50f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Doors", meta = (ClampMin = "0.0"))
 	float DoorProbeRadius = 165.f;
@@ -150,14 +90,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Doors", meta = (ClampMin = "0.0"))
 	float DoorProbeInterval = 0.20f;
-
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Bounds")
-	bool bRestrictToHauntBounds = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Bounds")
-	FName HauntBoundsTag = TEXT("GhostHauntBounds");
-
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|CloseScare", meta = (ClampMin = "0.0"))
 	float CloseScareForwardOffset = 230.f;
@@ -180,20 +112,7 @@ protected:
 	UPROPERTY(Transient)
 	TObjectPtr<UAudioComponent> ActiveSustainAudio = nullptr;
 
-	UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Ghoul|Target", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<APawn> AssignedTargetVictim = nullptr;
-
 private:
-	float RepathTimer = 0.f;
-	float DirectChaseStuckTime = 0.f;
-	float ChaseStartTimeSeconds = 0.f;
-	float LastDistanceToVictim = 0.f;
-	float LastChaseProgressTimeSeconds = 0.f;
 	float DoorProbeTimer = 0.f;
-	FVector LastKnownVictimLocation = FVector::ZeroVector;
-	float LastTimeVictimSeenSeconds = 0.f;
-	float SearchElapsedSeconds = 0.f;
-	float SearchRepathTimer = 0.f;
-	FTimerHandle TimerHandle_SearchExpired;
 	FTimerHandle TimerHandle_CloseScareEnd;
 };

@@ -8,14 +8,14 @@ void UGvTCrawlerGhostAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	const AGvTCrawlerGhostCharacter* CharGhost = Cast<AGvTCrawlerGhostCharacter>(GetOwningActor());
 	if (!CharGhost)
 	{
-		GhostState = EGvTCrawlerGhostState::IdleCeiling;
+		GhostState = EGvTHauntGhostState::Idle;
 		Speed = 0.f;
 		SmoothedSpeed = 0.f;
 		CrawlPlayRate = 1.f;
 		return;
 	}
 
-	GhostState = CharGhost->GetState();
+	GhostState = CharGhost->GetHauntState();
 
 	const float TargetSpeed = FMath::Max(0.f, CharGhost->GetReplicatedSpeed());
 

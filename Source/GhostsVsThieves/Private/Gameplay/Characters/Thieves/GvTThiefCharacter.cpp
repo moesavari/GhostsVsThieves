@@ -21,6 +21,7 @@
 #include "World/Doors/GvTDoorActor.h"
 #include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
 #include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
+#include "DrawDebugHelpers.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -528,14 +529,27 @@ void AGvTThiefCharacter::Client_PlayGhostScare_Implementation(FGameplayTag Ghost
         return;
     }
 
+    UE_LOG(LogTemp, Warning,
+        TEXT("[GhostScare] Attempting local scare. Tag=%s DebugGhostClass=%s Local=%d Stunned=%d"),
+        *GhostScareTag.ToString(),
+        *GetNameSafe(DebugGhostClass),
+        IsLocallyControlled() ? 1 : 0,
+        IsScareStunned() ? 1 : 0);
+
     if (!DebugGhostClass)
     {
         UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Ghost presentation class is not set."));
         return;
     }
 
-    const FVector SpawnLoc = GetActorLocation() + GetActorForwardVector() * 250.f + FVector(0.f, 0.f, 120.f);
-    const FRotator SpawnRot = (GetActorLocation() - SpawnLoc).Rotation();
+    FVector SpawnLoc;
+    FRotator SpawnRot;
+
+    if (!TryFindSafeLocalGhostScareSpawn(SpawnLoc, SpawnRot))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Could not find safe local scare spawn."));
+        return;
+    }
 
     FActorSpawnParameters Params;
     Params.Owner = this;
@@ -705,4 +719,100 @@ void AGvTThiefCharacter::Server_RequestGhostEvent_Implementation(FGameplayTag Gh
     UE_LOG(LogTemp, Warning,
         TEXT("[GhostEvent] Unsupported GhostEvent tag=%s"),
         *GhostEventTag.ToString());
+}
+
+void AGvTThiefCharacter::Client_PlayGhostEvent_Implementation(FGameplayTag GhostEventTag)
+{
+    if (!IsLocallyControlled())
+    {
+        return;
+    }
+
+    if (GhostEventTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
+    {
+        if (ThiefPerceptionComponent)
+        {
+            ThiefPerceptionComponent->Test_MirrorScare(1.f, 1.5f);
+        }
+    }
+}
+
+bool AGvTThiefCharacter::TryFindSafeLocalGhostScareSpawn(FVector& OutLocation, FRotator& OutRotation) const
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return false;
+    }
+
+    const FVector PlayerLoc = GetActorLocation();
+    const FVector Forward = GetActorForwardVector();
+    const FVector Right = GetActorRightVector();
+
+    const TArray<FVector> CandidateOffsets =
+    {
+        -Forward * 300.f,
+        Right * 280.f,
+        -Right * 280.f,
+        (-Forward + Right).GetSafeNormal() * 330.f,
+        (-Forward - Right).GetSafeNormal() * 330.f,
+        Forward * 320.f
+    };
+
+    FCollisionQueryParams Params(SCENE_QUERY_STAT(GhostScareSpawn), false, this);
+
+    for (const FVector& Offset : CandidateOffsets)
+    {
+        const FVector Candidate = PlayerLoc + Offset;
+
+        FHitResult FloorHit;
+        const FVector TraceStart = Candidate + FVector(0.f, 0.f, 250.f);
+        const FVector TraceEnd = Candidate - FVector(0.f, 0.f, 700.f);
+
+        if (!World->LineTraceSingleByChannel(FloorHit, TraceStart, TraceEnd, ECC_WorldStatic, Params))
+        {
+            continue;
+        }
+
+        const FVector SpawnLoc = FloorHit.ImpactPoint + FVector(0.f, 0.f, 96.f);
+
+        const FCollisionShape GhostShape = FCollisionShape::MakeCapsule(34.f, 88.f);
+
+        const bool bBlockedByWorld = World->OverlapBlockingTestByChannel(
+            SpawnLoc,
+            FQuat::Identity,
+            ECC_WorldStatic,
+            GhostShape,
+            Params);
+
+        if (bBlockedByWorld)
+        {
+            continue;
+        }
+
+        OutLocation = SpawnLoc;
+
+        FVector LookDir = PlayerLoc - SpawnLoc;
+        LookDir.Z = 0.f;
+
+        OutRotation = LookDir.IsNearlyZero()
+            ? GetActorRotation()
+            : LookDir.Rotation();
+
+        return true;
+    }
+
+    // Emergency fallback: do NOT kill the scare entirely.
+    OutLocation = PlayerLoc - Forward * 280.f + FVector(0.f, 0.f, 90.f);
+
+    FVector LookDir = PlayerLoc - OutLocation;
+    LookDir.Z = 0.f;
+
+    OutRotation = LookDir.IsNearlyZero()
+        ? GetActorRotation()
+        : LookDir.Rotation();
+
+    UE_LOG(LogTemp, Warning, TEXT("[GhostScare] Safe spawn failed; using emergency fallback behind player."));
+
+    return true;
 }

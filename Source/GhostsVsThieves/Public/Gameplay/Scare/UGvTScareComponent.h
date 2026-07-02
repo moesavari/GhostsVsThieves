@@ -123,7 +123,7 @@ protected:
 	float GhostScreamRecoveryDuration = 0.55f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
-	TObjectPtr<USoundBase> GhostScreamSound = nullptr;
+	TArray<TObjectPtr<USoundBase>> GhostScreamSounds;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|GhostScream")
 	float GhostScreamVolumeMultiplier = 1.0f;

@@ -857,11 +857,19 @@ void UGvTScareComponent::PlayLocalGhostScream(const FGvTScareEvent& Event)
 		? Event.WorldHint
 		: (GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector);
 
-	if (GhostScreamSound)
+	USoundBase* SelectedScream = nullptr;
+
+	if (GhostScreamSounds.Num() > 0)
+	{
+		const int32 Index = FMath::RandRange(0, GhostScreamSounds.Num() - 1);
+		SelectedScream = GhostScreamSounds[Index];
+	}
+
+	if (SelectedScream)
 	{
 		UGameplayStatics::PlaySoundAtLocation(
 			this,
-			GhostScreamSound,
+			SelectedScream,
 			AudioLoc,
 			FMath::Max(0.f, GhostScreamVolumeMultiplier),
 			1.0f);
@@ -869,7 +877,7 @@ void UGvTScareComponent::PlayLocalGhostScream(const FGvTScareEvent& Event)
 	else
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[ScareComponent] GhostScreamSound is not set on %s; BP_PlayScare still fired."),
+			TEXT("[ScareComponent] GhostScreamSounds is empty on %s; BP_PlayScare still fired."),
 			*GetNameSafe(this));
 	}
 }

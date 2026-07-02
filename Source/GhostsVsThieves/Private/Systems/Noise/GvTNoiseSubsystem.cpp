@@ -75,3 +75,54 @@ int32 UGvTNoiseSubsystem::GetRecentAnyCount(const FGameplayTagContainer& AnyTags
 	}
 	return Count;
 }
+
+bool UGvTNoiseSubsystem::TryGetBestRecentNoiseNearLocation(
+	const FVector& ListenerLocation,
+	float HearingRadius,
+	float MemorySeconds,
+	FVector& OutNoiseLocation,
+	FGameplayTag& OutNoiseTag,
+	float& OutScore) const
+{
+	OutNoiseLocation = FVector::ZeroVector;
+	OutNoiseTag = FGameplayTag();
+	OutScore = 0.f;
+
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	const float HearingRadiusSq = FMath::Square(HearingRadius);
+
+	bool bFound = false;
+
+	for (int32 i = RecentEvents.Num() - 1; i >= 0; --i)
+	{
+		const FGvTNoiseEvent& E = RecentEvents[i];
+
+		const float Age = Now - E.TimeSeconds;
+		if (Age > MemorySeconds)
+		{
+			break;
+		}
+
+		const float DistSq = FVector::DistSquared(ListenerLocation, E.Location);
+		const float EffectiveRadius = HearingRadius + E.Radius;
+
+		if (DistSq > FMath::Square(EffectiveRadius))
+		{
+			continue;
+		}
+
+		const float AgeAlpha = 1.f - FMath::Clamp(Age / FMath::Max(MemorySeconds, 0.01f), 0.f, 1.f);
+		const float DistAlpha = 1.f - FMath::Clamp(FMath::Sqrt(DistSq) / FMath::Max(EffectiveRadius, 1.f), 0.f, 1.f);
+		const float Score = E.Loudness * AgeAlpha * FMath::Max(DistAlpha, 0.1f);
+
+		if (!bFound || Score > OutScore)
+		{
+			bFound = true;
+			OutNoiseLocation = E.Location;
+			OutNoiseTag = E.NoiseTag;
+			OutScore = Score;
+		}
+	}
+
+	return bFound;
+}

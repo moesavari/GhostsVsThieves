@@ -8,6 +8,7 @@
 class ACharacter;
 class APawn;
 class UCharacterMovementComponent;
+class UGvTGhostPerceptionComponent;
 
 UENUM(BlueprintType)
 enum class EGvTHauntGhostState : uint8
@@ -108,6 +109,22 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
 	float SearchPointRadius = 450.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt", meta = (ClampMin = "0.0"))
+	float MaxHauntDurationSeconds = 30.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Roaming", meta = (ClampMin = "0.0"))
+	float RoamRepathInterval = 2.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Roaming", meta = (ClampMin = "0.0"))
+	float RoamPointRadius = 900.f;
+
+	float HauntElapsedSeconds = 0.f;
+	float RoamRepathTimer = 0.f;
+
+	virtual void UpdateRoaming(float DeltaSeconds);
+	virtual void MoveToRandomRoamLocation();
+	TObjectPtr<UGvTGhostPerceptionComponent> GhostPerceptionComponent;
+
 	// MVP/Normal: one kill ends the hunt. Later hard mode can enable this to keep hunting.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Difficulty")
 	bool bContinueHuntAfterKill = false;
@@ -156,6 +173,7 @@ protected:
 	void ResetMeshVisualTransform();
 	void ConfigureClientGhostProxyMovement();
 
+	virtual bool TryInvestigateRecentNoise();
 	virtual void StartSearchFromLastKnownLocation();
 	virtual void UpdateSearch(float DeltaSeconds);
 	virtual void MoveToSearchLocation(const FVector& SearchLocation);

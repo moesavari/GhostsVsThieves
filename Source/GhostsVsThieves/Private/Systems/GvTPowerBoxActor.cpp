@@ -10,6 +10,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "GvTPlayerState.h"
+#include "Systems/Director/GvTDirectorSubsystem.h"
+#include "Gameplay/Scare/GvTScareTags.h"
 
 static void GvTApplyPowerStatePanicToPlayers(
 	UWorld* World,
@@ -289,7 +291,30 @@ void AGvTPowerBoxActor::HandlePlayerInteract(APawn* InstigatorPawn)
 		return;
 	}
 
+	const EGvTHousePowerState OldState = PowerState;
+
 	TogglePower();
+
+	const bool bTurnedPowerOn =
+		OldState == EGvTHousePowerState::Off &&
+		PowerState == EGvTHousePowerState::On;
+
+	const bool bCanScare =
+		!bBreakerScareOnlyWhenTurningPowerOn || bTurnedPowerOn;
+
+	if (bCanScare && InstigatorPawn && FMath::FRand() <= BreakerGhostReactionChance)
+	{
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Director->DispatchScareEventSimple(
+					GvTScareTags::RearAudioSting(),
+					InstigatorPawn,
+					this);
+			}
+		}
+	}
 }
 
 void AGvTPowerBoxActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const

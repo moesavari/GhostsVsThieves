@@ -20,6 +20,8 @@
 #include "Gameplay/Ghosts/GvTGhostSpawnPoint.h"
 #include "Gameplay/Ghosts/GvTGhostModelData.h"
 #include "Gameplay/Ghosts/GvTGhostTypeData.h"
+#include "World/Items/GvTInteractableItem.h"
+#include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
 
 static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
@@ -64,6 +66,10 @@ static EGvTPanicSource GvTMapScareTagToPanicSource(const FGameplayTag& ScareTag)
 	if (ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
 	{
 		return EGvTPanicSource::DoorSlam;
+	}
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
+	{
+		return EGvTPanicSource::GhostScare;
 	}
 
 	return EGvTPanicSource::None;
@@ -530,9 +536,36 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		}
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()))
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Director] Mirror event routed through ThiefPerception/debug path for now."));
+		if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Target))
+		{
+			Thief->Client_PlayGhostEvent(GvTScareTags::GhostEvent_Mirror());
+			return true;
+		}
+
+		return false;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch GhostHaunt chase to %s"), *GetNameSafe(Target));
+
+		if (APawn* TargetPawn = Cast<APawn>(Target))
+		{
+			AGvTGhostCharacterBase* Ghost = SpawnHauntGhostForTarget(TargetPawn, GvTScareTags::GhostHaunt_Chase());
+			return IsValid(Ghost);
+		}
+
+		return false;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Director] CrawlerOverhead deprecated; routing to RearAudioSting for %s"), *GetNameSafe(Target));
+		ScareComp->RequestRearAudioStingFromEvent(MakeRearAudioStingEvent(Target));
 		return true;
 	}
 
@@ -557,6 +590,17 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch RearAudioSting to %s"), *GetNameSafe(Target));
 		ScareComp->RequestRearAudioStingFromEvent(Event);
 		return true;
+	}
+
+	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
+	{
+		if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Target))
+		{
+			Thief->Client_PlayGhostScare(GvTScareTags::GhostScare_Close());
+			return true;
+		}
+
+		return false;
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch failed: Unknown scare tag %s"), *Event.ScareTag.ToString());
@@ -586,6 +630,15 @@ bool UGvTDirectorSubsystem::DispatchScareEventSimple(
 	{
 		Event = MakeGhostScreamEvent(TargetPawn);
 		Event.ScareTag = GvTScareTags::GhostScare_Scream();
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase()))
+	{
+		Event = MakeCrawlerChaseEvent(TargetPawn);
+	}
+	else if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
+	{
+		Event = MakeCrawlerOverheadEvent(TargetPawn);
 	}
 	else if (ScareTag.MatchesTagExact(GvTScareTags::LightChase()))
 	{
@@ -1442,6 +1495,7 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 	bool bIsValuable = false;
 	bool bIsNoisy = false;
 	float ItemValue01 = 0.f;
+	float ItemReactionBonus = 0.f;
 
 	if (TargetActor)
 	{
@@ -1460,17 +1514,47 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 		{
 			bIsNoisy = true;
 		}
+
+		// The ghost script overhaul moved most scare logic into the Director,
+		// but interactable loot no longer reliably had Actor tags. Read the item
+		// directly so stealing valuable objects can upset the house again.
+		if (const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(TargetActor))
+		{
+			if (!Item->ShouldUpsetGhostsOnInteract())
+			{
+				return;
+			}
+
+			bIsElectrical = bIsElectrical || Item->IsGhostElectrical();
+			bIsValuable = bIsValuable || Item->IsGhostValuable();
+			bIsNoisy = bIsNoisy || Item->IsGhostNoisy();
+			ItemValue01 = FMath::Max(ItemValue01, Item->GetGhostItemValue01());
+			ItemReactionBonus = Item->GetGhostReactionChanceBonus();
+		}
 	}
 
 	float ReactionChance = 0.10f;
 	ReactionChance += Panic * 0.35f;
 	ReactionChance += Pressure * 0.25f;
+	ReactionChance += ItemReactionBonus;
 
 	if (bIsElectrical) ReactionChance += 0.35f;
-	if (bIsValuable)   ReactionChance += 0.20f;
+	if (bIsValuable)   ReactionChance += FMath::Lerp(0.20f, 0.40f, FMath::Clamp(ItemValue01, 0.f, 1.f));
 	if (bIsNoisy)      ReactionChance += 0.25f;
 
 	ReactionChance = FMath::Clamp(ReactionChance, 0.f, 0.95f);
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[DirectorInteraction] Player=%s Target=%s Electrical=%d Valuable=%d Noisy=%d Value01=%.2f Panic=%.2f Pressure=%.2f Chance=%.2f"),
+		*GetNameSafe(Pawn),
+		*GetNameSafe(TargetActor),
+		bIsElectrical ? 1 : 0,
+		bIsValuable ? 1 : 0,
+		bIsNoisy ? 1 : 0,
+		ItemValue01,
+		Panic,
+		Pressure,
+		ReactionChance);
 
 	if (FMath::FRand() > ReactionChance)
 	{
@@ -1524,9 +1608,22 @@ void UGvTDirectorSubsystem::TriggerInteractionReaction(
 	{
 		const float Roll = FMath::FRand();
 
-		if (Roll < 0.5f)
+		if (Roll < 0.25f)
+		{
+			if (AGvTPowerBoxActor* Power = FindPowerBoxInWorld())
+			{
+				Power->ForcePowerStateFromGhost(EGvTHousePowerState::Off);
+			}
+
+			ChosenScare = GvTScareTags::LightChase();
+		}
+		else if (Roll < 0.50f)
 		{
 			ChosenScare = GvTScareTags::GhostScream();
+		}
+		else if (Roll < 0.75f)
+		{
+			ChosenScare = GvTScareTags::Mirror();
 		}
 		else
 		{
@@ -1556,7 +1653,16 @@ void UGvTDirectorSubsystem::TriggerInteractionReaction(
 		}
 		else if (Panic < 0.7f)
 		{
-			if (Roll < 0.4f)
+			if (Roll < 0.25f)
+			{
+				if (AGvTPowerBoxActor* Power = FindPowerBoxInWorld())
+				{
+					Power->ForcePowerStateFromGhost(EGvTHousePowerState::Off);
+				}
+
+				ChosenScare = GvTScareTags::LightChase();
+			}
+			else if (Roll < 0.50f)
 			{
 				ChosenScare = GvTScareTags::Mirror();
 			}

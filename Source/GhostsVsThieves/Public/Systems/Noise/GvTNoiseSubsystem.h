@@ -49,6 +49,15 @@ public:
 	UPROPERTY() 
 	float ContextMult = 1.f;
 
+	UFUNCTION(BlueprintPure)
+	bool TryGetBestRecentNoiseNearLocation(
+		const FVector& ListenerLocation,
+		float HearingRadius,
+		float MemorySeconds,
+		FVector& OutNoiseLocation,
+		FGameplayTag& OutNoiseTag,
+		float& OutScore) const;
+
 private:
 	UPROPERTY()
 	TArray<FGvTNoiseEvent> RecentEvents;

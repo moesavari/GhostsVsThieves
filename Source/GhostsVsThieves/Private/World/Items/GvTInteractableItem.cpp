@@ -5,6 +5,7 @@
 #include "Systems/Noise/GvTNoiseEmitterComponent.h"
 #include "GvTPlayerState.h"
 #include "GvTPlayerController.h"
+#include "Systems/Director/GvTDirectorSubsystem.h"
 #include "GameFramework/PlayerController.h"
 
 AGvTInteractableItem::AGvTInteractableItem()
@@ -159,6 +160,12 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 void AGvTInteractableItem::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)
 {
 	// Optional: stop SFX/FX. Noise-on-cancel is handled by InteractionComponent.
+}
+
+float AGvTInteractableItem::GetGhostItemValue01() const
+{
+	const float Denominator = FMath::Max(1.f, float(HighValueGhostReactionValue));
+	return FMath::Clamp(float(BaseValue) / Denominator, 0.f, 1.f);
 }
 
 void AGvTInteractableItem::ApplyConsumedState(bool bConsumed)

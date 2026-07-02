@@ -63,6 +63,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
 	void HandlePlayerInteract(APawn* InstigatorPawn);
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Power|Ghost Reaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float BreakerGhostReactionChance = 0.35f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Power|Ghost Reaction")
+	bool bBreakerScareOnlyWhenTurningPowerOn = true;
+
 protected:
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "GvT|Power")
 	void Server_SetPowerState(EGvTHousePowerState NewState);

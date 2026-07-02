@@ -6,6 +6,7 @@
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "Components/CapsuleComponent.h"
 #include "Net/UnrealNetwork.h"
+#include "Gameplay/Ghosts/GvTGhostPerceptionComponent.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 
 AGvTHauntGhostBase::AGvTHauntGhostBase()
@@ -16,6 +17,8 @@ AGvTHauntGhostBase::AGvTHauntGhostBase()
 
 	NetUpdateFrequency = 30.f;
 	MinNetUpdateFrequency = 15.f;
+
+	GhostPerceptionComponent = CreateDefaultSubobject<UGvTGhostPerceptionComponent>(TEXT("GhostPerceptionComponent"));
 
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 }
@@ -53,6 +56,19 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 		return;
 	}
 
+	if (HauntState == EGvTHauntGhostState::Chasing ||
+		HauntState == EGvTHauntGhostState::Searching ||
+		HauntState == EGvTHauntGhostState::Roaming)
+	{
+		HauntElapsedSeconds += DeltaSeconds;
+
+		if (MaxHauntDurationSeconds > 0.f && HauntElapsedSeconds >= MaxHauntDurationSeconds)
+		{
+			StartHauntDespawnSequence();
+			return;
+		}
+	}
+
 	if (HauntState == EGvTHauntGhostState::Chasing)
 	{
 		UpdateChase(DeltaSeconds);
@@ -60,6 +76,10 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 	else if (HauntState == EGvTHauntGhostState::Searching)
 	{
 		UpdateSearch(DeltaSeconds);
+	}
+	else if (HauntState == EGvTHauntGhostState::Roaming)
+	{
+		UpdateRoaming(DeltaSeconds);
 	}
 }
 
@@ -195,6 +215,9 @@ void AGvTHauntGhostBase::StartGhostChase(AActor* Target)
 	SearchElapsedSeconds = 0.f;
 	SearchRepathTimer = 0.f;
 
+	HauntElapsedSeconds = 0.f;
+	RoamRepathTimer = 0.f;
+
 	SetGhostPresenceActive(true);
 	SetHauntState(EGvTHauntGhostState::Chasing);
 
@@ -298,40 +321,12 @@ bool AGvTHauntGhostBase::HasLineOfSightToPawn(const APawn* CandidatePawn) const
 
 APawn* AGvTHauntGhostBase::FindBestVisibleVictim() const
 {
-	if (!GetWorld())
+	if (GhostPerceptionComponent)
 	{
-		return nullptr;
+		return GhostPerceptionComponent->FindBestVisibleVictim(AssignedChaseTarget.Get());
 	}
 
-	// Keep the Director-selected target meaningful: if the assigned victim is visible, prefer them.
-	if (APawn* AssignedPawn = Cast<APawn>(AssignedChaseTarget.Get()))
-	{
-		if (HasLineOfSightToPawn(AssignedPawn))
-		{
-			return AssignedPawn;
-		}
-	}
-
-	APawn* BestVictim = nullptr;
-	float BestDistSq = TNumericLimits<float>::Max();
-
-	for (TActorIterator<AGvTThiefCharacter> It(GetWorld()); It; ++It)
-	{
-		AGvTThiefCharacter* Candidate = *It;
-		if (!IsValidHauntVictim(Candidate) || !HasLineOfSightToPawn(Candidate))
-		{
-			continue;
-		}
-
-		const float DistSq = FVector::DistSquared(GetActorLocation(), Candidate->GetActorLocation());
-		if (DistSq < BestDistSq)
-		{
-			BestDistSq = DistSq;
-			BestVictim = Candidate;
-		}
-	}
-
-	return BestVictim;
+	return nullptr;
 }
 
 void AGvTHauntGhostBase::SetAssignedChaseTarget(AActor* Target)
@@ -493,6 +488,11 @@ void AGvTHauntGhostBase::UpdateSearch(float DeltaSeconds)
 		return;
 	}
 
+	if (SearchElapsedSeconds >= SearchRetargetDelaySeconds && TryInvestigateRecentNoise())
+	{
+		return;
+	}
+
 	if (SearchAfterLostSightSeconds > 0.f && SearchElapsedSeconds >= SearchAfterLostSightSeconds)
 	{
 		HandleSearchExpired();
@@ -574,7 +574,13 @@ void AGvTHauntGhostBase::HandleSearchExpired()
 		return;
 	}
 
-	StartHauntDespawnSequence();
+	SetCurrentChaseTarget(nullptr);
+	SetHauntState(EGvTHauntGhostState::Roaming);
+	MoveToRandomRoamLocation();
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[HauntGhost] Search expired. Roaming instead of despawning. Ghost=%s"),
+		*GetNameSafe(this));
 }
 
 void AGvTHauntGhostBase::TryCatchTarget()
@@ -929,4 +935,92 @@ void AGvTHauntGhostBase::ApplyDirectChaseFallback(AActor* Target, float DeltaSec
 		Direction.Rotation(),
 		DeltaSeconds,
 		8.f));
+}
+
+void AGvTHauntGhostBase::UpdateRoaming(float DeltaSeconds)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (TryResumeChaseFromSearch())
+	{
+		return;
+	}
+
+	if (TryInvestigateRecentNoise())
+	{
+		return;
+	}
+
+	RoamRepathTimer += DeltaSeconds;
+	if (RoamRepathTimer >= RoamRepathInterval)
+	{
+		RoamRepathTimer = 0.f;
+		MoveToRandomRoamLocation();
+	}
+}
+
+void AGvTHauntGhostBase::MoveToRandomRoamLocation()
+{
+	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	FVector Origin = GetActorLocation();
+
+	if (LastKnownTargetLocation != FVector::ZeroVector)
+	{
+		Origin = LastKnownTargetLocation;
+	}
+
+	if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()))
+	{
+		FNavLocation NavLocation;
+		if (NavSys->GetRandomReachablePointInRadius(Origin, RoamPointRadius, NavLocation))
+		{
+			if (AAIController* AI = Cast<AAIController>(GetController()))
+			{
+				AI->MoveToLocation(
+					GetNavigationSafeGhostLocation(NavLocation.Location),
+					MovementAcceptanceRadius,
+					true,
+					true,
+					true,
+					true,
+					nullptr,
+					true);
+			}
+		}
+	}
+}
+
+bool AGvTHauntGhostBase::TryInvestigateRecentNoise()
+{
+	if (!HasAuthority() || !GhostPerceptionComponent)
+	{
+		return false;
+	}
+
+	FVector NoiseLocation = FVector::ZeroVector;
+	FGameplayTag NoiseTag;
+	float NoiseScore = 0.f;
+
+	if (!GhostPerceptionComponent->TryFindBestNoiseLocation(NoiseLocation, NoiseTag, NoiseScore))
+	{
+		return false;
+	}
+
+	MoveToSearchLocation(NoiseLocation);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[HauntGhost] Heard noise. Investigating. Ghost=%s NoiseTag=%s Location=%s Score=%.2f"),
+		*GetNameSafe(this),
+		*NoiseTag.ToString(),
+		*NoiseLocation.ToString(),
+		NoiseScore);
+
+	return true;
 }

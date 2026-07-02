@@ -40,6 +40,9 @@ public:
     UFUNCTION(Client, Reliable)
     void Client_PlayLocalScareStun(float Duration);
 
+    UFUNCTION(Client, Reliable)
+    void Client_PlayGhostEvent(FGameplayTag GhostEventTag);
+
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
 
@@ -101,6 +104,7 @@ protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+    bool TryFindSafeLocalGhostScareSpawn(FVector& OutLocation, FRotator& OutRotation) const;
 
     void OnMove(const FInputActionValue& Value);
     void OnLook(const FInputActionValue& Value);

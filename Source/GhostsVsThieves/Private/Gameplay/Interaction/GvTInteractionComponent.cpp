@@ -162,10 +162,23 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	FGvTInteractionSpec Spec;
 	IGvTInteractable::Execute_GetInteractionSpec(HitActor, OwnerPawn, Verb, Spec);
 
-	// Instant interactions resolve immediately (no lock-in)
+	// Instant interactions resolve immediately (no lock-in).
+	// Still notify the Director; otherwise instant pickup items never anger ghosts.
 	if (Spec.CastTime <= KINDA_SMALL_NUMBER)
 	{
 		IGvTInteractable::Execute_CompleteInteract(HitActor, OwnerPawn, Verb);
+
+		if (GetOwner()->HasAuthority())
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+				{
+					Director->OnPlayerInteractionEvent(OwnerPawn, HitActor);
+				}
+			}
+		}
+
 		return;
 	}
 

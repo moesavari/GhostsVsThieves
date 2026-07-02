@@ -23,6 +23,7 @@ enum class EGvTPanicSource : uint8
 	PowerOutage				UMETA(DisplayName = "Power Outage"),
 	PowerRestore			UMETA(DisplayName = "Power Restore"),
 	MirrorScare				UMETA(DisplayName = "Mirror Scare"),
+	GhostScare				UMETA(DisplayName = "Ghost Scare"),
 	CrawlerOverhead			UMETA(DisplayName = "Crawler Overhead"),
 	CrawlerChaseStart		UMETA(DisplayName = "Crawler Chase Start"),
 	CrawlerChaseTick		UMETA(DisplayName = "Crawler Chase Tick"),
@@ -159,6 +160,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Decay", meta = (ClampMin = "0.0"))
 	float PanicRecoveryDelayAfterSpike = 7.0f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Floor")
+	TArray<float> PanicFloorThresholds01 = { 0.20f, 0.40f, 0.60f, 0.80f };
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Panic|Floor")
+	float PanicFloor01 = 0.f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "GvT|Panic")
 	float LastPanicSpikeTime = -1000.f;
 
@@ -187,8 +194,8 @@ private:
 	void MarkPanicSourceApplied(EGvTPanicSource Source);
 	float ResolveCooldownForSource(EGvTPanicSource Source, float OverrideCooldownSeconds) const;
 	static const TCHAR* PanicSourceToString(EGvTPanicSource Source);
+	void UpdatePanicFloorFromCurrentPanic();
 
-private:
 	UPROPERTY()
 	TMap<uint8, float> LastAppliedPanicSourceTime;
 };

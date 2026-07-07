@@ -1,4 +1,7 @@
 #include "Systems/Noise/GvTNoiseSubsystem.h"
+#include "Engine/Engine.h"
+#include "EngineUtils.h"
+#include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 
 void UGvTNoiseSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -29,6 +32,42 @@ void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& InEvent)
 		*E.NoiseTag.ToString(),
 		RecentEvents.Num(),
 		E.TimeSeconds);
+
+	if (bDebugGhostHearingOnScreen && GetWorld())
+	{
+		for (TActorIterator<AGvTHauntGhostBase> It(GetWorld()); It; ++It)
+		{
+			AGvTHauntGhostBase* Ghost = *It;
+			if (!IsValid(Ghost))
+			{
+				continue;
+			}
+
+			const float Dist = FVector::Dist(Ghost->GetActorLocation(), E.Location);
+			const float EffectiveRadius = E.Radius * FMath::Max(E.Loudness, 0.01f) * GhostHearingLoudnessRadiusMultiplier;
+			const bool bHeard = Dist <= EffectiveRadius;
+
+			const FString Msg = FString::Printf(
+				TEXT("[Ghost Hearing] %s %s %s | Dist %.0f / Radius %.0f | Loud %.2f"),
+				*GetNameSafe(Ghost),
+				bHeard ? TEXT("HEARD") : TEXT("ignored"),
+				*E.NoiseTag.ToString(),
+				Dist,
+				EffectiveRadius,
+				E.Loudness);
+
+			UE_LOG(LogTemp, Warning, TEXT("%s"), *Msg);
+
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(
+					-1,
+					DebugGhostHearingMessageTime,
+					bHeard ? FColor::Red : FColor::Silver,
+					Msg);
+			}
+		}
+	}
 }
 
 int32 UGvTNoiseSubsystem::GetRecentTagCount(FGameplayTag Tag, float WindowSeconds) const

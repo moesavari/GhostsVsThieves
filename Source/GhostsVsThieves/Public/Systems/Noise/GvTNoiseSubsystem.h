@@ -58,6 +58,15 @@ public:
 		FGameplayTag& OutNoiseTag,
 		float& OutScore) const;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise|Debug")
+	bool bDebugGhostHearingOnScreen = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise|Debug")
+	float DebugGhostHearingMessageTime = 2.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise|Debug")
+	float GhostHearingLoudnessRadiusMultiplier = 1.0f;
+
 private:
 	UPROPERTY()
 	TArray<FGvTNoiseEvent> RecentEvents;

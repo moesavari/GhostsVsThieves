@@ -21,6 +21,28 @@ AGvTInteractableItem::AGvTInteractableItem()
 	ScanNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Scan"));
 }
 
+void AGvTInteractableItem::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (MeshVariants.Num() > 0)
+	{
+		const int32 Index = FMath::RandRange(0, MeshVariants.Num() - 1);
+
+		SelectedMesh = MeshVariants[Index];
+
+		if (SelectedMesh)
+		{
+			Mesh->SetStaticMesh(SelectedMesh);
+		}
+	}
+}
+
 void AGvTInteractableItem::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
 {
 	OutSpec = FGvTInteractionSpec{};
@@ -189,6 +211,14 @@ void AGvTInteractableItem::OnRep_HasBeenScanned()
 	// Optional: update material/outline/UI later
 }
 
+void AGvTInteractableItem::OnRep_SelectedMesh()
+{
+	if (SelectedMesh)
+	{
+		Mesh->SetStaticMesh(SelectedMesh);
+	}
+}
+
 void AGvTInteractableItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -196,4 +226,5 @@ void AGvTInteractableItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	DOREPLIFETIME(AGvTInteractableItem, bHasBeenPhotographed);
 	DOREPLIFETIME(AGvTInteractableItem, AppraisedValue);
 	DOREPLIFETIME(AGvTInteractableItem, bHasBeenScanned);
+	DOREPLIFETIME(AGvTInteractableItem, SelectedMesh);
 }

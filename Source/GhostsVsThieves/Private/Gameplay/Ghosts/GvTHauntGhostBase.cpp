@@ -207,6 +207,8 @@ void AGvTHauntGhostBase::StartGhostChase(AActor* Target)
 		return;
 	}
 
+	bWholeHouseRoamActive = false;
+
 	SetAssignedChaseTarget(Target);
 	SetCurrentChaseTarget(Target);
 	LastKnownTargetLocation = Target->GetActorLocation();
@@ -468,6 +470,8 @@ void AGvTHauntGhostBase::StartSearchFromLastKnownLocation()
 	OnHauntSearchStarted();
 	MoveToSearchLocation(LastKnownTargetLocation);
 
+	bWholeHouseRoamActive = false;
+
 	UE_LOG(LogTemp, Warning,
 		TEXT("[HauntGhost] Lost LOS. Searching last known location. Ghost=%s LastKnown=%s"),
 		*GetNameSafe(this),
@@ -545,6 +549,8 @@ bool AGvTHauntGhostBase::TryResumeChaseFromSearch()
 		return false;
 	}
 
+	bWholeHouseRoamActive = false;
+
 	SetCurrentChaseTarget(VisibleVictim);
 	LastKnownTargetLocation = VisibleVictim->GetActorLocation();
 	LastTimeTargetSeen = GetWorld() ? GetWorld()->GetTimeSeconds() : LastTimeTargetSeen;
@@ -575,6 +581,9 @@ void AGvTHauntGhostBase::HandleSearchExpired()
 	}
 
 	SetCurrentChaseTarget(nullptr);
+	LastKnownTargetLocation = FVector::ZeroVector;
+	bWholeHouseRoamActive = true;
+
 	SetHauntState(EGvTHauntGhostState::Roaming);
 	MoveToRandomRoamLocation();
 
@@ -970,16 +979,23 @@ void AGvTHauntGhostBase::MoveToRandomRoamLocation()
 	}
 
 	FVector Origin = GetActorLocation();
+	float Radius = RoamPointRadius;
 
-	if (LastKnownTargetLocation != FVector::ZeroVector)
+	if (!bWholeHouseRoamActive && LastKnownTargetLocation != FVector::ZeroVector)
 	{
 		Origin = LastKnownTargetLocation;
+		Radius = RoamPointRadius;
+	}
+	else if (bWholeHouseRoamActive)
+	{
+		Origin = GetActorLocation();
+		Radius = WholeHouseRoamPointRadius;
 	}
 
 	if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()))
 	{
 		FNavLocation NavLocation;
-		if (NavSys->GetRandomReachablePointInRadius(Origin, RoamPointRadius, NavLocation))
+		if (NavSys->GetRandomReachablePointInRadius(Origin, Radius, NavLocation))
 		{
 			if (AAIController* AI = Cast<AAIController>(GetController()))
 			{
@@ -993,6 +1009,14 @@ void AGvTHauntGhostBase::MoveToRandomRoamLocation()
 					nullptr,
 					true);
 			}
+
+			UE_LOG(LogTemp, Warning,
+				TEXT("[HauntGhost] Roam move Ghost=%s WholeHouse=%d Origin=%s Radius=%.0f Dest=%s"),
+				*GetNameSafe(this),
+				bWholeHouseRoamActive ? 1 : 0,
+				*Origin.ToString(),
+				Radius,
+				*NavLocation.Location.ToString());
 		}
 	}
 }

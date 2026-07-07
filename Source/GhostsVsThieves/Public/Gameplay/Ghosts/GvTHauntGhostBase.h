@@ -118,6 +118,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Roaming", meta = (ClampMin = "0.0"))
 	float RoamPointRadius = 900.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Roaming", meta = (ClampMin = "0.0"))
+	float WholeHouseRoamPointRadius = 5000.f;
+
+	UPROPERTY(Transient, BlueprintReadOnly, Category = "GvT|Ghost|Roaming")
+	bool bWholeHouseRoamActive = false;
+
 	float HauntElapsedSeconds = 0.f;
 	float RoamRepathTimer = 0.f;
 

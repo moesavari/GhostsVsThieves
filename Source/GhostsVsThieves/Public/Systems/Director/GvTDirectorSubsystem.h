@@ -96,6 +96,28 @@ protected:
 	UPROPERTY(BlueprintReadOnly, Category = "GvT|Director|Runtime")
 	float LastGlobalHauntTime = -1000.0f;
 
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MirrorEventPanicThreshold01 = 0.40f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HauntChasePanicThreshold01 = 0.60f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HauntChaseChanceAtThreshold01 = 0.50f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HauntChaseChanceAtMaxPanic01 = 1.00f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MirrorChanceAtThreshold01 = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MirrorChanceAtMaxPanic01 = 0.75f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AutoHauntLoopInterval = 2.0f;
+
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|Mirror", meta = (ClampMin = "0.10"))
 	float MirrorDuration = 1.5f;
 
@@ -207,6 +229,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
 	float DoorSlamPanicRadius = 450.f;
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
+	void SetDefaultHauntGhostClass(TSubclassOf<AGvTGhostCharacterBase> InGhostClass);
+
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
 	TArray<TSubclassOf<AGvTGhostCharacterBase>> HauntGhostClasses;
 
@@ -237,7 +262,10 @@ protected:
 	float ManualHauntRequestCooldown = 0.75f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
-	bool bReplaceExistingTargetHaunt = true;
+	TSubclassOf<AGvTGhostCharacterBase> DefaultHauntGhostClass;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
+	bool bReplaceExistingTargetHaunt = false;
 
 	FTimerHandle TimerHandle_DirectorTick;
 
@@ -278,10 +306,10 @@ protected:
 	float CrawlerChaseDispatchTensionImpulse = 0.20f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.1"))
-	float GlobalHauntCooldownMin = 4.0f;
+	float GlobalHauntCooldownMin = 2.0f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.1"))
-	float GlobalHauntCooldownMax = 12.0f;
+	float GlobalHauntCooldownMax = 6.0f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Tension", meta = (ClampMin = "0.0"))
 	float LightChaseDispatchTensionImpulse = 0.10f;
@@ -323,6 +351,8 @@ private:
 
 	bool TriggerRequestedFlicker(const FGvTScareEvent& Event, class UGvTScareComponent* TargetScareComp);
 	bool TryDispatchAutoScare();
+	float GetPanicForPawn(const APawn* Pawn) const;
+	bool CanScareTagRunAtPanic(const FGameplayTag& ScareTag, float Panic01) const;
 	AActor* ChooseBestTarget() const;
 	float GetHauntPressureForPawn(const APawn* Pawn) const;
 	float ScoreTarget(APawn* Pawn) const;

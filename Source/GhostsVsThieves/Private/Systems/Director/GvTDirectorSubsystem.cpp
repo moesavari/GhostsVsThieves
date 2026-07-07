@@ -220,77 +220,124 @@ void UGvTDirectorSubsystem::TickDirector()
 
 bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 {
-	AActor* Target = ChooseBestTarget();
-	if (!IsValid(Target))
+	APawn* TargetPawn = Cast<APawn>(ChooseBestTarget());
+	if (!IsValid(TargetPawn))
 	{
 		return false;
 	}
 
-	FGvTScareEvent Event;
-	const float Roll = FMath::FRand();
+	const float Panic01 = GetPanicForPawn(TargetPawn);
 
-	if (Roll < 0.20f)
+	if (Panic01 >= HauntChasePanicThreshold01)
 	{
-		Event = MakeRearAudioStingEvent(Target);
-	}
-	else if (Roll < 0.38f)
-	{
-		if (APawn* TargetPawn = Cast<APawn>(Target))
-		{
-			if (AGvTDoorActor* Door = ChooseBestDoorSlamTarget(TargetPawn))
-			{
-				Event = MakeDoorSlamBehindEvent(Target, Door);
-			}
-			else
-			{
-				Event = MakeLightChaseEvent(Target);
-			}
-		}
-		else
-		{
-			Event = MakeLightChaseEvent(Target);
-		}
-	}
-	else if (Roll < 0.56f)
-	{
-		Event = MakeLightChaseEvent(Target);
-	}
-	else if (Roll < 0.72f)
-	{
-		Event = MakeMirrorEvent(Target);
-	}
-	else if (Roll < 0.88f)
-	{
-		AActor* ScreamTarget = Target;
+		AActor* ChaseTarget = TargetPawn;
 		if (FMath::FRand() <= GhostScreamHighestPanicBiasChance)
 		{
 			if (AActor* HighestPanicTarget = ChooseHighestPanicTarget())
 			{
-				ScreamTarget = HighestPanicTarget;
+				if (GetPanicForPawn(Cast<APawn>(HighestPanicTarget)) >= HauntChasePanicThreshold01)
+				{
+					ChaseTarget = HighestPanicTarget;
+				}
 			}
 		}
 
-		Event = MakeGhostScreamEvent(ScreamTarget);
-	}
-	else
-	{
-		Event = MakeCrawlerOverheadEvent(Target);
+		const float PanicAlpha = FMath::Clamp((Panic01 - HauntChasePanicThreshold01) / FMath::Max(0.01f, 1.0f - HauntChasePanicThreshold01), 0.0f, 1.0f);
+		const float ChaseChance = FMath::Lerp(HauntChaseChanceAtThreshold01, HauntChaseChanceAtMaxPanic01, PanicAlpha);
+		const float ChaseRoll = FMath::FRand();
+
+		if (ChaseRoll <= ChaseChance)
+		{
+			const FGvTScareEvent ChaseEvent = MakeCrawlerChaseEvent(ChaseTarget);
+			const bool bDispatched = DispatchScareEvent(ChaseEvent);
+
+			if (bDispatched && GetWorld())
+			{
+				if (APawn* RememberPawn = Cast<APawn>(ChaseEvent.TargetActor))
+				{
+					RememberTarget(RememberPawn);
+				}
+
+				LastGlobalHauntTime = GetWorld()->GetTimeSeconds();
+			}
+
+			ApplyHouseTensionImpulse(GetDispatchTensionImpulse(ChaseEvent));
+
+			UE_LOG(LogTemp, Log,
+				TEXT("[DirectorPanicHaunt] ForcedPriorityChase Target=%s Panic=%.2f Chance=%.2f Roll=%.2f Dispatched=%d"),
+				*GetNameSafe(ChaseEvent.TargetActor),
+				Panic01,
+				ChaseChance,
+				ChaseRoll,
+				bDispatched ? 1 : 0);
+
+			return bDispatched;
+		}
 	}
 
-	UGvTScareComponent* ScareComp = Target->FindComponentByClass<UGvTScareComponent>();
+	TArray<FGvTScareEvent> EligibleEvents;
+	EligibleEvents.Reserve(12);
+
+	EligibleEvents.Add(MakeRearAudioStingEvent(TargetPawn));
+	EligibleEvents.Add(MakeLightChaseEvent(TargetPawn));
+
+	if (AGvTDoorActor* Door = ChooseBestDoorSlamTarget(TargetPawn))
+	{
+		EligibleEvents.Add(MakeDoorSlamBehindEvent(TargetPawn, Door));
+	}
+
+	EligibleEvents.Add(MakeGhostScreamEvent(TargetPawn));
+	EligibleEvents.Add(MakeCrawlerOverheadEvent(TargetPawn));
+
+	if (Panic01 >= MirrorEventPanicThreshold01)
+	{
+		const float MirrorAlpha = FMath::Clamp((Panic01 - MirrorEventPanicThreshold01) / FMath::Max(0.01f, 1.0f - MirrorEventPanicThreshold01), 0.0f, 1.0f);
+		const float MirrorChance = FMath::Lerp(MirrorChanceAtThreshold01, MirrorChanceAtMaxPanic01, MirrorAlpha);
+		const int32 MirrorWeight = FMath::Clamp(FMath::RoundToInt(MirrorChance * 8.0f), 1, 6);
+
+		for (int32 WeightIndex = 0; WeightIndex < MirrorWeight; ++WeightIndex)
+		{
+			EligibleEvents.Add(MakeMirrorEvent(TargetPawn));
+		}
+	}
+
+	// If the priority chase roll missed, still keep haunt/chase in the fallback pool above 60%.
+	// This prevents a failed priority roll from making high panic feel strangely safe.
+	if (Panic01 >= HauntChasePanicThreshold01)
+	{
+		EligibleEvents.Add(MakeCrawlerChaseEvent(TargetPawn));
+	}
+
+	if (EligibleEvents.Num() == 0)
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DirectorThreshold] No eligible auto scares for Target=%s Panic=%.2f"), *GetNameSafe(TargetPawn), Panic01);
+		return false;
+	}
+
+	const int32 Index = FMath::RandRange(0, EligibleEvents.Num() - 1);
+	const FGvTScareEvent Event = EligibleEvents[Index];
 
 	const bool bDispatched = DispatchScareEvent(Event);
 	if (bDispatched && GetWorld())
 	{
-		if (APawn* TargetPawn = Cast<APawn>(Target))
+		if (APawn* RememberPawn = Cast<APawn>(Event.TargetActor))
 		{
-			RememberTarget(TargetPawn);
+			RememberTarget(RememberPawn);
 		}
 
 		LastGlobalHauntTime = GetWorld()->GetTimeSeconds();
 	}
 
 	ApplyHouseTensionImpulse(GetDispatchTensionImpulse(Event));
+
+	UE_LOG(LogTemp, Log,
+		TEXT("[DirectorThreshold] AutoScare Target=%s Tag=%s Panic=%.2f MirrorMin=%.2f ChaseMin=%.2f Dispatched=%d"),
+		*GetNameSafe(Event.TargetActor),
+		*Event.ScareTag.ToString(),
+		Panic01,
+		MirrorEventPanicThreshold01,
+		HauntChasePanicThreshold01,
+		bDispatched ? 1 : 0);
 
 	return bDispatched;
 }
@@ -430,6 +477,22 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch failed: TargetActor is null."));
 		return false;
+	}
+
+	if (APawn* TargetPawnForThreshold = Cast<APawn>(Target))
+	{
+		const float Panic01 = GetPanicForPawn(TargetPawnForThreshold);
+		if (!CanScareTagRunAtPanic(Event.ScareTag, Panic01))
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[DirectorThreshold] Blocked Tag=%s Target=%s Panic=%.2f MirrorMin=%.2f ChaseMin=%.2f"),
+				*Event.ScareTag.ToString(),
+				*GetNameSafe(Target),
+				Panic01,
+				MirrorEventPanicThreshold01,
+				HauntChasePanicThreshold01);
+			return false;
+		}
 	}
 
 	UGvTScareComponent* ScareComp = Target->FindComponentByClass<UGvTScareComponent>();
@@ -840,14 +903,21 @@ AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* T
 	}
 
 	TSubclassOf<AGvTGhostCharacterBase> SpawnClass = ChooseHauntGhostClass();
+
 	if (!SpawnClass && *FallbackGhostClass)
 	{
 		SpawnClass = FallbackGhostClass;
 	}
 
+	if (!SpawnClass && *DefaultHauntGhostClass)
+	{
+		SpawnClass = DefaultHauntGhostClass;
+	}
+
 	if (!SpawnClass)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[GhostHaunt] No haunt ghost class/model configured on Director."));
+		UE_LOG(LogTemp, Error,
+			TEXT("[GhostHaunt] FAILED: No haunt ghost class configured. Add BP_GvTGhoulGhost or BP_GvTCrawlerGhost to Director DefaultHauntGhostClass / HauntGhostClasses."));
 		return nullptr;
 	}
 
@@ -1061,6 +1131,40 @@ FGvTScareEvent UGvTDirectorSubsystem::MakeDoorSlamBehindEvent(AActor* Target, AA
 	Event.PanicAmount = DoorSlamBehindPanicAmount;
 	Event.LocalSeed = FMath::Rand();
 	return Event;
+}
+
+float UGvTDirectorSubsystem::GetPanicForPawn(const APawn* Pawn) const
+{
+	if (!Pawn)
+	{
+		return 0.f;
+	}
+
+	const APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	const AGvTPlayerState* PS = PC ? Cast<AGvTPlayerState>(PC->PlayerState) : nullptr;
+	if (!PS)
+	{
+		PS = Pawn->GetPlayerState<AGvTPlayerState>();
+	}
+
+	return PS ? FMath::Clamp(PS->GetPanic01(), 0.f, 1.f) : 0.f;
+}
+
+bool UGvTDirectorSubsystem::CanScareTagRunAtPanic(const FGameplayTag& ScareTag, float Panic01) const
+{
+	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
+	{
+		return Panic01 >= MirrorEventPanicThreshold01;
+	}
+
+	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
+		ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase()))
+	{
+		return Panic01 >= HauntChasePanicThreshold01;
+	}
+
+	return true;
 }
 
 float UGvTDirectorSubsystem::GetHauntPressureForPawn(const APawn* Pawn) const
@@ -1621,7 +1725,7 @@ void UGvTDirectorSubsystem::TriggerInteractionReaction(
 		{
 			ChosenScare = GvTScareTags::GhostScream();
 		}
-		else if (Roll < 0.75f)
+		else if (Roll < 0.75f && Panic >= MirrorEventPanicThreshold01)
 		{
 			ChosenScare = GvTScareTags::Mirror();
 		}
@@ -1632,7 +1736,7 @@ void UGvTDirectorSubsystem::TriggerInteractionReaction(
 	}
 	else if (bIsNoisy)
 	{
-		if (Panic > 0.5f)
+		if (Panic >= HauntChasePanicThreshold01)
 		{
 			ChosenScare = GvTScareTags::CrawlerChase();
 		}
@@ -1700,4 +1804,13 @@ AGvTPowerBoxActor* UGvTDirectorSubsystem::FindPowerBoxInWorld()
 	}
 
 	return nullptr;
+}
+
+void UGvTDirectorSubsystem::SetDefaultHauntGhostClass(TSubclassOf<AGvTGhostCharacterBase> InGhostClass)
+{
+	DefaultHauntGhostClass = InGhostClass;
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Director] DefaultHauntGhostClass set to %s"),
+		*GetNameSafe(DefaultHauntGhostClass));
 }

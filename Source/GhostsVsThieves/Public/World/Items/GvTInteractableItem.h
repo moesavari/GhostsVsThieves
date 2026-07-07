@@ -4,6 +4,7 @@
 #include "GameFramework/Actor.h"
 #include "GameplayTagContainer.h"
 #include "Gameplay/Interaction/GvTInteractable.h"
+#include "Engine/StaticMesh.h"
 #include "GvTInteractableItem.generated.h"
 
 class UStaticMeshComponent;
@@ -43,6 +44,8 @@ public:
 	float GetGhostItemValue01() const;
 
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(VisibleAnywhere, Category = "Item")
 	UStaticMeshComponent* Mesh;
 
@@ -64,6 +67,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
 	bool bLockLookDuringInteract = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Appearance")
+	TArray<TObjectPtr<UStaticMesh>> MeshVariants;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scan")
 	FText DisplayName = FText::FromString(TEXT("Item"));
@@ -147,6 +153,12 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_HasBeenScanned)
 	bool bHasBeenScanned = false;
+
+	UPROPERTY(ReplicatedUsing=OnRep_SelectedMesh)
+	TObjectPtr<UStaticMesh> SelectedMesh;
+
+	UFUNCTION()
+	void OnRep_SelectedMesh();
 
 	UPROPERTY(Replicated)
 	int32 AppraisedValue = 0;

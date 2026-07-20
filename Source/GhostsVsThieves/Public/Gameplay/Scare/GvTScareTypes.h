@@ -43,6 +43,9 @@ struct FGvTScareEvent
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
 	float PanicAmount = 0.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare")
+	bool bIgnorePanicThreshold = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Scare|LightChase")
 	int32 LightChaseStepCount = 5;
 

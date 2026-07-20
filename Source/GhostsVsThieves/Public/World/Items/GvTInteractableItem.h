@@ -46,6 +46,9 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
+	/** Snaps the selected mesh so its lowest world-space bound rests on the first surface below it. */
+	void SnapMeshBottomToSurface();
+
 	UPROPERTY(VisibleAnywhere, Category = "Item")
 	UStaticMeshComponent* Mesh;
 
@@ -70,6 +73,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Appearance")
 	TArray<TObjectPtr<UStaticMesh>> MeshVariants;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement")
+	bool bSnapToSurfaceOnBeginPlay = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement", meta = (ClampMin = "1.0"))
+	float SurfaceTraceDistance = 1000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement", meta = (ClampMin = "0.0"))
+	float SurfaceClearance = 0.5f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scan")
 	FText DisplayName = FText::FromString(TEXT("Item"));

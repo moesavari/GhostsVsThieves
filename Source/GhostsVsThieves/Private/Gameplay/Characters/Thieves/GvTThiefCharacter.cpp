@@ -22,6 +22,7 @@
 #include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
 #include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
 #include "DrawDebugHelpers.h"
+#include "GvTPlayerState.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -400,6 +401,12 @@ void AGvTThiefCharacter::Server_SetDead_Implementation(AActor* Killer)
 
     bIsDead = true;
 
+    if (AGvTPlayerState* PS =
+        GetPlayerState<AGvTPlayerState>())
+    {
+        PS->SetDeadForPanicAuthority(true);
+    }
+
     // Server-authoritative lockdown
     SetInteractionLock(true, true);
     GetCharacterMovement()->DisableMovement();
@@ -629,26 +636,17 @@ void AGvTThiefCharacter::Server_RequestGhostScare_Implementation(FGameplayTag Gh
         return;
     }
 
-    // Close scare is the only current GhostScare that needs a target-local ghost model.
-    // AudioRear/Scream are real GhostScares too, but their presentation is owned by ScareComponent/audio, not a crawler spawn.
-    if (GhostScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close()))
-    {
-        if (IsLocallyControlled())
-        {
-            Client_PlayGhostScare_Implementation(GhostScareTag);
-        }
-        else
-        {
-            Client_PlayGhostScare(GhostScareTag);
-        }
-        return;
-    }
-
     if (UGameInstance* GI = GetGameInstance())
     {
-        if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+        if (UGvTDirectorSubsystem* Director =
+            GI->GetSubsystem<UGvTDirectorSubsystem>())
         {
-            Director->DispatchScareEventSimple(GhostScareTag, this, this);
+            Director->DispatchScareEventSimple(
+                GhostScareTag,
+                this,
+                this,
+                true);
+
             return;
         }
     }

@@ -22,6 +22,7 @@ AGvTDoorActor::AGvTDoorActor()
 	DoorMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("DoorMesh"));
 	DoorMesh->SetupAttachment(Hinge);
 	DoorMesh->SetMobility(EComponentMobility::Movable);
+	DoorMesh->SetCanEverAffectNavigation(false);
 
 	DoorNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact"));
 
@@ -346,6 +347,11 @@ bool AGvTDoorActor::OpenForGhost(AActor* GhostActor)
 
 	GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
 
+	if (bIsExitDoor && bLockedByHaunt)
+	{
+		return false;
+	}
+
 	if (bIsLocked)
 	{
 		bIsLocked = false;
@@ -381,7 +387,7 @@ bool AGvTDoorActor::TriggerScareSlam()
 		return false;
 	}
 
-	if (!IsOpenForScareSlam())
+	if (!CanTriggerScareSlam())
 	{
 		return false;
 	}
@@ -411,4 +417,77 @@ bool AGvTDoorActor::TriggerScareSlam()
 	);
 
 	return true;
+}
+
+void AGvTDoorActor::ApplyHauntExitLock()
+{
+	if (!HasAuthority() || !bIsExitDoor || bLockedByHaunt)
+	{
+		return;
+	}
+
+	bWasLockedBeforeHaunt = bIsLocked;
+
+	// Close first, then lock.
+	if (bIsOpen)
+	{
+		if (!TriggerScareSlam())
+		{
+			GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
+
+			bIsOpen = false;
+			DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
+			ReplicatedAnimDuration = ScareSlamDuration;
+			bReplicatedWasScareSlam = true;
+
+			StartDoorAnimWithDuration(
+				false,
+				ScareSlamDuration,
+				true);
+		}
+	}
+
+	bLockedByHaunt = true;
+	SetLocked(true);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[DoorHauntLock] Locked exit door=%s"),
+		*GetNameSafe(this));
+}
+
+void AGvTDoorActor::RemoveHauntExitLock()
+{
+	if (!HasAuthority() || !bLockedByHaunt)
+	{
+		return;
+	}
+
+	bLockedByHaunt = false;
+
+	SetLocked(bWasLockedBeforeHaunt);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[DoorHauntLock] Restored exit door=%s Locked=%d"),
+		*GetNameSafe(this),
+		bWasLockedBeforeHaunt ? 1 : 0);
+}
+
+bool AGvTDoorActor::CanTriggerScareSlam() const
+{
+	if (bIsLocked)
+	{
+		return false;
+	}
+
+	if (!bIsOpen && !bAnimating)
+	{
+		return false;
+	}
+
+	if (bReplicatedWasScareSlam)
+	{
+		return false;
+	}
+
+	return GetCurrentOpenAlpha() >= ScareSlamMinOpenAlpha;
 }

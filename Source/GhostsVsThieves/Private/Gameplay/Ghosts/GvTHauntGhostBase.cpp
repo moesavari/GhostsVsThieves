@@ -8,6 +8,10 @@
 #include "Net/UnrealNetwork.h"
 #include "Gameplay/Ghosts/GvTGhostPerceptionComponent.h"
 #include "Gameplay/Scare/GvTScareTags.h"
+#include "World/Doors/GvTDoorActor.h"
+#include "Systems/Director/GvTDirectorSubsystem.h"
+#include "GvTPlayerState.h"
+#include "Kismet/GameplayStatics.h"
 
 AGvTHauntGhostBase::AGvTHauntGhostBase()
 {
@@ -21,6 +25,15 @@ AGvTHauntGhostBase::AGvTHauntGhostBase()
 	GhostPerceptionComponent = CreateDefaultSubobject<UGvTGhostPerceptionComponent>(TEXT("GhostPerceptionComponent"));
 
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	// Movement owns yaw. AI targets are destinations, not look-at targets.
+	bUseControllerRotationYaw = false;
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->bOrientRotationToMovement = true;
+		MoveComp->bUseControllerDesiredRotation = false;
+		MoveComp->RotationRate = FRotator(0.f, 720.f, 0.f);
+	}
 }
 
 void AGvTHauntGhostBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -43,6 +56,7 @@ void AGvTHauntGhostBase::BeginPlay()
 		MoveComp->bNetworkSmoothingComplete = true;
 	}
 
+	WholeHouseRoamOrigin = GetActorLocation();
 	CacheDefaultMeshTransform();
 	ConfigureClientGhostProxyMovement();
 }
@@ -69,6 +83,8 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 		}
 	}
 
+	UpdateUniversalDoorHandling(DeltaSeconds);
+
 	if (HauntState == EGvTHauntGhostState::Chasing)
 	{
 		UpdateChase(DeltaSeconds);
@@ -81,6 +97,22 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 	{
 		UpdateRoaming(DeltaSeconds);
 	}
+}
+
+void AGvTHauntGhostBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (HasAuthority())
+	{
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Director->SetHauntExitDoorsLocked(false);
+			}
+		}
+	}
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void AGvTHauntGhostBase::BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag)
@@ -232,7 +264,7 @@ void AGvTHauntGhostBase::StartGhostChase(AActor* Target)
 
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
-		AI->MoveToActor(Target, MovementAcceptanceRadius, true, true, true);
+		AI->MoveToActor(Target, MovementAcceptanceRadius, true, true, false);
 	}
 
 	UE_LOG(LogTemp, Warning,
@@ -432,10 +464,35 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
-		AI->MoveToActor(Target, MovementAcceptanceRadius, true, true, true);
+		if (bHasLOS)
+		{
+			AI->MoveToActor(
+				Target,
+				MovementAcceptanceRadius,
+				true,
+				true,
+				false);
+		}
+		else
+		{
+			const FVector SafeLastKnown = GetNavigationSafeGhostLocation(LastKnownTargetLocation);
+
+			AI->MoveToLocation(
+				SafeLastKnown,
+				MovementAcceptanceRadius,
+				true,
+				true,
+				true,
+				false,
+				nullptr,
+				true);
+		}
 	}
 
-	ApplyDirectChaseFallback(Target, DeltaSeconds);
+	if (bHasLOS)
+	{
+		ApplyDirectChaseFallback(Target, DeltaSeconds);
+	}
 
 	if (GetName().Contains(TEXT("Ghoul")))
 	{
@@ -471,6 +528,7 @@ void AGvTHauntGhostBase::StartSearchFromLastKnownLocation()
 	MoveToSearchLocation(LastKnownTargetLocation);
 
 	bWholeHouseRoamActive = false;
+	bReachedLastKnownLocation = false;
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("[HauntGhost] Lost LOS. Searching last known location. Ghost=%s LastKnown=%s"),
@@ -503,6 +561,35 @@ void AGvTHauntGhostBase::UpdateSearch(float DeltaSeconds)
 		return;
 	}
 
+	if (!bReachedLastKnownLocation)
+	{
+		const float DistanceToLastKnown =
+			FVector::Dist2D(
+				GetActorLocation(),
+				LastKnownTargetLocation);
+
+		if (DistanceToLastKnown <= LastKnownArrivalRadius)
+		{
+			bReachedLastKnownLocation = true;
+
+			if (TryResumeChaseFromSearch())
+			{
+				return;
+			}
+
+			UE_LOG(LogTemp, Warning,
+				TEXT("[HauntGhost] Reached last known location with no visible player. Beginning whole-house roam. Ghost=%s Location=%s"),
+				*GetNameSafe(this),
+				*LastKnownTargetLocation.ToString());
+
+			HandleSearchExpired();
+			return;
+		}
+
+		MoveToSearchLocation(LastKnownTargetLocation);
+		return;
+	}
+
 	SearchRepathTimer += DeltaSeconds;
 	if (SearchRepathTimer >= SearchRepathInterval)
 	{
@@ -532,7 +619,7 @@ void AGvTHauntGhostBase::MoveToSearchLocation(const FVector& SearchLocation)
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
 		const FVector SafeSearchLocation = GetNavigationSafeGhostLocation(SearchLocation);
-		AI->MoveToLocation(SafeSearchLocation, CatchDistance, true, true, true, true, nullptr, true);
+		AI->MoveToLocation(SafeSearchLocation, CatchDistance, true, true, true, false, nullptr, true);
 	}
 }
 
@@ -561,7 +648,7 @@ bool AGvTHauntGhostBase::TryResumeChaseFromSearch()
 
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
-		AI->MoveToActor(VisibleVictim, MovementAcceptanceRadius, true, true, true);
+		AI->MoveToActor(VisibleVictim, MovementAcceptanceRadius, true, true, false);
 	}
 
 	UE_LOG(LogTemp, Warning,
@@ -673,6 +760,19 @@ void AGvTHauntGhostBase::StartHauntDespawnSequence()
 
 void AGvTHauntGhostBase::FinishDespawnSequence()
 {
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+		{
+			Director->SetHauntExitDoorsLocked(false);
+		}
+	}
+
 	Destroy();
 }
 
@@ -680,16 +780,16 @@ const TCHAR* AGvTHauntGhostBase::GetHauntStateName(EGvTHauntGhostState State)
 {
 	switch (State)
 	{
-	case EGvTHauntGhostState::Idle: return TEXT("Idle");
-	case EGvTHauntGhostState::SpawnIntro: return TEXT("SpawnIntro");
-	case EGvTHauntGhostState::Roaming: return TEXT("Roaming");
-	case EGvTHauntGhostState::Investigating: return TEXT("Investigating");
-	case EGvTHauntGhostState::Chasing: return TEXT("Chasing");
-	case EGvTHauntGhostState::Searching: return TEXT("Searching");
-	case EGvTHauntGhostState::PerformingScare: return TEXT("PerformingScare");
-	case EGvTHauntGhostState::Recovering: return TEXT("Recovering");
-	case EGvTHauntGhostState::Despawning: return TEXT("Despawning");
-	default: return TEXT("Unknown");
+		case EGvTHauntGhostState::Idle: return TEXT("Idle");
+		case EGvTHauntGhostState::SpawnIntro: return TEXT("SpawnIntro");
+		case EGvTHauntGhostState::Roaming: return TEXT("Roaming");
+		case EGvTHauntGhostState::Investigating: return TEXT("Investigating");
+		case EGvTHauntGhostState::Chasing: return TEXT("Chasing");
+		case EGvTHauntGhostState::Searching: return TEXT("Searching");
+		case EGvTHauntGhostState::PerformingScare: return TEXT("PerformingScare");
+		case EGvTHauntGhostState::Recovering: return TEXT("Recovering");
+		case EGvTHauntGhostState::Despawning: return TEXT("Despawning");
+		default: return TEXT("Unknown");
 	}
 }
 
@@ -794,6 +894,8 @@ void AGvTHauntGhostBase::EnterHauntState(EGvTHauntGhostState NewState, EGvTHaunt
 				MoveComp->SetMovementMode(MOVE_Walking);
 				MoveComp->GravityScale = 1.f;
 				MoveComp->MaxWalkSpeed = RoamSpeed;
+				MoveComp->bOrientRotationToMovement = true;
+				MoveComp->bUseControllerDesiredRotation = false;
 			}
 		}
 		break;
@@ -988,38 +1090,214 @@ void AGvTHauntGhostBase::MoveToRandomRoamLocation()
 	}
 	else if (bWholeHouseRoamActive)
 	{
-		Origin = GetActorLocation();
+		// Keep a stable house-wide origin rather than repeatedly centering the
+		// search on the ghost. This lets it cross the house and enter distant rooms.
+		Origin = WholeHouseRoamOrigin;
 		Radius = WholeHouseRoamPointRadius;
 	}
 
 	if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(GetWorld()))
 	{
-		FNavLocation NavLocation;
-		if (NavSys->GetRandomReachablePointInRadius(Origin, Radius, NavLocation))
+		FNavLocation BestLocation;
+		float BestScore = -FLT_MAX;
+		const int32 CandidateCount = bWholeHouseRoamActive ? 16 : 6;
+
+		for (int32 CandidateIndex = 0; CandidateIndex < CandidateCount; ++CandidateIndex)
+		{
+			FNavLocation Candidate;
+			if (!NavSys->GetRandomReachablePointInRadius(Origin, Radius, Candidate))
+			{
+				continue;
+			}
+
+			float NoveltyDistance = FVector::Dist2D(GetActorLocation(), Candidate.Location);
+			for (const FVector& Previous : RecentRoamDestinations)
+			{
+				NoveltyDistance = FMath::Min(NoveltyDistance, FVector::Dist2D(Previous, Candidate.Location));
+			}
+
+			const float TravelDistance = FVector::Dist2D(GetActorLocation(), Candidate.Location);
+			const float Score = TravelDistance + NoveltyDistance * 1.5f;
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestLocation = Candidate;
+			}
+		}
+
+		if (BestScore > -FLT_MAX)
 		{
 			if (AAIController* AI = Cast<AAIController>(GetController()))
 			{
 				AI->MoveToLocation(
-					GetNavigationSafeGhostLocation(NavLocation.Location),
+					GetNavigationSafeGhostLocation(BestLocation.Location),
 					MovementAcceptanceRadius,
-					true,
-					true,
-					true,
-					true,
-					nullptr,
-					true);
+					true, true, true, false, nullptr, true);
+			}
+
+			RecentRoamDestinations.Add(BestLocation.Location);
+			while (RecentRoamDestinations.Num() > 8)
+			{
+				RecentRoamDestinations.RemoveAt(0);
 			}
 
 			UE_LOG(LogTemp, Warning,
-				TEXT("[HauntGhost] Roam move Ghost=%s WholeHouse=%d Origin=%s Radius=%.0f Dest=%s"),
-				*GetNameSafe(this),
-				bWholeHouseRoamActive ? 1 : 0,
-				*Origin.ToString(),
-				Radius,
-				*NavLocation.Location.ToString());
+				TEXT("[HauntGhost] Coverage roam Ghost=%s WholeHouse=%d Origin=%s Radius=%.0f Dest=%s Score=%.0f"),
+				*GetNameSafe(this), bWholeHouseRoamActive ? 1 : 0,
+				*Origin.ToString(), Radius, *BestLocation.Location.ToString(), BestScore);
 		}
 	}
 }
+
+void AGvTHauntGhostBase::UpdateUniversalDoorHandling(float DeltaSeconds)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const bool bMovingHauntState = HauntState == EGvTHauntGhostState::Chasing
+		|| HauntState == EGvTHauntGhostState::Searching
+		|| HauntState == EGvTHauntGhostState::Roaming
+		|| HauntState == EGvTHauntGhostState::Investigating;
+
+	if (!bMovingHauntState)
+	{
+		return;
+	}
+
+	DoorProbeTimer += DeltaSeconds;
+	if (DoorProbeTimer >= DoorProbeInterval)
+	{
+		DoorProbeTimer = 0.f;
+		TryOpenNearbyDoorsUniversal();
+		TrySlamPassedDoors();
+	}
+}
+
+void AGvTHauntGhostBase::TryOpenNearbyDoorsUniversal()
+{
+	if (!GetWorld() || DoorProbeRadius <= 0.f)
+	{
+		return;
+	}
+
+	const FVector ProbeCenter = GetActorLocation() + GetActorForwardVector() * DoorProbeForwardOffset;
+	for (TActorIterator<AGvTDoorActor> It(GetWorld()); It; ++It)
+	{
+		AGvTDoorActor* Door = *It;
+		if (!IsValid(Door))
+		{
+			continue;
+		}
+
+		if (FVector::DistSquared2D(ProbeCenter, Door->GetActorLocation()) > FMath::Square(DoorProbeRadius))
+		{
+			continue;
+		}
+
+		MoveIgnoreActorAdd(Door);
+
+		if (!Door->IsOpen() && Door->OpenForGhost(this))
+		{
+			const bool bAlreadyPending = PendingGhostDoors.ContainsByPredicate(
+				[Door](const FPendingGhostDoor& Entry) { return Entry.Door.Get() == Door; });
+			if (!bAlreadyPending)
+			{
+				FPendingGhostDoor Entry;
+				Entry.Door = Door;
+				Entry.OpenedAtTime = GetWorld()->GetTimeSeconds();
+				PendingGhostDoors.Add(Entry);
+			}
+		}
+	}
+}
+
+void AGvTHauntGhostBase::TrySlamPassedDoors()
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	const float Now = GetWorld()->GetTimeSeconds();
+	for (int32 Index = PendingGhostDoors.Num() - 1; Index >= 0; --Index)
+	{
+		AGvTDoorActor* Door = PendingGhostDoors[Index].Door.Get();
+		if (!IsValid(Door))
+		{
+			PendingGhostDoors.RemoveAtSwap(Index);
+			continue;
+		}
+
+		const float Distance = FVector::Dist2D(GetActorLocation(), Door->GetActorLocation());
+		const float Elapsed = Now - PendingGhostDoors[Index].OpenedAtTime;
+		if (Elapsed < DoorSlamMinimumDelay || Distance < DoorSlamBehindDistance)
+		{
+			continue;
+		}
+
+		const float* LastSlamTime = RecentDoorSlamTimes.Find(Door);
+		const bool bOnCooldown = LastSlamTime && (Now - *LastSlamTime) < 4.f;
+
+		if (!bOnCooldown)
+		{
+			const bool bSlammed =
+				Door->TriggerScareSlam();
+
+			if (bSlammed)
+			{
+				RecentDoorSlamTimes.Add(Door, Now);
+
+				if (UGameInstance* GI = GetGameInstance())
+				{
+					if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+					{
+						Director->ApplyDoorSlamPanicToNearbyPlayers(
+							Door,
+							this,
+							true);
+					}
+				}
+
+				UE_LOG(LogTemp, Warning,
+					TEXT("[HauntGhost] Slammed door behind ghost. Ghost=%s Door=%s"),
+					*GetNameSafe(this),
+					*GetNameSafe(Door));
+			}
+		}
+
+		PendingGhostDoors.RemoveAtSwap(Index);
+	}
+}
+
+//void AGvTHauntGhostBase::ApplyDoorSlamPanic(AGvTDoorActor* Door) const
+//{
+//	if (!Door || !GetGameInstance())
+//	{
+//		return;
+//	}
+//
+//	UGvTDirectorSubsystem* Director = GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>();
+//	if (!Director)
+//	{
+//		return;
+//	}
+//
+//	FGvTPanicEvent PanicEvent;
+//	PanicEvent.Source = EGvTPanicSource::DoorSlam;
+//	PanicEvent.PanicDelta01 = DoorSlamPanicAmount / 100.f;
+//	PanicEvent.HauntPressureDelta01 = 0.12f;
+//	PanicEvent.SourceActor = Door;
+//	PanicEvent.InstigatorActor = const_cast<AGvTHauntGhostBase*>(this);
+//	PanicEvent.WorldLocation = Door->GetActorLocation();
+//	PanicEvent.SourceRadius = DoorSlamPanicRadius;
+//	PanicEvent.bRequiresProximity = true;
+//	PanicEvent.bRequiresSuccessfulExecution = true;
+//	PanicEvent.bExecutionSucceeded = true;
+//	PanicEvent.CooldownSeconds = 1.0f;
+//	Director->ApplyPanicEventToPlayers(PanicEvent);
+//}
 
 bool AGvTHauntGhostBase::TryInvestigateRecentNoise()
 {

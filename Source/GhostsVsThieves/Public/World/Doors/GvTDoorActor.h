@@ -53,11 +53,26 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Door|Scare")
 	bool TriggerScareSlam();
 
+	UFUNCTION(BlueprintPure, Category = "Door|Scare")
+	bool CanTriggerScareSlam() const;
+
 	UFUNCTION(BlueprintPure, Category = "Door")
 	bool IsOpen() const { return bIsOpen; }
 
 	UFUNCTION(BlueprintCallable, Category = "Door|Ghost")
 	bool OpenForGhost(AActor* GhostActor);
+
+	UFUNCTION(BlueprintPure, Category = "Door|Exit")
+	bool IsExitDoor() const
+	{
+		return bIsExitDoor;
+	}
+
+	UFUNCTION(BlueprintCallable, Category = "Door|Haunt")
+	void ApplyHauntExitLock();
+
+	UFUNCTION(BlueprintCallable, Category = "Door|Haunt")
+	void RemoveHauntExitLock();
 
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "Door")
@@ -107,6 +122,15 @@ protected:
 	// ---- Lock ----
 	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_IsLocked, Category = "Door|Lock")
 	bool bIsLocked = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door|Exit")
+	bool bIsExitDoor = false;
+
+	UPROPERTY(Transient)
+	bool bLockedByHaunt = false;
+
+	UPROPERTY(Transient)
+	bool bWasLockedBeforeHaunt = false;
 
 	UFUNCTION()
 	void OnRep_IsLocked();

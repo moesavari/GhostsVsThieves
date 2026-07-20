@@ -82,15 +82,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Chase", meta = (ClampMin = "0.0"))
 	float GhoulCatchDistance = 135.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Doors", meta = (ClampMin = "0.0"))
-	float DoorProbeRadius = 165.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Doors", meta = (ClampMin = "0.0"))
-	float DoorProbeForwardOffset = 95.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|Doors", meta = (ClampMin = "0.0"))
-	float DoorProbeInterval = 0.20f;
-
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghoul|CloseScare", meta = (ClampMin = "0.0"))
 	float CloseScareForwardOffset = 230.f;
 

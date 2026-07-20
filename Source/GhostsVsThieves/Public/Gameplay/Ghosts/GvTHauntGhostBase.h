@@ -9,6 +9,7 @@ class ACharacter;
 class APawn;
 class UCharacterMovementComponent;
 class UGvTGhostPerceptionComponent;
+class AGvTDoorActor;
 
 UENUM(BlueprintType)
 enum class EGvTHauntGhostState : uint8
@@ -43,6 +44,8 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt")
 	virtual void StartHauntDespawnSequence();
+
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	UFUNCTION(BlueprintPure, Category = "GvT|Ghost|Haunt")
 	EGvTHauntGhostState GetHauntState() const { return HauntState; }
@@ -109,6 +112,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
 	float SearchPointRadius = 450.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "25.0"))
+	float LastKnownArrivalRadius = 125.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt", meta = (ClampMin = "0.0"))
 	float MaxHauntDurationSeconds = 30.f;
 
@@ -124,11 +130,34 @@ protected:
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "GvT|Ghost|Roaming")
 	bool bWholeHouseRoamActive = false;
 
+	UPROPERTY(Transient)
+	bool bReachedLastKnownLocation = false;
+
 	float HauntElapsedSeconds = 0.f;
 	float RoamRepathTimer = 0.f;
 
 	virtual void UpdateRoaming(float DeltaSeconds);
 	virtual void MoveToRandomRoamLocation();
+
+	// Universal door handling shared by every haunt ghost.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
+	float DoorProbeRadius = 190.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
+	float DoorProbeForwardOffset = 100.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.01"))
+	float DoorProbeInterval = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
+	float DoorSlamBehindDistance = 240.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
+	float DoorSlamMinimumDelay = 0.45f;
+
+	void UpdateUniversalDoorHandling(float DeltaSeconds);
+	void TryOpenNearbyDoorsUniversal();
+	void TrySlamPassedDoors();
 	TObjectPtr<UGvTGhostPerceptionComponent> GhostPerceptionComponent;
 
 	// MVP/Normal: one kill ends the hunt. Later hard mode can enable this to keep hunting.
@@ -225,4 +254,20 @@ protected:
 
 	UPROPERTY(Transient)
 	FVector SpawnIntroHoldLocation = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	FVector WholeHouseRoamOrigin = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	TArray<FVector> RecentRoamDestinations;
+
+	struct FPendingGhostDoor
+	{
+		TWeakObjectPtr<AGvTDoorActor> Door;
+		float OpenedAtTime = 0.f;
+	};
+
+	TArray<FPendingGhostDoor> PendingGhostDoors;
+	TMap<TWeakObjectPtr<AGvTDoorActor>, float> RecentDoorSlamTimes;
+	float DoorProbeTimer = 0.f;
 };

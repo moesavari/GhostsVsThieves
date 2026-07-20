@@ -111,3 +111,4 @@ Build/*
 .DS_Store
 Thumbs.db
 Desktop.ini
+*_BuiltData.uasset

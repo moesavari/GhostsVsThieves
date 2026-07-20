@@ -7,10 +7,12 @@
 #include "GvTPlayerController.h"
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "GameFramework/PlayerController.h"
+#include "Engine/World.h"
 
 AGvTInteractableItem::AGvTInteractableItem()
 {
 	bReplicates = true;
+	SetReplicateMovement(true);
 
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
@@ -41,7 +43,45 @@ void AGvTInteractableItem::BeginPlay()
 			Mesh->SetStaticMesh(SelectedMesh);
 		}
 	}
+
+	if (bSnapToSurfaceOnBeginPlay)
+	{
+		SnapMeshBottomToSurface();
+	}
 }
+
+void AGvTInteractableItem::SnapMeshBottomToSurface()
+{
+	if (!HasAuthority() || !Mesh || !Mesh->GetStaticMesh() || !GetWorld())
+	{
+		return;
+	}
+
+	// Mesh bounds are already transformed into world space, so this works for every variant,
+	// regardless of its pivot location, scale, or rotation.
+	const FBoxSphereBounds WorldBounds = Mesh->Bounds;
+	const float MeshBottomZ = WorldBounds.Origin.Z - WorldBounds.BoxExtent.Z;
+
+	const FVector TraceStart(WorldBounds.Origin.X, WorldBounds.Origin.Y, MeshBottomZ + 5.f);
+	const FVector TraceEnd = TraceStart - FVector(0.f, 0.f, FMath::Max(SurfaceTraceDistance, 1.f));
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_ItemSurfaceSnap), false, this);
+	Params.AddIgnoredActor(this);
+
+	FHitResult Hit;
+	if (!GetWorld()->LineTraceSingleByChannel(Hit, TraceStart, TraceEnd, ECC_Visibility, Params))
+	{
+		return;
+	}
+
+	const float VerticalOffset = (Hit.ImpactPoint.Z + SurfaceClearance) - MeshBottomZ;
+	if (!FMath::IsNearlyZero(VerticalOffset))
+	{
+		AddActorWorldOffset(FVector(0.f, 0.f, VerticalOffset), false, nullptr, ETeleportType::TeleportPhysics);
+		ForceNetUpdate();
+	}
+}
+
 
 void AGvTInteractableItem::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
 {

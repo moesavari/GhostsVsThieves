@@ -26,6 +26,7 @@ enum class EGvTPanicSource : uint8
 	GhostScare				UMETA(DisplayName = "Ghost Scare"),
 	CrawlerOverhead			UMETA(DisplayName = "Crawler Overhead"),
 	CrawlerChaseStart		UMETA(DisplayName = "Crawler Chase Start"),
+	GhostHauntStart			UMETA(DisplayName = "Ghost Haunt Start"),
 	CrawlerChaseTick		UMETA(DisplayName = "Crawler Chase Tick"),
 	RearAudioSting			UMETA(DisplayName = "Rear Audio Sting"),
 	GhostScream				UMETA(DisplayName = "Ghost Scream"),
@@ -134,6 +135,14 @@ public:
 	void AddHauntPressureAuthority(float Delta01);
 	void ReduceHauntPressureAuthority(float Delta01);
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Death")
+	bool IsDeadForPanic() const
+	{
+		return bDeadForPanic;
+	}
+
+	void SetDeadForPanicAuthority(bool bNewDead);
+
 protected:
 	UPROPERTY(ReplicatedUsing = OnRep_LootValue, BlueprintReadOnly, Category = "GvT|Loot")
 	int32 LootValue = 0;
@@ -168,6 +177,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, Category = "GvT|Panic")
 	float LastPanicSpikeTime = -1000.f;
+
+	UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Death")
+	bool bDeadForPanic = false;
 
 	// Pressure decay
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Haunt|Decay", meta = (ClampMin = "0.0"))

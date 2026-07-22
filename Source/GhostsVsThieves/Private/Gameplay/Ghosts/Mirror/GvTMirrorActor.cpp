@@ -1,5 +1,5 @@
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
-#include "Gameplay/Ghosts/Mirror/GvTReflectGhostActor.h"
+#include "Gameplay/Ghosts/GvTEventGhostBase.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundBase.h"
@@ -10,7 +10,6 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Camera/PlayerCameraManager.h"
 #include "UObject/ConstructorHelpers.h"
-#include "Components/StaticMeshComponent.h"
 #include "Systems/Audio/GvTAmbientAudioDirector.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 
@@ -208,19 +207,27 @@ void AGvTMirrorActor::EnsureGhost()
 {
 	if (!IsLocalClientWorld())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EnsureGhost aborted: not local client world."));
+		UE_LOG(
+			LogTemp,
+			Warning,
+			TEXT("[Mirror] EnsureGhost aborted: not local client world."));
+
 		return;
 	}
 
-	if (!ReflectGhostClass)
+	if (!EventGhostClass)
 	{
-		UE_LOG(LogTemp, Error, TEXT("[Mirror] EnsureGhost aborted: ReflectGhostClass is NULL on %s"), *GetName());
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("[Mirror] EnsureGhost aborted: EventGhostClass is NULL on %s"),
+			*GetName());
+
 		return;
 	}
 
-	if (GhostInstance)
+	if (IsValid(GhostInstance))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EnsureGhost skipped: already have GhostInstance=%s"), *GetNameSafe(GhostInstance));
 		return;
 	}
 
@@ -228,23 +235,29 @@ void AGvTMirrorActor::EnsureGhost()
 	Params.Owner = this;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	GhostInstance = GetWorld()->SpawnActor<AGvTReflectGhostActor>(
-		ReflectGhostClass,
-		GetActorLocation(),
-		GetActorRotation(),
-		Params
-	);
+	GhostInstance = GetWorld()->SpawnActor<AGvTEventGhostBase>(EventGhostClass, GetActorLocation(), GetActorRotation(), Params);
 
-	if (GhostInstance)
+	if (!GhostInstance)
 	{
-		GhostInstance->StopReflect();
-		EnsureGhostConfiguredForCaptureOnly();
-		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EnsureGhost spawned %s"), *GetNameSafe(GhostInstance));
+		UE_LOG(
+			LogTemp,
+			Error,
+			TEXT("[Mirror] Failed to spawn EventGhostClass on %s"),
+			*GetName());
+
+		return;
 	}
-	else
-	{
-		UE_LOG(LogTemp, Error, TEXT("[Mirror] EnsureGhost failed to spawn ghost on %s"), *GetName());
-	}
+
+	GhostInstance->StopEventPresentation();
+
+	EnsureGhostConfiguredForCaptureOnly();
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("[Mirror] Spawned EventGhost=%s Class=%s"),
+		*GetNameSafe(GhostInstance),
+		*GetNameSafe(EventGhostClass));
 }
 
 void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
@@ -255,11 +268,6 @@ void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
 	}
 
 	SetScarePlaneVisible(true);
-
-	//if (ScareStartSfx)
-	//{
-	//	UGameplayStatics::PlaySoundAtLocation(this, ScareStartSfx, GetActorLocation(), ScareSfxVolume, ScareSfxPitch);
-	//}
 
 	PlayMirrorStartAudio();
 	StartMirrorSustainAudio();
@@ -280,7 +288,9 @@ void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
 		return;
 	}
 
-	GhostInstance->StartReflect(Intensity01, LifeSeconds);
+	GhostInstance->BeginGhostEvent(nullptr, this, FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.Mirror")));
+
+	GhostInstance->StartEventPresentation(Intensity01, LifeSeconds);
 
 	MirrorCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
 	MirrorCapture->ClearShowOnlyComponents();
@@ -399,6 +409,7 @@ void AGvTMirrorActor::StopScareCapture()
 	// Optional: kill ghost after scare
 	if (GhostInstance)
 	{
+		GhostInstance->StopEventPresentation();
 		GhostInstance->Destroy();
 		GhostInstance = nullptr;
 	}

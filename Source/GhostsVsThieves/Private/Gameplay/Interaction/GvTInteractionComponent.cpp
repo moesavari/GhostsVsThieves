@@ -1,5 +1,6 @@
 #include "Gameplay/Interaction/GvTInteractionComponent.h"
 #include "Systems/Director/GvTDirectorSubsystem.h"
+#include "World/Items/GvTInteractableItem.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
@@ -168,13 +169,14 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	{
 		IGvTInteractable::Execute_CompleteInteract(HitActor, OwnerPawn, Verb);
 
-		if (GetOwner()->HasAuthority())
+		// Inventory items notify the Director themselves only after pickup succeeds.
+		if (GetOwner()->HasAuthority() && !HitActor->IsA<AGvTInteractableItem>())
 		{
 			if (UWorld* World = GetWorld())
 			{
 				if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
 				{
-					Director->OnPlayerInteractionEvent(OwnerPawn, HitActor);
+					Director->OnPlayerInteractionEvent(OwnerPawn, HitActor, Verb);
 				}
 			}
 		}
@@ -246,13 +248,14 @@ void UGvTInteractionComponent::CompleteInteraction()
 		IGvTInteractable::Execute_CompleteInteract(Target, OwnerPawn, Verb);
 	}
 
-	if (GetOwner()->HasAuthority())
+	// Inventory items notify the Director themselves only after pickup succeeds.
+	if (GetOwner()->HasAuthority() && !Target->IsA<AGvTInteractableItem>())
 	{
 		if (UWorld* World = GetWorld())
 		{
 			if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
 			{
-				Director->OnPlayerInteractionEvent(OwnerPawn, Target);
+				Director->OnPlayerInteractionEvent(OwnerPawn, Target, Verb);
 			}
 		}
 	}

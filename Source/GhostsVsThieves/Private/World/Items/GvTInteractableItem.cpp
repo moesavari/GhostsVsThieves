@@ -1,5 +1,4 @@
 #include "World/Items/GvTInteractableItem.h"
-
 #include "Net/UnrealNetwork.h"
 #include "Components/StaticMeshComponent.h"
 #include "Systems/Noise/GvTNoiseEmitterComponent.h"
@@ -7,7 +6,11 @@
 #include "GvTPlayerController.h"
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "GameFramework/PlayerController.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Gameplay/Inventory/GvTInventoryComponent.h"
 #include "Engine/World.h"
+#include "Kismet/GameplayStatics.h"
+#include "Systems/Noise/GvTNoiseSubsystem.h"
 
 AGvTInteractableItem::AGvTInteractableItem()
 {
@@ -17,10 +20,13 @@ AGvTInteractableItem::AGvTInteractableItem()
 	Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 	SetRootComponent(Mesh);
 	Mesh->SetMobility(EComponentMobility::Movable);
+	Mesh->SetNotifyRigidBodyCollision(true);
+	Mesh->OnComponentHit.AddDynamic(this, &AGvTInteractableItem::HandleMeshHit);
 
 	InteractNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact"));
 	PhotoNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Photo"));
 	ScanNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Scan"));
+	DropNoiseTag = InteractNoiseTag;
 }
 
 void AGvTInteractableItem::BeginPlay()
@@ -135,14 +141,23 @@ void AGvTInteractableItem::GetInteractionSpec_Implementation(APawn* InstigatorPa
 
 bool AGvTInteractableItem::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
 {
-	if (bIsConsumed)
+	if (bIsConsumed || Carrier)
 	{
 		return false;
 	}
+
 	if (Verb == EGvTInteractionVerb::Scan)
 	{
-		return !bHasBeenScanned && !bIsConsumed;
+		return !bHasBeenScanned;
 	}
+
+	if (Verb == EGvTInteractionVerb::Interact)
+	{
+		const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
+		const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+		return Inventory && Inventory->CanAddItem(this);
+	}
+
 	return true;
 }
 
@@ -161,7 +176,9 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 	if (Verb == EGvTInteractionVerb::Scan)
 	{
 		if (bHasBeenScanned || bIsConsumed)
+		{
 			return;
+		}
 
 		bHasBeenScanned = true;
 
@@ -183,40 +200,37 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 		return;
 	}
 
-	// Verb == Interact
-	if (bIsConsumed)
-		return;
-
-	if (InstigatorPawn)
+	if (Verb != EGvTInteractionVerb::Interact || bIsConsumed || Carrier)
 	{
-		if (UGvTNoiseEmitterComponent* Noise = InstigatorPawn->FindComponentByClass<UGvTNoiseEmitterComponent>())
-		{
-			Noise->EmitNoise(InteractNoiseTag, InteractNoiseRadius, 1.f);
-		}
+		return;
 	}
 
-	if (InstigatorPawn)
+	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
+	UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+	if (!Inventory || !Inventory->TryAddItem(this))
 	{
-		APlayerController* PC = Cast<APlayerController>(InstigatorPawn->GetController());
-		if (PC)
-		{
-			AGvTPlayerState* PS = PC->GetPlayerState<AGvTPlayerState>();
-			if (PS)
-			{
-				const int32 FinalValue = bHasBeenPhotographed
-					? FMath::Max(AppraisedValue, 0)
-					: BaseValue;
+		UE_LOG(LogTemp, Log, TEXT("[ItemPickup] Item=%s Player=%s Result=FAILED"), *GetNameSafe(this), *GetNameSafe(InstigatorPawn));
+		return;
+	}
 
-				PS->AddLoot(FinalValue);
+	if (UGvTNoiseEmitterComponent* Noise = Thief->FindComponentByClass<UGvTNoiseEmitterComponent>())
+	{
+		Noise->EmitNoise(InteractNoiseTag, InteractNoiseRadius, 1.f);
+	}
+
+	if (!bHasTriggeredTheftReaction)
+	{
+		bHasTriggeredTheftReaction = true;
+		if (UWorld* World = GetWorld())
+		{
+			if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Director->OnPlayerInteractionEvent(Thief, this, EGvTInteractionVerb::Interact);
 			}
 		}
 	}
 
-	if (bConsumedOnInteract)
-	{
-		bIsConsumed = true;
-		ApplyConsumedState(true);
-	}
+	UE_LOG(LogTemp, Log, TEXT("[ItemPickup] Item=%s Player=%s Result=SUCCESS FirstTheft=%d"), *GetNameSafe(this), *GetNameSafe(Thief), bHasTriggeredTheftReaction ? 1 : 0);
 }
 
 void AGvTInteractableItem::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)
@@ -224,10 +238,260 @@ void AGvTInteractableItem::CancelInteract_Implementation(APawn* InstigatorPawn, 
 	// Optional: stop SFX/FX. Noise-on-cancel is handled by InteractionComponent.
 }
 
+bool AGvTInteractableItem::HasGhostTrait(EGvTItemGhostTrait Trait) const
+{
+	return GhostTraits.Contains(Trait);
+}
+
+bool AGvTInteractableItem::IsGhostValuable() const
+{
+	return HasGhostTrait(EGvTItemGhostTrait::Valuable)
+		|| bTreatAsValuableForGhosts
+		|| BaseValue >= ValuableGhostReactionValueThreshold;
+}
+
+bool AGvTInteractableItem::IsGhostNoisy() const
+{
+	return HasGhostTrait(EGvTItemGhostTrait::Noisy)
+		|| bTreatAsNoisyForGhosts;
+}
+
+bool AGvTInteractableItem::IsGhostElectrical() const
+{
+	return HasGhostTrait(EGvTItemGhostTrait::Electrical)
+		|| bTreatAsElectricalForGhosts;
+}
+
+float AGvTInteractableItem::GetGhostReactionChance() const
+{
+	float TierChance = 0.75f;
+
+	switch (ItemTier)
+	{
+		case EGvTItemTier::Small:
+			TierChance = 0.75f;
+			break;
+
+		case EGvTItemTier::Medium:
+			TierChance = 0.85f;
+			break;
+
+		case EGvTItemTier::Large:
+			TierChance = 0.95f;
+			break;
+
+		case EGvTItemTier::MainObjective:
+			TierChance = 1.00f;
+			break;
+
+		default:
+			break;
+	}
+
+	return FMath::Clamp(TierChance, 0.0f, 1.0f);
+}
+
+float AGvTInteractableItem::GetGhostTensionImpulse() const
+{
+	float BaseImpulse = 0.04f;
+
+	switch (ItemTier)
+	{
+		case EGvTItemTier::Small:
+			BaseImpulse = 0.04f;
+			break;
+
+		case EGvTItemTier::Medium:
+			BaseImpulse = 0.08f;
+			break;
+
+		case EGvTItemTier::Large:
+			BaseImpulse = 0.14f;
+			break;
+
+		case EGvTItemTier::MainObjective:
+			BaseImpulse = 0.25f;
+			break;
+
+		default:
+			break;
+	}
+
+	return FMath::Clamp(
+		BaseImpulse * FMath::Max(HouseTensionMultiplier, 0.0f),
+		0.0f,
+		1.0f);
+}
+
 float AGvTInteractableItem::GetGhostItemValue01() const
 {
 	const float Denominator = FMath::Max(1.f, float(HighValueGhostReactionValue));
 	return FMath::Clamp(float(BaseValue) / Denominator, 0.f, 1.f);
+}
+
+int32 AGvTInteractableItem::GetInventorySpaceCost() const
+{
+	if (InventorySpaceOverride > 0)
+	{
+		return InventorySpaceOverride;
+	}
+
+	switch (ItemTier)
+	{
+		case EGvTItemTier::Small: return 1;
+		case EGvTItemTier::Medium: return 2;
+		case EGvTItemTier::Large: return 3;
+		case EGvTItemTier::MainObjective: return 1;
+		default: return 1;
+	}
+}
+
+void AGvTInteractableItem::SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNewEquipped)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	Carrier = NewCarrier;
+	bIsEquipped = NewCarrier && bNewEquipped;
+	SetOwner(NewCarrier);
+	ApplyCarryState();
+	ForceNetUpdate();
+}
+
+void AGvTInteractableItem::DropFromInventory(const FVector& WorldLocation, const FRotator& WorldRotation)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	AGvTThiefCharacter* PreviousCarrier = Carrier;
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Carrier = nullptr;
+	bIsEquipped = false;
+	SetOwner(nullptr);
+	SetActorLocationAndRotation(WorldLocation, WorldRotation, false, nullptr, ETeleportType::TeleportPhysics);
+	ApplyCarryState();
+
+	if (Mesh)
+	{
+		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+
+	bImpactArmed = true;
+	if (Mesh && Mesh->IsSimulatingPhysics())
+	{
+		const FVector TossImpulse = PreviousCarrier ? PreviousCarrier->GetActorForwardVector() * DropForwardImpulse - FVector::UpVector * DropDownwardImpulse : -FVector::UpVector * DropDownwardImpulse;
+		Mesh->AddImpulse(TossImpulse, NAME_None, true);
+	}
+
+	ForceNetUpdate();
+}
+
+void AGvTInteractableItem::ApplyCarryState()
+{
+	if (Carrier)
+	{
+		bImpactArmed = false;
+
+		if (USceneComponent* Anchor = Carrier->GetHeldItemAnchor())
+		{
+			AttachToComponent(Anchor, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+			SetActorRelativeLocation(HeldRelativeLocation);
+			SetActorRelativeRotation(HeldRelativeRotation);
+			SetActorRelativeScale3D(HeldRelativeScale);
+		}
+
+		SetActorEnableCollision(false);
+		Mesh->SetSimulatePhysics(false);
+		SetActorHiddenInGame(!bIsEquipped);
+	}
+	else
+	{
+		DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+		SetActorHiddenInGame(false);
+		SetActorEnableCollision(true);
+		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		Mesh->SetEnableGravity(true);
+		Mesh->SetSimulatePhysics(true);
+		Mesh->WakeAllRigidBodies();
+	}
+}
+
+void AGvTInteractableItem::HandleMeshHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent, FVector NormalImpulse, const FHitResult& Hit)
+{
+	if (!HasAuthority() || !bImpactArmed || !Mesh || Carrier)
+	{
+		return;
+	}
+
+	const float CurrentSpeed = Mesh->GetPhysicsLinearVelocity().Size();
+	const float Mass = FMath::Max(Mesh->GetMass(), 1.f);
+	const float ImpulseSpeed = NormalImpulse.Size() / Mass;
+	const float ImpactSpeed = FMath::Max(CurrentSpeed, ImpulseSpeed);
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (ImpactSpeed < MinimumImpactSpeedForSound || (Now - LastImpactSoundTime) < ImpactSoundCooldown)
+	{
+		return;
+	}
+
+	LastImpactSoundTime = Now;
+	FVector ImpactLocation = GetActorLocation();
+
+	if (!Hit.ImpactPoint.IsNearlyZero())
+	{
+		ImpactLocation = FVector(Hit.ImpactPoint);
+	}
+
+	if (DropImpactSounds.Num() > 0)
+	{
+		const int32 Index = FMath::RandRange(0, DropImpactSounds.Num() - 1);
+		Multicast_PlayDropImpactSound(DropImpactSounds[Index], ImpactLocation, ImpactSpeed);
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		if (UGvTNoiseSubsystem* NoiseSubsystem = World->GetGameInstance()->GetSubsystem<UGvTNoiseSubsystem>())
+		{
+			FGvTNoiseEvent NoiseEvent;
+			NoiseEvent.Location = ImpactLocation;
+			NoiseEvent.Radius = DropNoiseRadius;
+			NoiseEvent.Loudness = DropNoiseLoudness;
+			NoiseEvent.NoiseTag = DropNoiseTag;
+			NoiseSubsystem->EmitNoise(NoiseEvent);
+		}
+	}
+}
+
+void AGvTInteractableItem::Multicast_PlayDropImpactSound_Implementation(USoundBase* Sound, FVector Location, float ImpactSpeed)
+{
+	if (!Sound)
+	{
+		return;
+	}
+
+	const float Volume = FMath::GetMappedRangeValueClamped(
+		FVector2D(MinimumImpactSpeedForSound, 1200.f),
+		FVector2D(0.4f, 1.0f),
+		ImpactSpeed);
+
+	const float Pitch = FMath::FRandRange(0.96f, 1.04f);
+
+	UGameplayStatics::PlaySoundAtLocation(
+		this,
+		Sound,
+		Location,
+		Volume,
+		Pitch);
+}
+
+
+void AGvTInteractableItem::OnRep_CarryState()
+{
+	ApplyCarryState();
 }
 
 void AGvTInteractableItem::ApplyConsumedState(bool bConsumed)
@@ -262,6 +526,9 @@ void AGvTInteractableItem::OnRep_SelectedMesh()
 void AGvTInteractableItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AGvTInteractableItem, Carrier);
+	DOREPLIFETIME(AGvTInteractableItem, bIsEquipped);
+	DOREPLIFETIME(AGvTInteractableItem, bHasTriggeredTheftReaction);
 	DOREPLIFETIME(AGvTInteractableItem, bIsConsumed);
 	DOREPLIFETIME(AGvTInteractableItem, bHasBeenPhotographed);
 	DOREPLIFETIME(AGvTInteractableItem, AppraisedValue);

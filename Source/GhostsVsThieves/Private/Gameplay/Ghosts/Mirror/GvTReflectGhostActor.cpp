@@ -50,24 +50,52 @@ void AGvTReflectGhostActor::BeginPlay()
 
 void AGvTReflectGhostActor::StartReflect(float InIntensity01, float InLifeSeconds)
 {
-	Intensity01 = FMath::Clamp(InIntensity01, 0.f, 1.f);
-	LifeSeconds = FMath::Max(0.01f, InLifeSeconds);
-	Elapsed = 0.f;
-	bActive = true;
-
-	SetActorHiddenInGame(false);
-	SetActorTickEnabled(true);
+	StartEventPresentation(InIntensity01, InLifeSeconds);
 }
 
 void AGvTReflectGhostActor::StopReflect()
 {
-	bActive = false;
-	Intensity01 = 0.f;
-	LifeSeconds = 0.f;
-	Elapsed = 0.f;
+	StopEventPresentation();
+}
 
-	SetActorHiddenInGame(true);
-	SetActorTickEnabled(false);
+void AGvTReflectGhostActor::StartEventPresentation(float InIntensity01, float InLifeSeconds)
+{
+	Super::StartEventPresentation(InIntensity01, InLifeSeconds);
+
+	Intensity01 = FMath::Clamp(InIntensity01, 0.0f, 1.0f);
+
+	LifeSeconds = FMath::Max(InLifeSeconds, 0.01f);
+
+	Elapsed = 0.0f;
+	bActive = true;
+
+	SetActorHiddenInGame(false);
+	SetActorTickEnabled(true);
+
+	UE_LOG(
+		LogTemp,
+		Log,
+		TEXT("[ReflectGhost] StartPresentation Ghost=%s Intensity=%.2f Life=%.2f"),
+		*GetNameSafe(this),
+		Intensity01,
+		LifeSeconds);
+}
+
+void AGvTReflectGhostActor::StopEventPresentation()
+{
+	bActive = false;
+	Intensity01 = 0.0f;
+	LifeSeconds = 0.0f;
+	Elapsed = 0.0f;
+
+	if (MID)
+	{
+		MID->SetScalarParameterValue(OpacityParam, 0.0f);
+
+		MID->SetScalarParameterValue(EmissiveParam, 0.0f);
+	}
+
+	Super::StopEventPresentation();
 }
 
 void AGvTReflectGhostActor::Tick(float DeltaSeconds)
@@ -102,18 +130,20 @@ void AGvTReflectGhostActor::Tick(float DeltaSeconds)
 		MID->SetScalarParameterValue(EmissiveParam, Emissive);
 	}
 
-	if (T >= 1.f)
+	if (T >= 1.0f)
 	{
-		StopReflect();
+		StopEventPresentation();
 	}
 }
 
-void AGvTReflectGhostActor::BeginGhostEvent(AActor* Target, FGameplayTag EventTag)
+void AGvTReflectGhostActor::BeginGhostEvent(AActor* Target, AActor* SourceActor, FGameplayTag EventTag)
 {
-	UE_LOG(LogTemp, Warning,
-		TEXT("[ReflectGhost] BeginGhostEvent Target=%s Tag=%s"),
-		*GetNameSafe(Target),
-		*EventTag.ToString());
+	Super::BeginGhostEvent(Target, SourceActor, EventTag);
 
-	StartReflect(1.f, 0.6f);
+	UE_LOG(LogTemp, Log, 
+		TEXT("[ReflectGhost] BeginGhostEvent Ghost=%s Target=%s Source=%s Tag=%s"), 
+		*GetNameSafe(this), 
+		*GetNameSafe(Target), 
+		*GetNameSafe(SourceActor), 
+		*EventTag.ToString());
 }

@@ -3,13 +3,13 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
 #include "Systems/Noise/GvTScareAudioTypes.h"
+#include "Gameplay/Ghosts/GvTEventGhostBase.h"
 #include "GvTMirrorActor.generated.h"
 
 class UStaticMeshComponent;
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
 class UMaterialInstanceDynamic;
-class AGvTReflectGhostActor;
 
 UCLASS(BlueprintType)
 class GHOSTSVSTHIEVES_API AGvTMirrorActor : public AActor
@@ -48,8 +48,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror")
 	TObjectPtr<UTextureRenderTarget2D> RenderTarget;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror")
-	TSubclassOf<AGvTReflectGhostActor> ReflectGhostClass;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Ghost")
+	TSubclassOf<AGvTEventGhostBase> EventGhostClass;
 
 	// Which material slot on the mirror mesh should get the capture material
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror")
@@ -123,8 +123,8 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> MirrorMID;
 	TObjectPtr<UMaterialInstanceDynamic> MirrorSurfaceMID;
 
-	TObjectPtr<AGvTReflectGhostActor> GhostInstance;
-	
+	TObjectPtr<AGvTEventGhostBase> GhostInstance;
+
 	FTimerHandle CaptureTimer;
 	FTimerHandle StopTimer;
 

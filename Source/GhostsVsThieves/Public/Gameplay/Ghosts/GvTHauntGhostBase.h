@@ -78,6 +78,17 @@ protected:
 	void ApplyDirectChaseFallback(AActor* Target, float DeltaSeconds);
 	virtual void HandleCaughtTarget(AActor* Target);
 
+	void UpdateFacingFromMovement(float DeltaSeconds);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement")
+	bool bForceFaceMovementDirection = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement", meta = (ClampMin = "0.0"))
+	float MovementFacingTurnSpeed = 720.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement", meta = (ClampMin = "0.0"))
+	float MinimumFacingSpeed = 5.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Lifecycle", meta = (ClampMin = "0.0"))
 	float PreHauntDelaySeconds = 0.65f;
 

@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Gameplay/Scare/GvTScareTypes.h"
+#include "Gameplay/Interaction/GvTInteractable.h"
 #include "GvTDirectorSubsystem.generated.h"
 
 struct FGvTPanicEvent;
@@ -13,6 +14,7 @@ class AGvTGhostCharacterBase;
 class AGvTHauntGhostBase;
 class UGvTGhostModelData;
 class UGvTGhostTypeData;
+class AGvTInteractableItem;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTDirectorSubsystem : public UGameInstanceSubsystem
@@ -77,11 +79,12 @@ public:
 	AActor* FindBestDoorSlamDoor(AActor* Target) const;
 
 	UFUNCTION()
-	void OnPlayerInteractionEvent(AActor* Interactor, AActor* TargetActor);
+	void OnPlayerInteractionEvent(AActor* Interactor, AActor* TargetActor, EGvTInteractionVerb Verb);
 
 	void TriggerInteractionReaction(
 		APawn* Pawn,
 		AActor* TargetActor,
+		const AGvTInteractableItem* Item,
 		bool bIsElectrical,
 		bool bIsValuable,
 		bool bIsNoisy,

@@ -9,6 +9,33 @@
 
 class UStaticMeshComponent;
 class UGvTDirectorSubsystem;
+class AGvTThiefCharacter;
+class USoundBase;
+class UPrimitiveComponent;
+
+UENUM(BlueprintType)
+enum class EGvTItemTier : uint8
+{
+	Small			UMETA(DisplayName = "Small"),
+	Medium			UMETA(DisplayName = "Medium"),
+	Large			UMETA(DisplayName = "Large"),
+	MainObjective	UMETA(DisplayName = "Main Objective")
+};
+
+UENUM(BlueprintType)
+enum class EGvTItemGhostTrait : uint8
+{
+	Electrical			UMETA(DisplayName = "Electrical"),
+	Valuable			UMETA(DisplayName = "Valuable"),
+	Noisy				UMETA(DisplayName = "Noisy"),
+	Cursed				UMETA(DisplayName = "Cursed"),
+	Religious			UMETA(DisplayName = "Religious"),
+	Historic			UMETA(DisplayName = "Historic"),
+	Occult				UMETA(DisplayName = "Occult"),
+	MirrorBound			UMETA(DisplayName = "Mirror Bound"),
+	PersonalBelonging	UMETA(DisplayName = "Personal Belonging"),
+	Possessed			UMETA(DisplayName = "Possessed")
+};
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTInteractableItem : public AActor, public IGvTInteractable
@@ -25,20 +52,86 @@ public:
 	virtual void CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
 	virtual void CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason) override;
 
-	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
-	bool ShouldUpsetGhostsOnInteract() const { return bUpsetsGhostsOnInteract; }
+	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
+	int32 GetInventorySpaceCost() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
+	bool IsCarried() const { return Carrier != nullptr; }
+
+	void SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNewEquipped);
+	void DropFromInventory(const FVector& WorldLocation, const FRotator& WorldRotation);
 
 	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
-	bool IsGhostValuable() const { return bTreatAsValuableForGhosts || BaseValue >= ValuableGhostReactionValueThreshold; }
+	bool ShouldUpsetGhostsOnInteract() const
+	{
+		return bUpsetsGhostsOnInteract;
+	}
 
 	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
-	bool IsGhostNoisy() const { return bTreatAsNoisyForGhosts; }
+	EGvTItemTier GetItemTier() const
+	{
+		return ItemTier;
+	}
 
 	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
-	bool IsGhostElectrical() const { return bTreatAsElectricalForGhosts; }
+	bool HasGhostTrait(EGvTItemGhostTrait Trait) const;
 
 	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
-	float GetGhostReactionChanceBonus() const { return GhostReactionChanceBonus; }
+	bool IsGhostValuable() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	bool IsGhostNoisy() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	bool IsGhostElectrical() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	float GetGhostReactionChance() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	float GetGhostTensionImpulse() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	float GetHouseTensionMultiplier() const
+	{
+		return HouseTensionMultiplier;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	const TArray<FGameplayTag>& GetPreferredGhostEvents() const
+	{
+		return PreferredGhostEvents;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
+	bool HasForcedGhostEvent() const
+	{
+		return bForceGhostEvent && ForcedGhostEvent.IsValid();
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
+	FGameplayTag GetForcedGhostEvent() const
+	{
+		return ForcedGhostEvent;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
+	float GetForcedGhostEventChance() const
+	{
+		return ForcedGhostEventChance;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
+	bool ShouldForcedEventIgnorePanicThreshold() const
+	{
+		return bForcedEventIgnoresPanicThreshold;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
+	bool ShouldForceHauntReaction() const
+	{
+		return ItemTier == EGvTItemTier::MainObjective && bMainObjectiveForcesHaunt;
+	}
 
 	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
 	float GetGhostItemValue01() const;
@@ -53,7 +146,44 @@ protected:
 	UStaticMeshComponent* Mesh;
 
 	UPROPERTY(EditAnywhere, Category = "Item|Rules")
-	bool bConsumedOnInteract = true;
+	bool bConsumedOnInteract = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory", meta = (ClampMin = "0"))
+	int32 InventorySpaceOverride = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
+	FVector HeldRelativeLocation = FVector(35.f, 18.f, -18.f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
+	FRotator HeldRelativeRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
+	FVector HeldRelativeScale = FVector::OneVector;
+
+	// -------------------------------------------------------------------------
+	// Physical drop presentation
+	// -------------------------------------------------------------------------
+
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop")
+	FGameplayTag DropNoiseTag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
+	float MinimumImpactSpeedForSound = 120.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
+	float ImpactSoundCooldown = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
+	float DropNoiseRadius = 700.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
+	float DropNoiseLoudness = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
+	float DropForwardImpulse = 75.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
+	float DropDownwardImpulse = 35.f;
 
 
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
@@ -95,9 +225,44 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Item|Value")
 	float PhotoMultiplier = 1.0f;
 
+	// -------------------------------------------------------------------------
+	// Data-driven ghost reaction setup
+	// -------------------------------------------------------------------------
 
-	// Interaction with loot should make the house angry. These are used by the Director
-	// when the actor does not have explicit tags like Valuable/Noisy/Electrical.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
+	EGvTItemTier ItemTier = EGvTItemTier::Small;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
+	TArray<EGvTItemGhostTrait> GhostTraits;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction",
+		meta = (ClampMin = "0.0"))
+	float HouseTensionMultiplier = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
+	TArray<FGameplayTag> PreferredGhostEvents;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event")
+	bool bForceGhostEvent = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event", meta = (EditCondition = "bForceGhostEvent", EditConditionHides))
+	FGameplayTag ForcedGhostEvent;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bForceGhostEvent", EditConditionHides))
+	float ForcedGhostEventChance = 0.90f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event", meta = (EditCondition = "bForceGhostEvent", EditConditionHides))
+	bool bForcedEventIgnoresPanicThreshold = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
+	bool bMainObjectiveForcesHaunt = true;
+
+	// -------------------------------------------------------------------------
+	// Legacy compatibility
+	//
+	// These remain so existing item Blueprints continue functioning. New items
+	// should primarily use ItemTier and GhostTraits.
+	// -------------------------------------------------------------------------
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
 	bool bUpsetsGhostsOnInteract = true;
 
@@ -110,9 +275,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
 	bool bTreatAsElectricalForGhosts = false;
 
-	// Extra chance added on top of panic/pressure/type weighting. Good demo default: stealing should usually wake the house up.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float GhostReactionChanceBonus = 0.35f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Reaction chance is now determined only by ItemTier."))
+	float GhostReactionChanceBonus = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction", meta = (ClampMin = "0"))
 	int32 ValuableGhostReactionValueThreshold = 25;
@@ -156,6 +320,30 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Item|Audio")
 	TObjectPtr<USoundBase> ScanCancelSfx = nullptr;
 
+	UPROPERTY(EditAnywhere, Category = "Item|Audio")
+	TArray<TObjectPtr<USoundBase>> DropImpactSounds;
+
+	UPROPERTY(ReplicatedUsing=OnRep_CarryState)
+	TObjectPtr<AGvTThiefCharacter> Carrier = nullptr;
+
+	UPROPERTY(ReplicatedUsing=OnRep_CarryState)
+	bool bIsEquipped = false;
+
+	UPROPERTY(Replicated)
+	bool bHasTriggeredTheftReaction = false;
+
+	UFUNCTION()
+	void OnRep_CarryState();
+
+	UFUNCTION()
+	void HandleMeshHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent, FVector NormalImpulse, const FHitResult& Hit);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_PlayDropImpactSound(USoundBase* Sound, FVector Location, float ImpactSpeed);
+
+	void ApplyCarryState();
+	float LastImpactSoundTime = -1000.f;
+	bool bImpactArmed = false;
 
 	UPROPERTY(ReplicatedUsing = OnRep_IsConsumed)
 	bool bIsConsumed = false;

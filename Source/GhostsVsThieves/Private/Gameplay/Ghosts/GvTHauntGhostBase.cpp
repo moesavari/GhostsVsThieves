@@ -84,6 +84,7 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 	}
 
 	UpdateUniversalDoorHandling(DeltaSeconds);
+	UpdateFacingFromMovement(DeltaSeconds);
 
 	if (HauntState == EGvTHauntGhostState::Chasing)
 	{
@@ -1023,6 +1024,49 @@ void AGvTHauntGhostBase::ConfigureClientGhostProxyMovement()
 	}
 }
 
+void AGvTHauntGhostBase::UpdateFacingFromMovement(float DeltaSeconds)
+{
+	if (!HasAuthority() || !bForceFaceMovementDirection)
+	{
+		return;
+	}
+
+	const bool bMovementState =
+		HauntState == EGvTHauntGhostState::Roaming
+		|| HauntState == EGvTHauntGhostState::Investigating
+		|| HauntState == EGvTHauntGhostState::Searching
+		|| HauntState == EGvTHauntGhostState::Chasing;
+
+	if (!bMovementState)
+	{
+		return;
+	}
+
+	FVector MoveDirection = GetVelocity();
+	MoveDirection.Z = 0.f;
+
+	if (MoveDirection.SizeSquared() < FMath::Square(MinimumFacingSpeed))
+	{
+		return;
+	}
+
+	FRotator DesiredRotation = MoveDirection.Rotation();
+	DesiredRotation.Pitch = 0.f;
+	DesiredRotation.Roll = 0.f;
+
+	const FRotator NewRotation =
+		MovementFacingTurnSpeed > 0.f
+		? FMath::RInterpConstantTo(
+			GetActorRotation(),
+			DesiredRotation,
+			DeltaSeconds,
+			MovementFacingTurnSpeed
+		)
+		: DesiredRotation;
+
+	SetActorRotation(FRotator(0.f, NewRotation.Yaw, 0.f));
+}
+
 void AGvTHauntGhostBase::ApplyDirectChaseFallback(AActor* Target, float DeltaSeconds)
 {
 	if (!HasAuthority() || !Target || !bUseDirectChaseFallback)
@@ -1270,34 +1314,6 @@ void AGvTHauntGhostBase::TrySlamPassedDoors()
 		PendingGhostDoors.RemoveAtSwap(Index);
 	}
 }
-
-//void AGvTHauntGhostBase::ApplyDoorSlamPanic(AGvTDoorActor* Door) const
-//{
-//	if (!Door || !GetGameInstance())
-//	{
-//		return;
-//	}
-//
-//	UGvTDirectorSubsystem* Director = GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>();
-//	if (!Director)
-//	{
-//		return;
-//	}
-//
-//	FGvTPanicEvent PanicEvent;
-//	PanicEvent.Source = EGvTPanicSource::DoorSlam;
-//	PanicEvent.PanicDelta01 = DoorSlamPanicAmount / 100.f;
-//	PanicEvent.HauntPressureDelta01 = 0.12f;
-//	PanicEvent.SourceActor = Door;
-//	PanicEvent.InstigatorActor = const_cast<AGvTHauntGhostBase*>(this);
-//	PanicEvent.WorldLocation = Door->GetActorLocation();
-//	PanicEvent.SourceRadius = DoorSlamPanicRadius;
-//	PanicEvent.bRequiresProximity = true;
-//	PanicEvent.bRequiresSuccessfulExecution = true;
-//	PanicEvent.bExecutionSucceeded = true;
-//	PanicEvent.CooldownSeconds = 1.0f;
-//	Director->ApplyPanicEventToPlayers(PanicEvent);
-//}
 
 bool AGvTHauntGhostBase::TryInvestigateRecentNoise()
 {

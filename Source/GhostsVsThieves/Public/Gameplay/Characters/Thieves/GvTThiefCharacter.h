@@ -16,6 +16,8 @@ class UGvTInteractionComponent;
 class UGvTDirectorSubsystem;
 class AGvTGhostCharacterBase;
 class UGvTThiefPerceptionComponent;
+class UGvTInventoryComponent;
+class USceneComponent;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -24,6 +26,12 @@ class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
 
 public:
     AGvTThiefCharacter();
+
+    UFUNCTION(BlueprintPure, Category = "GvT|Inventory")
+    UGvTInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
+
+    UFUNCTION(BlueprintPure, Category = "GvT|Inventory")
+    USceneComponent* GetHeldItemAnchor() const { return HeldItemAnchor; }
 
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     void SetInteractionLock(bool bLockMove, bool bLockLook);
@@ -116,6 +124,9 @@ protected:
     void OnInteractPressed();
     void OnPhotoPressed();
     void OnTestMirrorPressed();
+    void OnInventoryNext();
+    void OnInventoryPrevious();
+    void OnDropItem();
 
     UFUNCTION(Server, Reliable)
     void ServerSetSprinting(bool bNewSprinting);
@@ -156,6 +167,12 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Interaction")
     UGvTInteractionComponent* InteractionComponent;
 
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Inventory")
+    UGvTInventoryComponent* InventoryComponent;
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Inventory")
+    USceneComponent* HeldItemAnchor;
+
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Scare")
     int32 ScareStunCount = 0;
 
@@ -185,6 +202,15 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_TestMirror;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_InventoryNext;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_InventoryPrevious;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_DropItem;
 
 private:
     void ClearScareStun();

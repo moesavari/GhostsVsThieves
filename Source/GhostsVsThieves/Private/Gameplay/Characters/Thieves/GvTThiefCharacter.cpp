@@ -23,6 +23,9 @@
 #include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
 #include "DrawDebugHelpers.h"
 #include "GvTPlayerState.h"
+#include "Kismet/GameplayStatics.h"
+#include "Gameplay/Inventory/GvTInventoryComponent.h"
+#include "Components/SceneComponent.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -48,6 +51,11 @@ AGvTThiefCharacter::AGvTThiefCharacter()
     NoiseEmitter = CreateDefaultSubobject<UGvTNoiseEmitterComponent>(TEXT("NoiseEmitter"));
 
     InteractionComponent = CreateDefaultSubobject<UGvTInteractionComponent>(TEXT("InteractionComponent"));
+
+    InventoryComponent = CreateDefaultSubobject<UGvTInventoryComponent>(TEXT("InventoryComponent"));
+
+    HeldItemAnchor = CreateDefaultSubobject<USceneComponent>(TEXT("HeldItemAnchor"));
+    HeldItemAnchor->SetupAttachment(Camera);
 
     ThiefPerceptionComponent = CreateDefaultSubobject<UGvTThiefPerceptionComponent>(TEXT("ThiefPerception"));
  }
@@ -126,6 +134,21 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
     if (IA_TestMirror)
     {
         EIC->BindAction(IA_TestMirror, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnTestMirrorPressed);
+    }
+
+    if (IA_InventoryNext)
+    {
+        EIC->BindAction(IA_InventoryNext, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnInventoryNext);
+    }
+
+    if (IA_InventoryPrevious)
+    {
+        EIC->BindAction(IA_InventoryPrevious, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnInventoryPrevious);
+    }
+
+    if (IA_DropItem)
+    {
+        EIC->BindAction(IA_DropItem, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnDropItem);
     }
 
 }
@@ -217,6 +240,30 @@ void AGvTThiefCharacter::OnPhotoPressed()
 
     //InteractionComponent->TryPhoto();
     InteractionComponent->TryScan();
+}
+
+void AGvTThiefCharacter::OnInventoryNext()
+{
+    if (IsLocallyControlled() && InventoryComponent)
+    {
+        InventoryComponent->SelectNextItem();
+    }
+}
+
+void AGvTThiefCharacter::OnInventoryPrevious()
+{
+    if (IsLocallyControlled() && InventoryComponent)
+    {
+        InventoryComponent->SelectPreviousItem();
+    }
+}
+
+void AGvTThiefCharacter::OnDropItem()
+{
+    if (IsLocallyControlled() && InventoryComponent)
+    {
+        InventoryComponent->DropSelectedItem();
+    }
 }
 
 void AGvTThiefCharacter::OnTestMirrorPressed()

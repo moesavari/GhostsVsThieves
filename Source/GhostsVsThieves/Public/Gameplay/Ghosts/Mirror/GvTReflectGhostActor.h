@@ -22,12 +22,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Mirror")
 	void StopReflect();
 
+	virtual void StartEventPresentation(float InIntensity01, float InLifeSeconds) override;
+
+	virtual void StopEventPresentation() override;
+
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void BeginPlay() override;
 
 	UStaticMeshComponent* GetReflectMesh() const { return ReflectMesh; }
 
-	virtual void BeginGhostEvent(AActor* Target, FGameplayTag EventTag) override;
+	virtual void BeginGhostEvent(AActor* Target, AActor* SourceActor, FGameplayTag EventTag) override;
 
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Mirror")

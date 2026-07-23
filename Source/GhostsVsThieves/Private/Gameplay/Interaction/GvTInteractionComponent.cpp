@@ -160,6 +160,12 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 		return;
 	}
 
+	if (!IGvTInteractable::Execute_CanInteract(HitActor, OwnerPawn, Verb))
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[Interaction] Player=%s Target=%s Verb=%d Result=REJECTED"), *GetNameSafe(OwnerPawn), *GetNameSafe(HitActor), static_cast<int32>(Verb));
+		return;
+	}
+
 	FGvTInteractionSpec Spec;
 	IGvTInteractable::Execute_GetInteractionSpec(HitActor, OwnerPawn, Verb, Spec);
 

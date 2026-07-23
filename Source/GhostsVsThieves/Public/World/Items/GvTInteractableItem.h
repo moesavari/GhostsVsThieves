@@ -58,6 +58,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
 	bool IsCarried() const { return Carrier != nullptr; }
 
+	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
+	FVector GetDropCollisionExtent() const;
+
+	UFUNCTION(BlueprintPure, Category = "Item|Value")
+	int32 GetSecuredLootValue() const { return FMath::Max(0, BaseValue); }
+
 	void SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNewEquipped);
 	void DropFromInventory(const FVector& WorldLocation, const FRotator& WorldRotation);
 

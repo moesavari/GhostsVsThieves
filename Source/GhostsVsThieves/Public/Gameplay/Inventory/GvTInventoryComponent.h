@@ -39,6 +39,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Inventory")
 	void DropSelectedItem();
 
+	/** Server-only. Removes the selected item without dropping it into the world. */
+	bool TryRemoveSelectedItemForDeposit(AGvTInteractableItem*& OutItem);
+
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -50,6 +53,15 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Inventory")
 	float DropVerticalOffset = 20.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Inventory|Drop", meta=(ClampMin="0.0"))
+	float DropSweepPadding = 8.f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Inventory|Drop", meta=(ClampMin="0.1", ClampMax="1.0"))
+	float DropCollisionExtentScale = 0.90f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Inventory|Drop", meta=(ClampMin="0.0"))
+	float MinimumValidDropDistance = 25.f;
 
 	UPROPERTY(ReplicatedUsing=OnRep_Inventory)
 	TArray<TObjectPtr<AGvTInteractableItem>> CarriedItems;
@@ -71,4 +83,6 @@ private:
 	void SelectRelativeInternal(int32 Direction);
 	void RefreshSelection();
 	void DropSelectedItemInternal();
+	bool FindSafeDropTransform(const AGvTInteractableItem* Item, FVector& OutLocation, FRotator& OutRotation) const;
+	void RemoveItemAtIndex(int32 ItemIndex);
 };

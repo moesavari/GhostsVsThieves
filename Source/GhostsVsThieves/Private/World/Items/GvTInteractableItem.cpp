@@ -346,6 +346,19 @@ int32 AGvTInteractableItem::GetInventorySpaceCost() const
 	}
 }
 
+FVector AGvTInteractableItem::GetDropCollisionExtent() const
+{
+	if (!Mesh || !Mesh->GetStaticMesh())
+	{
+		return FVector(15.f);
+	}
+
+	const FVector LocalExtent = Mesh->GetStaticMesh()->GetBounds().BoxExtent;
+	const FVector ComponentScale = Mesh->GetComponentScale();
+	const FVector AbsoluteScale(FMath::Abs(ComponentScale.X), FMath::Abs(ComponentScale.Y), FMath::Abs(ComponentScale.Z));
+	return LocalExtent * AbsoluteScale;
+}
+
 void AGvTInteractableItem::SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNewEquipped)
 {
 	if (!HasAuthority())

@@ -164,16 +164,30 @@ protected:
 
 	// Panic decay
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Decay", meta = (ClampMin = "0.0"))
-	float PanicDecayPerSecond = 0.02f;
+	float PanicDecayPerSecond = 0.012f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Decay", meta = (ClampMin = "0.0"))
-	float PanicRecoveryDelayAfterSpike = 7.0f;
+	float PanicRecoveryDelayAfterSpike = 5.0f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Floor")
-	TArray<float> PanicFloorThresholds01 = { 0.20f, 0.40f, 0.60f, 0.80f };
+	TArray<float> PanicFloorThresholds01 = { 0.20f, 0.40f, 0.60f };
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Panic|Floor")
 	float PanicFloor01 = 0.f;
+
+	// Panic floors preserve long-term consequences without trapping a survivor above
+	// the haunt threshold for the rest of the match.
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Floor", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MaxRecoverablePanicFloor01 = 0.60f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Decay", meta = (ClampMin = "0.0"))
+	float HighPanicDecayPerSecond = 0.025f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Decay", meta = (ClampMin = "0.0"))
+	float ElevatedPanicDecayPerSecond = 0.018f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Decay", meta = (ClampMin = "0.0"))
+	float LowPanicDecayPerSecond = 0.006f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "GvT|Panic")
 	float LastPanicSpikeTime = -1000.f;

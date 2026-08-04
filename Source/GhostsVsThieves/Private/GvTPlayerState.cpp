@@ -263,7 +263,21 @@ void AGvTPlayerState::ApplyPanicDecay(float DeltaSeconds)
 		return;
 	}
 
-	const float NewPanic = FMath::Clamp(Panic01 - PanicDecayPerSecond * DeltaSeconds, PanicFloor01, 1.f);
+	float EffectiveDecayPerSecond = PanicDecayPerSecond;
+	if (Panic01 >= 0.80f)
+	{
+		EffectiveDecayPerSecond = HighPanicDecayPerSecond;
+	}
+	else if (Panic01 >= 0.60f)
+	{
+		EffectiveDecayPerSecond = ElevatedPanicDecayPerSecond;
+	}
+	else if (Panic01 < 0.30f)
+	{
+		EffectiveDecayPerSecond = LowPanicDecayPerSecond;
+	}
+
+	const float NewPanic = FMath::Clamp(Panic01 - EffectiveDecayPerSecond * DeltaSeconds, PanicFloor01, 1.f);
 	if (!FMath::IsNearlyEqual(NewPanic, Panic01))
 	{
 		Panic01 = NewPanic;
@@ -370,7 +384,7 @@ void AGvTPlayerState::UpdatePanicFloorFromCurrentPanic()
 		}
 	}
 
-	PanicFloor01 = FMath::Clamp(PanicFloor01, 0.f, 1.f);
+	PanicFloor01 = FMath::Clamp(PanicFloor01, 0.f, MaxRecoverablePanicFloor01);
 }
 
 void AGvTPlayerState::SetDeadForPanicAuthority(bool bNewDead)

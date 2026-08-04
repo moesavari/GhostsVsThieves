@@ -26,9 +26,15 @@
 #include "Kismet/GameplayStatics.h"
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
 #include "Components/SceneComponent.h"
+#include "Gameplay/Ghosts/GvTHauntGhostBase.h"
+#include "Gameplay/Ghosts/GvTGhostPerceptionComponent.h"
+#include "Engine/Engine.h"
+#include "EngineUtils.h"
+#include "GvTGameModeBase.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
+    PrimaryActorTick.bCanEverTick = true;
     bReplicates = true;
 
     SpringArm = CreateDefaultSubobject<USpringArmComponent>(TEXT("SpringArm"));
@@ -45,6 +51,7 @@ AGvTThiefCharacter::AGvTThiefCharacter()
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
         Move->bOrientRotationToMovement = false;
+        Move->GetNavAgentPropertiesRef().bCanCrouch = true;
         Move->MaxWalkSpeed = WalkSpeed;
     }
 
@@ -58,6 +65,8 @@ AGvTThiefCharacter::AGvTThiefCharacter()
     HeldItemAnchor->SetupAttachment(Camera);
 
     ThiefPerceptionComponent = CreateDefaultSubobject<UGvTThiefPerceptionComponent>(TEXT("ThiefPerception"));
+
+    FootstepNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Footstep"));
  }
 
 void AGvTThiefCharacter::BeginPlay()
@@ -82,6 +91,72 @@ void AGvTThiefCharacter::BeginPlay()
                 }
             }
         }
+    }
+}
+
+void AGvTThiefCharacter::Tick(float DeltaSeconds)
+{
+    Super::Tick(DeltaSeconds);
+
+    if (HasAuthority())
+    {
+        UpdateFootsteps(DeltaSeconds);
+    }
+
+#if !UE_BUILD_SHIPPING
+    if (IsLocallyControlled() && bDebugHUDEnabled)
+    {
+        UpdateDebugHUD();
+    }
+#endif
+}
+
+void AGvTThiefCharacter::UpdateFootsteps(float DeltaSeconds)
+{
+    if (bIsDead || !GetCharacterMovement() || !GetCharacterMovement()->IsMovingOnGround())
+    {
+        FootstepTimeAccumulator = 0.f;
+        return;
+    }
+
+    const float Speed2D = GetVelocity().Size2D();
+    if (Speed2D < 15.f)
+    {
+        FootstepTimeAccumulator = 0.f;
+        return;
+    }
+
+    const bool bCrouchedNow = bIsCrouched;
+    const float Interval = bCrouchedNow ? CrouchFootstepInterval : (bIsSprinting ? SprintFootstepInterval : WalkFootstepInterval);
+    FootstepTimeAccumulator += DeltaSeconds;
+    if (FootstepTimeAccumulator < Interval)
+    {
+        return;
+    }
+
+    FootstepTimeAccumulator = FMath::Fmod(FootstepTimeAccumulator, FMath::Max(Interval, 0.05f));
+
+    if (FootstepSounds.Num() > 0)
+    {
+        const int32 SoundIndex = FMath::RandRange(0, FootstepSounds.Num() - 1);
+        USoundBase* SelectedSound = FootstepSounds[SoundIndex];
+        const float Volume = bCrouchedNow ? 0.55f : (bIsSprinting ? 1.0f : 0.8f);
+        const float Pitch = FMath::FRandRange(0.96f, 1.04f);
+        Multicast_PlayFootstep(SelectedSound, Volume, Pitch);
+    }
+
+    if (NoiseEmitter && FootstepNoiseTag.IsValid())
+    {
+        const float Radius = bCrouchedNow ? CrouchFootstepNoiseRadius : (bIsSprinting ? SprintFootstepNoiseRadius : WalkFootstepNoiseRadius);
+        NoiseEmitter->EmitNoise(FootstepNoiseTag, Radius, FootstepNoiseLoudness);
+    }
+}
+
+void AGvTThiefCharacter::Multicast_PlayFootstep_Implementation(USoundBase* Sound, float Volume, float Pitch)
+{
+    if (Sound)
+    {
+        UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation(), Volume, Pitch);
     }
 }
 
@@ -115,6 +190,20 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_Crouch, ETriggerEvent::Completed, this, &AGvTThiefCharacter::StopCrouch);
         EIC->BindAction(IA_Crouch, ETriggerEvent::Canceled, this, &AGvTThiefCharacter::StopCrouch);
     }
+
+    if (IA_Jump)
+    {
+        EIC->BindAction(IA_Jump, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnJumpStarted);
+        EIC->BindAction(IA_Jump, ETriggerEvent::Completed, this, &AGvTThiefCharacter::OnJumpStopped);
+        EIC->BindAction(IA_Jump, ETriggerEvent::Canceled, this, &AGvTThiefCharacter::OnJumpStopped);
+    }
+
+#if !UE_BUILD_SHIPPING
+    if (IA_ToggleDebugHUD)
+    {
+        EIC->BindAction(IA_ToggleDebugHUD, ETriggerEvent::Started, this, &AGvTThiefCharacter::ToggleDebugHUD);
+    }
+#endif
 
     if (IA_TestNoise)
     {
@@ -212,6 +301,137 @@ void AGvTThiefCharacter::StartCrouch()
 void AGvTThiefCharacter::StopCrouch()
 {
     UnCrouch();
+}
+
+void AGvTThiefCharacter::OnJumpStarted()
+{
+    if (bIsDead || bInteractionLockMove || IsScareStunned())
+    {
+        return;
+    }
+
+    if (bIsCrouched)
+    {
+        UnCrouch();
+    }
+
+    Jump();
+}
+
+void AGvTThiefCharacter::OnJumpStopped()
+{
+    StopJumping();
+}
+
+void AGvTThiefCharacter::ToggleDebugHUD()
+{
+#if !UE_BUILD_SHIPPING
+    if (!IsLocallyControlled())
+    {
+        return;
+    }
+
+    bDebugHUDEnabled = !bDebugHUDEnabled;
+    Server_SetDebugDrawEnabled(bDebugHUDEnabled);
+
+    if (!bDebugHUDEnabled && GEngine)
+    {
+        GEngine->RemoveOnScreenDebugMessage(DebugHUDMessageKey);
+    }
+#endif
+}
+
+void AGvTThiefCharacter::Server_SetDebugDrawEnabled_Implementation(bool bEnabled)
+{
+#if !UE_BUILD_SHIPPING
+    Multicast_SetDebugDrawEnabled(bEnabled);
+#endif
+}
+
+void AGvTThiefCharacter::Multicast_SetDebugDrawEnabled_Implementation(bool bEnabled)
+{
+#if !UE_BUILD_SHIPPING
+    ApplyDebugDrawState(bEnabled);
+#endif
+}
+
+void AGvTThiefCharacter::ApplyDebugDrawState(bool bEnabled)
+{
+#if !UE_BUILD_SHIPPING
+    if (!GetWorld())
+    {
+        return;
+    }
+
+    for (TActorIterator<AActor> It(GetWorld()); It; ++It)
+    {
+        TArray<UGvTGhostPerceptionComponent*> PerceptionComponents;
+        It->GetComponents<UGvTGhostPerceptionComponent>(PerceptionComponents);
+        for (UGvTGhostPerceptionComponent* Perception : PerceptionComponents)
+        {
+            if (Perception)
+            {
+                Perception->bDrawPerceptionDebug = bEnabled;
+                Perception->bDrawDetectionRangesConstantly = bEnabled;
+            }
+        }
+
+        TArray<UGvTNoiseEmitterComponent*> NoiseEmitters;
+        It->GetComponents<UGvTNoiseEmitterComponent>(NoiseEmitters);
+        for (UGvTNoiseEmitterComponent* Emitter : NoiseEmitters)
+        {
+            if (Emitter)
+            {
+                Emitter->bDrawDebug = bEnabled;
+            }
+        }
+    }
+
+    if (InteractionComponent)
+    {
+        InteractionComponent->SetDebugDraw(bEnabled);
+    }
+#endif
+}
+
+void AGvTThiefCharacter::UpdateDebugHUD()
+{
+#if !UE_BUILD_SHIPPING
+    if (!GEngine || !GetWorld())
+    {
+        return;
+    }
+
+    const AGvTPlayerState* PS = GetPlayerState<AGvTPlayerState>();
+    const UGvTDirectorSubsystem* Director = GetGameInstance() ? GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>() : nullptr;
+    const UCharacterMovementComponent* Move = GetCharacterMovement();
+
+    FString MovementState = TEXT("Walking");
+    if (Move && !Move->IsMovingOnGround()) MovementState = TEXT("Airborne");
+    else if (bIsCrouched) MovementState = TEXT("Crouched");
+    else if (bIsSprinting) MovementState = TEXT("Sprinting");
+    else if (GetVelocity().Size2D() < 15.f) MovementState = TEXT("Idle");
+
+    const FString Text = FString::Printf(
+        TEXT("HAUNTED HEISTS DEBUG\n")
+        TEXT("Director: Activity %.0f%% | Tension %.0f%% | Haunt %s\n")
+        TEXT("Activity Parts: Theft %.0f%% | Time %.0f%%\n")
+        TEXT("Player: Panic %.0f%% | Pressure %.0f%% | %s\n")
+        TEXT("Footsteps: Tag %s | Radius %.0f\n")
+        TEXT("Debug Draw: ON"),
+        Director ? Director->GetHouseActivity01() * 100.f : 0.f,
+        Director ? Director->GetHouseTension01() * 100.f : 0.f,
+        Director && Director->IsHauntActiveForDebug() ? TEXT("ACTIVE") : TEXT("None"),
+        Director ? Director->GetTheftActivity01() * 100.f : 0.f,
+        Director ? Director->GetTimeActivity01() * 100.f : 0.f,
+        PS ? PS->GetPanic01() * 100.f : 0.f,
+        PS ? PS->GetRecentHauntPressure01() * 100.f : 0.f,
+        *MovementState,
+        *FootstepNoiseTag.ToString(),
+        bIsCrouched ? CrouchFootstepNoiseRadius : (bIsSprinting ? SprintFootstepNoiseRadius : WalkFootstepNoiseRadius));
+
+    GEngine->AddOnScreenDebugMessage(DebugHUDMessageKey, 0.f, FColor::Cyan, Text, true, FVector2D(1.0f, 1.0f));
+#endif
 }
 
 void AGvTThiefCharacter::TestNoise()
@@ -454,12 +674,22 @@ void AGvTThiefCharacter::Server_SetDead_Implementation(AActor* Killer)
         PS->SetDeadForPanicAuthority(true);
     }
 
+    if (InventoryComponent)
+    {
+        InventoryComponent->DropAllItemsOnDeath();
+    }
+
     // Server-authoritative lockdown
     SetInteractionLock(true, true);
     GetCharacterMovement()->DisableMovement();
     GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
     OnRep_IsDead();
+
+    if (AGvTGameModeBase* GM = GetWorld()->GetAuthGameMode<AGvTGameModeBase>())
+    {
+        GM->NotifyThiefDied(this);
+    }
 }
 
 void AGvTThiefCharacter::OnRep_IsDead()

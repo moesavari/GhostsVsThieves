@@ -178,6 +178,45 @@ bool UGvTInventoryComponent::TryRemoveSelectedItemForDeposit(AGvTInteractableIte
 	return true;
 }
 
+bool UGvTInventoryComponent::ContainsStolenLoot() const
+{
+	for (const AGvTInteractableItem* Item : CarriedItems)
+	{
+		if (IsValid(Item) && Item->IsStolenLoot())
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void UGvTInventoryComponent::DropAllItemsOnDeath()
+{
+	AGvTThiefCharacter* Thief = GetOwnerThief();
+	if (!Thief || !Thief->HasAuthority() || CarriedItems.IsEmpty())
+	{
+		return;
+	}
+
+	const TArray<TObjectPtr<AGvTInteractableItem>> ItemsToDrop = CarriedItems;
+	const FVector Origin = Thief->GetActorLocation() + FVector(0.f, 0.f, DropVerticalOffset);
+	CarriedItems.Reset();
+	SelectedItemIndex = INDEX_NONE;
+
+	for (int32 Index = 0; Index < ItemsToDrop.Num(); ++Index)
+	{
+		if (AGvTInteractableItem* Item = ItemsToDrop[Index])
+		{
+			const float Angle = ItemsToDrop.Num() > 1 ? 2.f * PI * float(Index) / float(ItemsToDrop.Num()) : 0.f;
+			const FVector Offset(FMath::Cos(Angle) * 45.f, FMath::Sin(Angle) * 45.f, 0.f);
+			Item->DropFromInventory(Origin + Offset, Thief->GetActorRotation());
+		}
+	}
+
+	RefreshSelection();
+	UE_LOG(LogTemp, Log, TEXT("[InventoryDeathDrop] Player=%s Count=%d Result=SUCCESS"), *GetNameSafe(Thief), ItemsToDrop.Num());
+}
+
 bool UGvTInventoryComponent::FindSafeDropTransform(const AGvTInteractableItem* Item, FVector& OutLocation, FRotator& OutRotation) const
 {
 	const AGvTThiefCharacter* Thief = GetOwnerThief();

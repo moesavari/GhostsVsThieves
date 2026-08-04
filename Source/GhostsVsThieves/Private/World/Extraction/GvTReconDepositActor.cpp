@@ -4,7 +4,8 @@
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
 #include "World/Items/GvTInteractableItem.h"
-#include "GvTPlayerState.h"
+#include "GvTGameModeBase.h"
+#include "GvTGameStateBase.h"
 
 AGvTReconDepositActor::AGvTReconDepositActor()
 {
@@ -51,7 +52,8 @@ bool AGvTReconDepositActor::CanInteract_Implementation(APawn* InstigatorPawn, EG
 
 	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
 	const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
-	return Inventory && IsValid(Inventory->GetSelectedItem());
+	const AGvTInteractableItem* Item = Inventory ? Inventory->GetSelectedItem() : nullptr;
+	return IsValid(Item) && Item->IsStolenLoot();
 }
 
 void AGvTReconDepositActor::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
@@ -68,10 +70,9 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
 	UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
 	AGvTInteractableItem* SelectedItem = Inventory ? Inventory->GetSelectedItem() : nullptr;
-	AGvTPlayerState* PlayerState = Thief ? Thief->GetPlayerState<AGvTPlayerState>() : nullptr;
-	if (!Inventory || !SelectedItem || !PlayerState)
+	if (!Inventory || !SelectedItem || !SelectedItem->IsStolenLoot())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Result=REJECTED Reason=InvalidInventoryItemOrPlayerState"), *GetNameSafe(Thief));
+		UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Result=REJECTED Reason=NotStolenLoot"), *GetNameSafe(Thief));
 		return;
 	}
 
@@ -84,10 +85,14 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 		return;
 	}
 
-	PlayerState->AddLoot(SecuredValue);
+	if (AGvTGameModeBase* GM = GetWorld()->GetAuthGameMode<AGvTGameModeBase>())
+	{
+		GM->NotifyLootDeposited(RemovedItem, SecuredValue);
+	}
 	RemovedItem->Destroy();
 
-	UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Item=%s Value=%d SecuredTotal=%d Result=SUCCESS"), *GetNameSafe(Thief), *ItemName, SecuredValue, PlayerState->GetLoot());
+	const AGvTGameStateBase* GS = GetWorld()->GetGameState<AGvTGameStateBase>();
+	UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Item=%s Value=%d TeamSecuredTotal=%d Result=SUCCESS"), *GetNameSafe(Thief), *ItemName, SecuredValue, GS ? GS->GetTeamSecuredLoot() : 0);
 }
 
 void AGvTReconDepositActor::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)

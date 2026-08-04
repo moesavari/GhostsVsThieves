@@ -2,6 +2,23 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
+#include "GameFramework/Volume.h"
+
+namespace
+{
+	bool IsInsideHouseNoiseBounds(const UWorld* World, const FVector& Location)
+	{
+		if (!World) return false;
+		bool bFoundHouseBounds = false;
+		for (TActorIterator<AVolume> It(World); It; ++It)
+		{
+			if (!It->ActorHasTag(TEXT("HouseBounds"))) continue;
+			bFoundHouseBounds = true;
+			if (It->EncompassesPoint(Location)) return true;
+		}
+		return !bFoundHouseBounds;
+	}
+}
 
 void UGvTNoiseSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -11,6 +28,12 @@ void UGvTNoiseSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& InEvent)
 {
+	if (!IsInsideHouseNoiseBounds(GetWorld(), InEvent.Location))
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[Noise] Ignored outside HouseBounds Tag=%s Location=%s"), *InEvent.NoiseTag.ToString(), *InEvent.Location.ToCompactString());
+		return;
+	}
+
 	FGvTNoiseEvent E = InEvent;
 	E.TimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
 

@@ -42,6 +42,12 @@ public:
 	/** Server-only. Removes the selected item without dropping it into the world. */
 	bool TryRemoveSelectedItemForDeposit(AGvTInteractableItem*& OutItem);
 
+	UFUNCTION(BlueprintPure, Category="GvT|Inventory")
+	bool ContainsStolenLoot() const;
+
+	/** Server-only. Drops every carried item around the owner. */
+	void DropAllItemsOnDeath();
+
 protected:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 

@@ -23,6 +23,15 @@ enum class EGvTItemTier : uint8
 };
 
 UENUM(BlueprintType)
+enum class EGvTItemPurpose : uint8
+{
+	Loot			UMETA(DisplayName = "Stolen Loot"),
+	MainObjective	UMETA(DisplayName = "Main Objective"),
+	Equipment		UMETA(DisplayName = "Equipment"),
+	Consumable		UMETA(DisplayName = "Consumable")
+};
+
+UENUM(BlueprintType)
 enum class EGvTItemGhostTrait : uint8
 {
 	Electrical			UMETA(DisplayName = "Electrical"),
@@ -63,6 +72,22 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Item|Value")
 	int32 GetSecuredLootValue() const { return FMath::Max(0, BaseValue); }
+
+	UFUNCTION(BlueprintPure, Category = "Item|Rules")
+	EGvTItemPurpose GetItemPurpose() const
+	{
+		return ItemTier == EGvTItemTier::MainObjective ? EGvTItemPurpose::MainObjective : ItemPurpose;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Rules")
+	bool IsStolenLoot() const
+	{
+		const EGvTItemPurpose Purpose = GetItemPurpose();
+		return Purpose == EGvTItemPurpose::Loot || Purpose == EGvTItemPurpose::MainObjective;
+	}
+
+	UFUNCTION(BlueprintPure, Category = "Item|Rules")
+	bool IsMainObjective() const { return GetItemPurpose() == EGvTItemPurpose::MainObjective; }
 
 	void SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNewEquipped);
 	void DropFromInventory(const FVector& WorldLocation, const FRotator& WorldRotation);
@@ -109,30 +134,6 @@ public:
 		return PreferredGhostEvents;
 	}
 
-	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
-	bool HasForcedGhostEvent() const
-	{
-		return bForceGhostEvent && ForcedGhostEvent.IsValid();
-	}
-
-	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
-	FGameplayTag GetForcedGhostEvent() const
-	{
-		return ForcedGhostEvent;
-	}
-
-	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
-	float GetForcedGhostEventChance() const
-	{
-		return ForcedGhostEventChance;
-	}
-
-	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction|Forced Event")
-	bool ShouldForcedEventIgnorePanicThreshold() const
-	{
-		return bForcedEventIgnoresPanicThreshold;
-	}
-
 	UFUNCTION(BlueprintPure, Category = "Item|Ghost Reaction")
 	bool ShouldForceHauntReaction() const
 	{
@@ -153,6 +154,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Item|Rules")
 	bool bConsumedOnInteract = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Rules")
+	EGvTItemPurpose ItemPurpose = EGvTItemPurpose::Loot;
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory", meta = (ClampMin = "0"))
 	int32 InventorySpaceOverride = 0;
 
@@ -247,18 +251,6 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
 	TArray<FGameplayTag> PreferredGhostEvents;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event")
-	bool bForceGhostEvent = false;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event", meta = (EditCondition = "bForceGhostEvent", EditConditionHides))
-	FGameplayTag ForcedGhostEvent;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bForceGhostEvent", EditConditionHides))
-	float ForcedGhostEventChance = 0.90f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction|Forced Event", meta = (EditCondition = "bForceGhostEvent", EditConditionHides))
-	bool bForcedEventIgnoresPanicThreshold = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Ghost Reaction")
 	bool bMainObjectiveForcesHaunt = true;

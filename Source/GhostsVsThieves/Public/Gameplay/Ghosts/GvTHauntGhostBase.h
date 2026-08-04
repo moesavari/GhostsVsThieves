@@ -40,6 +40,9 @@ public:
 	virtual void StopGhostChase();
 
 	virtual void BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag) override;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt|Objective")
+	void ApplyObjectiveHauntTuning(float SpeedMultiplier = 1.35f, float DurationMultiplier = 1.75f);
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt")

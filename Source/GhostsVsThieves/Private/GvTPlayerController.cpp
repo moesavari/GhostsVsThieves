@@ -99,6 +99,23 @@ void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, co
 	}
 }
 
+void AGvTPlayerController::Client_ShowExtractionMessage_Implementation(const FText& Message, bool bSuccess)
+{
+	OnExtractionMessage(Message, bSuccess);
+	ClientMessage(Message.ToString());
+}
+
+void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLocked)
+{
+	SetIgnoreMoveInput(bLocked);
+	SetIgnoreLookInput(bLocked);
+}
+
+void AGvTPlayerController::Client_OpenVanInventory_Implementation()
+{
+	OnOpenVanInventory();
+}
+
 static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
 {
 	if (!PC || !PC->GetWorld()) return nullptr;

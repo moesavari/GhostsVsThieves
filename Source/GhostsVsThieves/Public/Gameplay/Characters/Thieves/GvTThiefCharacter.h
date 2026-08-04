@@ -18,6 +18,7 @@ class AGvTGhostCharacterBase;
 class UGvTThiefPerceptionComponent;
 class UGvTInventoryComponent;
 class USceneComponent;
+class USoundBase;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -110,6 +111,7 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+    virtual void Tick(float DeltaSeconds) override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
     virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
     bool TryFindSafeLocalGhostScareSpawn(FVector& OutLocation, FRotator& OutRotation) const;
@@ -120,6 +122,11 @@ protected:
     void StopSprint();
     void StartCrouch();
     void StopCrouch();
+    void OnJumpStarted();
+    void OnJumpStopped();
+    void ToggleDebugHUD();
+    void UpdateDebugHUD();
+    void ApplyDebugDrawState(bool bEnabled);
     void TestNoise();
     void OnInteractPressed();
     void OnPhotoPressed();
@@ -128,8 +135,19 @@ protected:
     void OnInventoryPrevious();
     void OnDropItem();
 
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_PlayFootstep(USoundBase* Sound, float Volume, float Pitch);
+
+    void UpdateFootsteps(float DeltaSeconds);
+
     UFUNCTION(Server, Reliable)
     void ServerSetSprinting(bool bNewSprinting);
+
+    UFUNCTION(Server, Reliable)
+    void Server_SetDebugDrawEnabled(bool bEnabled);
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_SetDebugDrawEnabled(bool bEnabled);
 
     UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Input")
     void BP_OnInteractPressed();
@@ -176,6 +194,36 @@ protected:
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Scare")
     int32 ScareStunCount = 0;
 
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps")
+    TArray<TObjectPtr<USoundBase>> FootstepSounds;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps")
+    FGameplayTag FootstepNoiseTag;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.05"))
+    float WalkFootstepInterval = 0.48f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.05"))
+    float SprintFootstepInterval = 0.32f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.05"))
+    float CrouchFootstepInterval = 0.68f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.0"))
+    float WalkFootstepNoiseRadius = 500.f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.0"))
+    float SprintFootstepNoiseRadius = 850.f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.0"))
+    float CrouchFootstepNoiseRadius = 225.f;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps", meta = (ClampMin = "0.0"))
+    float FootstepNoiseLoudness = 1.0f;
+
+    float FootstepTimeAccumulator = 0.f;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputMappingContext* DefaultMappingContext;
 
@@ -190,6 +238,12 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_Crouch;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_Jump;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_ToggleDebugHUD;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_TestNoise;
@@ -217,6 +271,8 @@ private:
     void ClearScareStun(int32 ClearCountAtScheduleTime);
 
     float LastGhostScareRequestWorldTime = -1000.f;
+    bool bDebugHUDEnabled = false;
+    static constexpr uint64 DebugHUDMessageKey = 0x4756544445425547ULL;
 
     FTimerHandle TimerHandle_ClearScareStun;
     FTimerHandle TimerHandle_LocalCloseScareCleanup;

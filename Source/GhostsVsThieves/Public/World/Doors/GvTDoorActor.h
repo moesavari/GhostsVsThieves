@@ -94,6 +94,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door|Rotation")
 	float OpenDuration = 0.6f;
 
+	UPROPERTY(EditAnywhere, Category = "Door|Haunt", meta = (ClampMin = "0.01"))
+	float HauntLockCloseDuration = 0.12f;
+
 	UPROPERTY(EditAnywhere, Category = "Door|Rotation")
 	bool bInvertDirection = false;
 

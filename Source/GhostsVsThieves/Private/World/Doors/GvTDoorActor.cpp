@@ -147,14 +147,15 @@ void AGvTDoorActor::Server_DoCloseEnd()
 {
 	PlayDoorCloseEndSFX(bReplicatedWasScareSlam);
 
-	if (DoorNoiseEmitter)
+	if (DoorNoiseEmitter && !bReplicatedWasScareSlam)
 	{
 		const float EndRadius = (CloseEndNoiseRadius > 0.f) ? CloseEndNoiseRadius : DoorNoiseRadius;
-		DoorNoiseEmitter->EmitNoise(
-			DoorNoiseTag,
-			EndRadius,
-			bReplicatedWasScareSlam ? ScareSlamLoudness : 1.0f
-		);
+		DoorNoiseEmitter->EmitNoise(DoorNoiseTag, EndRadius, 1.0f);
+	}
+
+	if (bReplicatedWasScareSlam)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[DoorNoise] Suppressed scare-slam investigation noise. Door=%s"), *GetNameSafe(this));
 	}
 }
 void AGvTDoorActor::PlayDoorCloseEndSFX(bool bWasScareSlam)
@@ -402,11 +403,10 @@ bool AGvTDoorActor::TriggerScareSlam()
 
 	Multicast_PlaySFX(SFX_ScareSlamStart);
 
-	if (DoorNoiseEmitter)
-	{
-		const float Radius = DoorNoiseRadius > 0.f ? DoorNoiseRadius : 1200.f;
-		DoorNoiseEmitter->EmitNoise(DoorNoiseTag, Radius, ScareSlamLoudness);
-	}
+	// Scare/haunt slams are caused by the house or ghost. Their audio remains
+	// audible to players, but they must not create an investigation target for
+	// the ghost that caused the slam. Player-operated door noises still emit
+	// through DoorNoiseEmitter elsewhere in this class.
 
 	GetWorldTimerManager().SetTimer(
 		TimerHandle_CloseEnd,
@@ -428,27 +428,21 @@ void AGvTDoorActor::ApplyHauntExitLock()
 
 	bWasLockedBeforeHaunt = bIsLocked;
 
-	// Close first, then lock.
-	if (bIsOpen)
-	{
-		if (!TriggerScareSlam())
-		{
-			GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
-
-			bIsOpen = false;
-			DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
-			ReplicatedAnimDuration = ScareSlamDuration;
-			bReplicatedWasScareSlam = true;
-
-			StartDoorAnimWithDuration(
-				false,
-				ScareSlamDuration,
-				true);
-		}
-	}
-
+	// Lock immediately so a player cannot slip through while the door is closing.
+	// The close is intentionally fast and silent: no slam SFX, lock SFX, or noise event.
 	bLockedByHaunt = true;
-	SetLocked(true);
+	bIsLocked = true;
+	GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
+
+	if (bIsOpen || bAnimating)
+	{
+		const float LockCloseDuration = FMath::Max(HauntLockCloseDuration, 0.01f);
+		bIsOpen = false;
+		DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
+		ReplicatedAnimDuration = LockCloseDuration;
+		bReplicatedWasScareSlam = false;
+		StartDoorAnimWithDuration(false, LockCloseDuration, false);
+	}
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("[DoorHauntLock] Locked exit door=%s"),
@@ -464,7 +458,8 @@ void AGvTDoorActor::RemoveHauntExitLock()
 
 	bLockedByHaunt = false;
 
-	SetLocked(bWasLockedBeforeHaunt);
+	// Restore the pre-haunt state silently for the same reason the lockdown is silent.
+	bIsLocked = bWasLockedBeforeHaunt;
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("[DoorHauntLock] Restored exit door=%s Locked=%d"),

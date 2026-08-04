@@ -1,0 +1,81 @@
+#include "World/Extraction/GvTExtractionDepartureActor.h"
+#include "Components/BoxComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "GvTGameModeBase.h"
+#include "GvTPlayerController.h"
+
+AGvTExtractionDepartureActor::AGvTExtractionDepartureActor()
+{
+	PrimaryActorTick.bCanEverTick = false;
+	bReplicates = true;
+
+	InteractionBounds = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractionBounds"));
+	SetRootComponent(InteractionBounds);
+	InteractionBounds->SetBoxExtent(FVector(100.f, 100.f, 75.f));
+	InteractionBounds->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	InteractionBounds->SetCollisionObjectType(ECC_WorldDynamic);
+	InteractionBounds->SetCollisionResponseToAllChannels(ECR_Ignore);
+	InteractionBounds->SetCollisionResponseToChannel(ECC_Visibility, ECR_Block);
+
+	PlaceholderMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlaceholderMesh"));
+	PlaceholderMesh->SetupAttachment(InteractionBounds);
+	PlaceholderMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+void AGvTExtractionDepartureActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
+{
+	OutSpec = FGvTInteractionSpec{};
+	if (Verb != EGvTInteractionVerb::Interact) return;
+	OutSpec.CastTime = DepartureCastTime;
+	OutSpec.bLockMovement = true;
+	OutSpec.bLockLook = false;
+	OutSpec.bCancelable = true;
+	OutSpec.bEmitNoiseOnCancel = false;
+	OutSpec.LoopSfx = DepartureLoopSfx;
+	OutSpec.EndSfx = DepartureEndSfx;
+	OutSpec.CancelSfx = DepartureCancelSfx;
+}
+
+bool AGvTExtractionDepartureActor::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
+{
+	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
+	return Verb == EGvTInteractionVerb::Interact && IsValid(Thief) && !Thief->IsDead();
+}
+
+void AGvTExtractionDepartureActor::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
+{
+}
+
+void AGvTExtractionDepartureActor::CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
+{
+	if (!HasAuthority() || Verb != EGvTInteractionVerb::Interact) return;
+	if (AGvTGameModeBase* GM = GetWorld()->GetAuthGameMode<AGvTGameModeBase>())
+	{
+		const EGvTExtractionRequestResult Result = GM->RequestExtraction(InstigatorPawn);
+		if (AGvTPlayerController* PC = InstigatorPawn ? Cast<AGvTPlayerController>(InstigatorPawn->GetController()) : nullptr)
+		{
+			switch (Result)
+			{
+				case EGvTExtractionRequestResult::CarryingStolenLoot:
+					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("All stolen loot must be deposited before leaving.")), false);
+					break;
+				case EGvTExtractionRequestResult::MainObjectiveMissing:
+					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("The main objective has not been secured.")), false);
+					break;
+				case EGvTExtractionRequestResult::WaitingForPlayers:
+					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("Ready. Waiting for the remaining thieves.")), true);
+					break;
+				case EGvTExtractionRequestResult::DepartureStarted:
+					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("Everyone is ready. Leaving now.")), true);
+					break;
+				default:
+					break;
+			}
+		}
+	}
+}
+
+void AGvTExtractionDepartureActor::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)
+{
+}

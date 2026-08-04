@@ -1,5 +1,6 @@
 #include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 #include "Gameplay/Ghosts/GvTEventGhostBase.h"
+#include "Gameplay/Ghosts/Mirror/GvTReflectGhostActor.h"
 #include "Kismet/KismetRenderingLibrary.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundBase.h"
@@ -65,6 +66,11 @@ AGvTMirrorActor::AGvTMirrorActor()
 	MirrorSurface->bReceivesDecals = false;
 	MirrorSurface->SetHiddenInGame(true);
 	MirrorSurface->SetVisibility(false, true);
+
+	// Existing mirror Blueprints may not have this assigned. The C++ reflect ghost
+	// gives every mirror a valid capture actor while still allowing a Blueprint
+	// subclass to replace it with the final model.
+	EventGhostClass = AGvTReflectGhostActor::StaticClass();
 }
 
 void AGvTMirrorActor::OnConstruction(const FTransform& Transform)
@@ -215,15 +221,11 @@ void AGvTMirrorActor::EnsureGhost()
 		return;
 	}
 
-	if (!EventGhostClass)
+	TSubclassOf<AGvTEventGhostBase> SpawnClass = EventGhostClass;
+	if (!SpawnClass)
 	{
-		UE_LOG(
-			LogTemp,
-			Error,
-			TEXT("[Mirror] EnsureGhost aborted: EventGhostClass is NULL on %s"),
-			*GetName());
-
-		return;
+		SpawnClass = AGvTReflectGhostActor::StaticClass();
+		UE_LOG(LogTemp, Warning, TEXT("[Mirror] EventGhostClass was null on %s; using %s."), *GetName(), *GetNameSafe(SpawnClass));
 	}
 
 	if (IsValid(GhostInstance))
@@ -235,7 +237,7 @@ void AGvTMirrorActor::EnsureGhost()
 	Params.Owner = this;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	GhostInstance = GetWorld()->SpawnActor<AGvTEventGhostBase>(EventGhostClass, GetActorLocation(), GetActorRotation(), Params);
+	GhostInstance = GetWorld()->SpawnActor<AGvTEventGhostBase>(SpawnClass, GetActorLocation(), GetActorRotation(), Params);
 
 	if (!GhostInstance)
 	{
@@ -257,7 +259,7 @@ void AGvTMirrorActor::EnsureGhost()
 		Log,
 		TEXT("[Mirror] Spawned EventGhost=%s Class=%s"),
 		*GetNameSafe(GhostInstance),
-		*GetNameSafe(EventGhostClass));
+		*GetNameSafe(SpawnClass));
 }
 
 void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
@@ -288,9 +290,10 @@ void AGvTMirrorActor::TriggerReflectLocal(float Intensity01, float LifeSeconds)
 		return;
 	}
 
-	GhostInstance->BeginGhostEvent(nullptr, this, FGameplayTag::RequestGameplayTag(TEXT("GhostEvent.Mirror")));
-
+	GhostInstance->BeginGhostEvent(nullptr, this, GvTScareTags::GhostEvent_Mirror());
 	GhostInstance->StartEventPresentation(Intensity01, LifeSeconds);
+
+	EnsureGhostConfiguredForCaptureOnly();
 
 	MirrorCapture->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_UseShowOnlyList;
 	MirrorCapture->ClearShowOnlyComponents();

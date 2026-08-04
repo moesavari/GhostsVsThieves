@@ -116,6 +116,33 @@ void AGvTHauntGhostBase::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void AGvTHauntGhostBase::ApplyObjectiveHauntTuning(float SpeedMultiplier, float DurationMultiplier)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	const float SafeSpeedMultiplier = FMath::Max(1.0f, SpeedMultiplier);
+	const float SafeDurationMultiplier = FMath::Max(1.0f, DurationMultiplier);
+
+	RoamSpeed *= SafeSpeedMultiplier;
+	ChaseSpeed *= SafeSpeedMultiplier;
+	DirectChaseFallbackSpeed *= SafeSpeedMultiplier;
+	SearchRetargetDelaySeconds = FMath::Min(SearchRetargetDelaySeconds, 0.35f);
+	SearchAfterLostSightSeconds = FMath::Max(SearchAfterLostSightSeconds, 14.0f);
+	SearchRepathInterval = FMath::Min(SearchRepathInterval, 0.45f);
+	RoamRepathInterval = FMath::Min(RoamRepathInterval, 0.75f);
+	MaxHauntDurationSeconds *= SafeDurationMultiplier;
+
+	if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
+	{
+		MoveComp->MaxWalkSpeed = FMath::Max(MoveComp->MaxWalkSpeed, ChaseSpeed);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[ObjectiveHaunt] Aggressive tuning applied. Ghost=%s Chase=%.1f Search=%.1f Duration=%.1f"), *GetNameSafe(this), ChaseSpeed, SearchAfterLostSightSeconds, MaxHauntDurationSeconds);
+}
+
 void AGvTHauntGhostBase::BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag)
 {
 	Super::BeginGhostHaunt(Target, HauntTag);

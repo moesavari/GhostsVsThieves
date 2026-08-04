@@ -33,6 +33,12 @@ void AGvTInteractableItem::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (Mesh)
+	{
+		// Loot must never block or physically push player/ghost character capsules.
+		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+
 	if (!HasAuthority())
 	{
 		return;
@@ -221,11 +227,14 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 	if (!bHasTriggeredTheftReaction)
 	{
 		bHasTriggeredTheftReaction = true;
-		if (UWorld* World = GetWorld())
+		if (IsStolenLoot())
 		{
-			if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+			if (UWorld* World = GetWorld())
 			{
-				Director->OnPlayerInteractionEvent(Thief, this, EGvTInteractionVerb::Interact);
+				if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+				{
+					Director->OnPlayerInteractionEvent(Thief, this, EGvTInteractionVerb::Interact);
+				}
 			}
 		}
 	}
@@ -264,20 +273,20 @@ bool AGvTInteractableItem::IsGhostElectrical() const
 
 float AGvTInteractableItem::GetGhostReactionChance() const
 {
-	float TierChance = 0.75f;
+	float TierChance = 0.20f;
 
 	switch (ItemTier)
 	{
 		case EGvTItemTier::Small:
-			TierChance = 0.75f;
+			TierChance = 0.20f;
 			break;
 
 		case EGvTItemTier::Medium:
-			TierChance = 0.85f;
+			TierChance = 0.35f;
 			break;
 
 		case EGvTItemTier::Large:
-			TierChance = 0.95f;
+			TierChance = 0.55f;
 			break;
 
 		case EGvTItemTier::MainObjective:
@@ -293,20 +302,20 @@ float AGvTInteractableItem::GetGhostReactionChance() const
 
 float AGvTInteractableItem::GetGhostTensionImpulse() const
 {
-	float BaseImpulse = 0.04f;
+	float BaseImpulse = 0.03f;
 
 	switch (ItemTier)
 	{
 		case EGvTItemTier::Small:
-			BaseImpulse = 0.04f;
+			BaseImpulse = 0.03f;
 			break;
 
 		case EGvTItemTier::Medium:
-			BaseImpulse = 0.08f;
+			BaseImpulse = 0.07f;
 			break;
 
 		case EGvTItemTier::Large:
-			BaseImpulse = 0.14f;
+			BaseImpulse = 0.12f;
 			break;
 
 		case EGvTItemTier::MainObjective:
@@ -451,6 +460,9 @@ void AGvTInteractableItem::HandleMeshHit(UPrimitiveComponent* HitComponent, AAct
 		return;
 	}
 
+	// A dropped item may bounce or roll several times. Only the first meaningful
+	// impact after each drop should play audio and emit ghost-hearing noise.
+	bImpactArmed = false;
 	LastImpactSoundTime = Now;
 	FVector ImpactLocation = GetActorLocation();
 

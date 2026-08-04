@@ -19,6 +19,21 @@ public:
     UFUNCTION(Client, Reliable)
     void Client_ShowScanResult(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue);
 
+    UFUNCTION(Client, Reliable)
+    void Client_ShowExtractionMessage(const FText& Message, bool bSuccess);
+
+    UFUNCTION(Client, Reliable)
+    void Client_SetMissionInputLocked(bool bLocked);
+
+    UFUNCTION(Client, Reliable)
+    void Client_OpenVanInventory();
+
+    UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
+    void OnExtractionMessage(const FText& Message, bool bSuccess);
+
+    UFUNCTION(BlueprintImplementableEvent, Category="GvT|Van Inventory")
+    void OnOpenVanInventory();
+
     UFUNCTION()
     void HandlePanicChanged(float NewPanic01);
 

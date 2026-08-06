@@ -5,6 +5,8 @@
 #include "GameFramework/PlayerController.h"
 #include "GvTPlayerController.generated.h"
 
+class AGvTVanInventoryActor;
+
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
 {
@@ -22,23 +24,38 @@ public:
     UFUNCTION(Client, Reliable)
     void Client_ShowExtractionMessage(const FText& Message, bool bSuccess);
 
+    /** Generic owner-only HUD feedback entry point. Safe to call from server gameplay code. */
+    UFUNCTION(Client, Reliable, BlueprintCallable, Category="GvT|UI")
+    void Client_ShowHUDMessage(const FText& Message, bool bSuccess = false);
+
     UFUNCTION(Client, Reliable)
     void Client_SetMissionInputLocked(bool bLocked);
 
     UFUNCTION(Client, Reliable)
-    void Client_OpenVanInventory();
+    void Client_OpenVanInventory(AGvTVanInventoryActor* VanInventory);
+
+    /** Called by a van slot widget. The server performs all transfer validation. */
+    UFUNCTION(BlueprintCallable, Category="GvT|Van Inventory")
+    void RequestTakeVanItem(AGvTVanInventoryActor* VanInventory, int32 StackIndex);
+
+    /** Locks/unlocks only this local player's movement and camera while the van menu is open. */
+    UFUNCTION(BlueprintCallable, Category="GvT|Van Inventory")
+    void SetVanInventoryOpen(bool bOpen);
 
     UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
     void OnExtractionMessage(const FText& Message, bool bSuccess);
 
     UFUNCTION(BlueprintImplementableEvent, Category="GvT|Van Inventory")
-    void OnOpenVanInventory();
+    void OnOpenVanInventory(AGvTVanInventoryActor* VanInventory);
 
     UFUNCTION()
     void HandlePanicChanged(float NewPanic01);
 
     UFUNCTION()
     void HandleHauntPressureChanged(float NewPressure01);
+
+    UFUNCTION()
+    void HandleTeamSecuredLootChanged(int32 NewTeamSecuredLoot);
 
 protected:
     UFUNCTION(Exec)
@@ -63,11 +80,16 @@ protected:
     TSubclassOf<UGvTHUDWidget> HUDWidgetClass;
 
 private:
+	UFUNCTION(Server, Reliable)
+	void Server_RequestTakeVanItem(AGvTVanInventoryActor* VanInventory, int32 StackIndex);
+
     void UpdateHighlight();
     void SetActorHighlighted(AActor* Actor, bool bHighlighted);
     void BindHUDToPlayerState();
+    void BindHUDToGameState();
 
     TWeakObjectPtr<AActor> CurrentHighlightedActor;
     TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
     FTimerHandle TimerHandle_BindHUDRetry;
+    FTimerHandle TimerHandle_BindGameStateRetry;
 };

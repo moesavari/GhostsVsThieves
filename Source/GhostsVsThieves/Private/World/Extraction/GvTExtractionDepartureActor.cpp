@@ -1,5 +1,6 @@
 #include "World/Extraction/GvTExtractionDepartureActor.h"
 #include "Components/BoxComponent.h"
+#include "Components/SceneComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "GvTGameModeBase.h"
@@ -10,8 +11,11 @@ AGvTExtractionDepartureActor::AGvTExtractionDepartureActor()
 	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = true;
 
+	SceneRoot = CreateDefaultSubobject<USceneComponent>(TEXT("SceneRoot"));
+	SetRootComponent(SceneRoot);
+
 	InteractionBounds = CreateDefaultSubobject<UBoxComponent>(TEXT("InteractionBounds"));
-	SetRootComponent(InteractionBounds);
+	InteractionBounds->SetupAttachment(SceneRoot);
 	InteractionBounds->SetBoxExtent(FVector(100.f, 100.f, 75.f));
 	InteractionBounds->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	InteractionBounds->SetCollisionObjectType(ECC_WorldDynamic);

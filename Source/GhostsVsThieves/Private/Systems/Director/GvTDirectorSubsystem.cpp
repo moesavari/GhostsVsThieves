@@ -13,7 +13,7 @@
 #include "World/Doors/GvTDoorActor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "EngineUtils.h"
-#include "GameFramework/Volume.h"
+#include "Systems/World/GvTHouseBoundsLibrary.h"
 #include "NavigationSystem.h"
 #include "Systems/GvTPowerBoxActor.h"
 #include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
@@ -777,14 +777,15 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 			return false;
 		}
 
-		const bool bSlammed = Door->TriggerScareSlam();
-		if (!bSlammed)
+		const bool bTryCreak = FMath::FRand() <= DoorCreakSelectionChance && Door->CanTriggerScareCreak();
+		const bool bDoorScarePlayed = bTryCreak ? Door->TriggerScareCreak() : Door->TriggerScareSlam();
+		if (!bDoorScarePlayed)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[Director] DoorSlamBehind failed: %s was not slam-eligible."), *GetNameSafe(Door));
+			UE_LOG(LogTemp, Warning, TEXT("[Director] Door scare failed: %s was not eligible."), *GetNameSafe(Door));
 			return false;
 		}
 
-		ApplyDoorSlamPanicToNearbyPlayers(Door, Target, bSlammed);
+		ApplyDoorSlamPanicToNearbyPlayers(Door, Target, bDoorScarePlayed);
 
 		const float PanicRadius = FMath::Max(0.f, DoorSlamPanicRadius);
 
@@ -793,7 +794,8 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		const bool bTargetWithinPanicVicinity = TargetDistance <= PanicRadius;
 
 		UE_LOG(LogTemp, Warning,
-			TEXT("[Director] Dispatch DoorSlamBehind target=%s door=%s withinPanicVicinity=%d dist=%.1f radius=%.1f"),
+			TEXT("[Director] Dispatch DoorScare mode=%s target=%s door=%s withinPanicVicinity=%d dist=%.1f radius=%.1f"),
+			bTryCreak ? TEXT("Creak") : TEXT("Slam"),
 			*GetNameSafe(Target),
 			*GetNameSafe(Door),
 			bTargetWithinPanicVicinity ? 1 : 0,
@@ -1831,7 +1833,7 @@ float UGvTDirectorSubsystem::ScoreDoorForSlam(const APawn* TargetPawn, const AGv
 		return -1.f;
 	}
 
-	if (!Door->CanTriggerScareSlam())
+	if (!Door->CanTriggerScareSlam() && !Door->CanTriggerScareCreak())
 	{
 		return -1.f;
 	}
@@ -2354,21 +2356,7 @@ bool UGvTDirectorSubsystem::IsPawnEligibleForDirector(
 	}
 
 	bool bFoundHouseBounds = false;
-	bool bInsideHouse = false;
-	if (UWorld* World = GetWorld())
-	{
-		for (TActorIterator<AVolume> It(World); It; ++It)
-		{
-			if (!It->ActorHasTag(TEXT("HouseBounds"))) continue;
-			bFoundHouseBounds = true;
-			if (It->EncompassesPoint(Pawn->GetActorLocation()))
-			{
-				bInsideHouse = true;
-				break;
-			}
-		}
-	}
-	if (bFoundHouseBounds && !bInsideHouse)
+	if (!UGvTHouseBoundsLibrary::IsLocationInsideHouse(this, Pawn->GetActorLocation(), bFoundHouseBounds))
 	{
 		return false;
 	}

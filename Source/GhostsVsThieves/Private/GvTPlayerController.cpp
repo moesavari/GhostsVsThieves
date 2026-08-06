@@ -1,9 +1,12 @@
 #include "GvTPlayerController.h"
 #include "Blueprint/UserWidget.h"
 #include "GvTPlayerState.h"
+#include "GvTGameStateBase.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Engine/World.h"
 #include "Gameplay/Interaction/GvTInteractable.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "World/Extraction/GvTVanInventoryActor.h"
 
 void AGvTPlayerController::BeginPlay()
 {
@@ -28,6 +31,38 @@ void AGvTPlayerController::BeginPlay()
 	{
 		HUDWidget->AddToViewport();
 		BindHUDToPlayerState();
+		BindHUDToGameState();
+	}
+}
+
+void AGvTPlayerController::BindHUDToGameState()
+{
+	if (!IsLocalController() || !HUDWidget)
+	{
+		return;
+	}
+
+	AGvTGameStateBase* GS = GetWorld() ? GetWorld()->GetGameState<AGvTGameStateBase>() : nullptr;
+	if (!GS)
+	{
+		if (!GetWorldTimerManager().IsTimerActive(TimerHandle_BindGameStateRetry))
+		{
+			GetWorldTimerManager().SetTimer(TimerHandle_BindGameStateRetry, this, &ThisClass::BindHUDToGameState, 0.1f, true);
+		}
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(TimerHandle_BindGameStateRetry);
+	HUDWidget->SetTeamSecuredLoot(GS->GetTeamSecuredLoot());
+	GS->OnTeamSecuredLootChanged.RemoveDynamic(this, &ThisClass::HandleTeamSecuredLootChanged);
+	GS->OnTeamSecuredLootChanged.AddDynamic(this, &ThisClass::HandleTeamSecuredLootChanged);
+}
+
+void AGvTPlayerController::HandleTeamSecuredLootChanged(int32 NewTeamSecuredLoot)
+{
+	if (HUDWidget)
+	{
+		HUDWidget->SetTeamSecuredLoot(NewTeamSecuredLoot);
 	}
 }
 
@@ -102,7 +137,25 @@ void AGvTPlayerController::Client_ShowScanResult_Implementation(AActor* Item, co
 void AGvTPlayerController::Client_ShowExtractionMessage_Implementation(const FText& Message, bool bSuccess)
 {
 	OnExtractionMessage(Message, bSuccess);
-	ClientMessage(Message.ToString());
+	Client_ShowHUDMessage_Implementation(Message, bSuccess);
+}
+
+void AGvTPlayerController::Client_ShowHUDMessage_Implementation(const FText& Message, bool bSuccess)
+{
+	if (Message.IsEmpty())
+	{
+		return;
+	}
+
+	if (HUDWidget)
+	{
+		HUDWidget->ShowHUDMessage(Message, bSuccess);
+	}
+	else
+	{
+		// Preserve feedback if the HUD Blueprint has not been configured yet.
+		ClientMessage(Message.ToString());
+	}
 }
 
 void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLocked)
@@ -111,9 +164,55 @@ void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLoc
 	SetIgnoreLookInput(bLocked);
 }
 
-void AGvTPlayerController::Client_OpenVanInventory_Implementation()
+void AGvTPlayerController::Client_OpenVanInventory_Implementation(AGvTVanInventoryActor* VanInventory)
 {
-	OnOpenVanInventory();
+	SetVanInventoryOpen(true);
+	OnOpenVanInventory(VanInventory);
+}
+
+void AGvTPlayerController::RequestTakeVanItem(AGvTVanInventoryActor* VanInventory, int32 StackIndex)
+{
+	if (IsLocalController() && IsValid(VanInventory) && StackIndex >= 0)
+	{
+		Server_RequestTakeVanItem(VanInventory, StackIndex);
+	}
+}
+
+void AGvTPlayerController::Server_RequestTakeVanItem_Implementation(AGvTVanInventoryActor* VanInventory, int32 StackIndex)
+{
+	FText FailureMessage;
+	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(GetPawn());
+	if (!IsValid(VanInventory) || !VanInventory->TryTakeItem(Thief, StackIndex, FailureMessage))
+	{
+		Client_ShowHUDMessage(FailureMessage.IsEmpty() ? NSLOCTEXT("GvTVanInventory", "RequestFailed", "Unable to take that item.") : FailureMessage, false);
+		return;
+	}
+
+	Client_ShowHUDMessage(NSLOCTEXT("GvTVanInventory", "ItemTaken", "Item added to inventory."), true);
+}
+
+void AGvTPlayerController::SetVanInventoryOpen(bool bOpen)
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	SetIgnoreMoveInput(bOpen);
+	SetIgnoreLookInput(bOpen);
+	bShowMouseCursor = bOpen;
+
+	if (bOpen)
+	{
+		FInputModeGameAndUI InputMode;
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		SetInputMode(InputMode);
+	}
+	else
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
 }
 
 static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)

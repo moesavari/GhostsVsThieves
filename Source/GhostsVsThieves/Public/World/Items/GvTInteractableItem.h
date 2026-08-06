@@ -12,6 +12,7 @@ class UGvTDirectorSubsystem;
 class AGvTThiefCharacter;
 class USoundBase;
 class UPrimitiveComponent;
+class UTexture2D;
 
 UENUM(BlueprintType)
 enum class EGvTItemTier : uint8
@@ -64,8 +65,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
 	int32 GetInventorySpaceCost() const;
 
+	UFUNCTION(BlueprintPure, Category = "Item|Inventory|UI")
+	FText GetInventoryDisplayName() const { return DisplayName; }
+
+	UFUNCTION(BlueprintPure, Category = "Item|Inventory|UI")
+	FText GetInventoryDescription() const { return InventoryDescription; }
+
+	UFUNCTION(BlueprintPure, Category = "Item|Inventory|UI")
+	UTexture2D* GetInventoryIcon() const { return InventoryIcon; }
+
 	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
 	bool IsCarried() const { return Carrier != nullptr; }
+
+	UFUNCTION(BlueprintPure, Category = "Item|Scan")
+	bool HasBeenScanned() const { return bHasBeenScanned; }
 
 	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
 	FVector GetDropCollisionExtent() const;
@@ -225,6 +238,12 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scan")
 	FText DisplayName = FText::FromString(TEXT("Item"));
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item|Inventory|UI", meta=(MultiLine="true"))
+	FText InventoryDescription;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Item|Inventory|UI")
+	TObjectPtr<UTexture2D> InventoryIcon = nullptr;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Scan", meta = (ClampMin = "0.0"))
 	float ScanMultiplier = 1.0f;

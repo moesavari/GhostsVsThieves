@@ -8,6 +8,8 @@
 #include "Net/UnrealNetwork.h"
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Gameplay/Inventory/GvTInventoryComponent.h"
+#include "GvTPlayerController.h"
 #include "Systems/Noise/GvTNoiseSubsystem.h"
 #include "Components/AudioComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -157,12 +159,39 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
 	if (!HitActor || !HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
+		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(OwnerPawn->GetController()))
+		{
+			PC->Client_ShowHUDMessage(FText::FromString(TEXT("Nothing to interact with.")), false);
+		}
 		return;
 	}
 
 	if (!IGvTInteractable::Execute_CanInteract(HitActor, OwnerPawn, Verb))
 	{
 		UE_LOG(LogTemp, Verbose, TEXT("[Interaction] Player=%s Target=%s Verb=%d Result=REJECTED"), *GetNameSafe(OwnerPawn), *GetNameSafe(HitActor), static_cast<int32>(Verb));
+
+		FText FailureMessage = FText::FromString(TEXT("Cannot interact with that right now."));
+		if (const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(HitActor))
+		{
+			if (Verb == EGvTInteractionVerb::Scan && Item->HasBeenScanned())
+			{
+				FailureMessage = FText::FromString(TEXT("This item has already been scanned."));
+			}
+			else if (Verb == EGvTInteractionVerb::Interact)
+			{
+				const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(OwnerPawn);
+				const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+				if (Inventory && Item->GetInventorySpaceCost() > Inventory->GetRemainingCapacity())
+				{
+					FailureMessage = FText::FromString(TEXT("Not enough inventory space."));
+				}
+			}
+		}
+
+		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(OwnerPawn->GetController()))
+		{
+			PC->Client_ShowHUDMessage(FailureMessage, false);
+		}
 		return;
 	}
 

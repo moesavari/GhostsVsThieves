@@ -171,7 +171,7 @@ void AGvTDoorActor::Multicast_PlaySFX_Implementation(USoundBase* Sound)
 
 void AGvTDoorActor::OnRep_DoorAnimStart()
 {
-	StartDoorAnimWithDuration(bIsOpen, ReplicatedAnimDuration, bReplicatedWasScareSlam);
+	StartDoorAnimToYaw(ReplicatedTargetYaw, ReplicatedAnimDuration, bReplicatedWasScareSlam);
 }
 
 void AGvTDoorActor::OnRep_IsOpen()
@@ -195,6 +195,12 @@ void AGvTDoorActor::StartDoorAnimWithDuration(bool bOpen, float Duration, bool b
 {
 	const float SignedOpen = bInvertDirection ? -OpenYaw : OpenYaw;
 	const float TargetYaw = bOpen ? SignedOpen : ClosedYaw;
+	ReplicatedTargetYaw = TargetYaw;
+	StartDoorAnimToYaw(TargetYaw, Duration, bWasScareSlam);
+}
+
+void AGvTDoorActor::StartDoorAnimToYaw(float TargetYaw, float Duration, bool bWasScareSlam)
+{
 
 	AnimFromYaw = Hinge->GetRelativeRotation().Yaw;
 	AnimToYaw = TargetYaw;
@@ -292,6 +298,7 @@ void AGvTDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	DOREPLIFETIME(AGvTDoorActor, DoorAnimStartServerTime);
 	DOREPLIFETIME(AGvTDoorActor, ReplicatedAnimDuration);
 	DOREPLIFETIME(AGvTDoorActor, bReplicatedWasScareSlam);
+	DOREPLIFETIME(AGvTDoorActor, ReplicatedTargetYaw);
 	DOREPLIFETIME(AGvTDoorActor, bIsLocked);
 }
 
@@ -485,4 +492,57 @@ bool AGvTDoorActor::CanTriggerScareSlam() const
 	}
 
 	return GetCurrentOpenAlpha() >= ScareSlamMinOpenAlpha;
+}
+
+bool AGvTDoorActor::CanTriggerScareCreak() const
+{
+	return HasAuthority() && !bIsLocked && !bLockedByHaunt && !bReplicatedWasScareSlam && Hinge && ScareCreakTargetAlphas.Num() > 0;
+}
+
+bool AGvTDoorActor::TriggerScareCreak()
+{
+	if (!CanTriggerScareCreak())
+	{
+		return false;
+	}
+
+	const float CurrentAlpha = GetCurrentOpenAlpha();
+	TArray<float> ValidTargets;
+	for (const float Candidate : ScareCreakTargetAlphas)
+	{
+		const float ClampedCandidate = FMath::Clamp(Candidate, 0.f, 1.f);
+		if (FMath::Abs(ClampedCandidate - CurrentAlpha) >= ScareCreakMinTravelAlpha)
+		{
+			ValidTargets.Add(ClampedCandidate);
+		}
+	}
+
+	if (ValidTargets.IsEmpty())
+	{
+		ValidTargets.Add(CurrentAlpha >= 0.5f ? 0.f : 1.f);
+	}
+
+	const float TargetAlpha = ValidTargets[FMath::RandRange(0, ValidTargets.Num() - 1)];
+	const float SignedOpen = bInvertDirection ? -OpenYaw : OpenYaw;
+	const float TargetYaw = FMath::Lerp(ClosedYaw, SignedOpen, TargetAlpha);
+	const bool bOpening = TargetAlpha > CurrentAlpha;
+	const float Duration = FMath::FRandRange(FMath::Min(ScareCreakDurationMin, ScareCreakDurationMax), FMath::Max(ScareCreakDurationMin, ScareCreakDurationMax));
+	const TArray<TObjectPtr<USoundBase>>& Sounds = bOpening ? SFX_ScareCreakOpen : SFX_ScareCreakClose;
+
+	GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
+	bIsOpen = TargetAlpha > KINDA_SMALL_NUMBER;
+	DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
+	ReplicatedAnimDuration = FMath::Max(Duration, 0.1f);
+	bReplicatedWasScareSlam = false;
+	ReplicatedTargetYaw = TargetYaw;
+	StartDoorAnimToYaw(TargetYaw, ReplicatedAnimDuration, false);
+
+	if (!Sounds.IsEmpty())
+	{
+		Multicast_PlaySFX(Sounds[FMath::RandRange(0, Sounds.Num() - 1)]);
+	}
+
+	ForceNetUpdate();
+	UE_LOG(LogTemp, Log, TEXT("[DoorScareCreak] Door=%s Direction=%s FromAlpha=%.2f ToAlpha=%.2f Duration=%.2f"), *GetNameSafe(this), bOpening ? TEXT("Open") : TEXT("Close"), CurrentAlpha, TargetAlpha, ReplicatedAnimDuration);
+	return true;
 }

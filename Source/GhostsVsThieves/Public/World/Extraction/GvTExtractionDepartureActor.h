@@ -6,6 +6,7 @@
 #include "GvTExtractionDepartureActor.generated.h"
 
 class UBoxComponent;
+class USceneComponent;
 class UStaticMeshComponent;
 class USoundBase;
 
@@ -23,6 +24,9 @@ public:
 	virtual void CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason) override;
 
 protected:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Extraction")
+	TObjectPtr<USceneComponent> SceneRoot;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Extraction")
 	TObjectPtr<UBoxComponent> InteractionBounds;
 

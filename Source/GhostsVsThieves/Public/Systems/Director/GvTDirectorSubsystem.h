@@ -285,6 +285,10 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0"))
 	float DoorSlamPanicCooldown = 2.0f;
 
+	/** Chance that a selected door scare creeps instead of slamming. */
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DoorCreakSelectionChance = 0.45f;
+
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|Ghost Scare", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float CloseGhostScarePanicAmount = 7.0f;
 

@@ -13,6 +13,10 @@ public:
 	UFUNCTION(BlueprintImplementableEvent)
 	void SetLootValue(int32 Value);
 
+	/** Shared value already secured in the van; distinct from this player's carried loot. */
+	UFUNCTION(BlueprintImplementableEvent, Category="GvT|HUD")
+	void SetTeamSecuredLoot(int32 Value);
+
 	UFUNCTION()
 	void HandleLootChanged(int32 NewLoot);
 
@@ -21,4 +25,8 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|HUD")
 	void UpdatePanicDisplay(float NewPanic01);
+
+	/** Displays short player-facing feedback such as interaction failures or mission status. */
+	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|HUD")
+	void ShowHUDMessage(const FText& Message, bool bSuccess);
 };

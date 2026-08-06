@@ -24,6 +24,16 @@ public:
 	UFUNCTION(BlueprintPure, Category="GvT|Inventory")
 	AGvTInteractableItem* GetSelectedItem() const;
 
+	/** Snapshot used by the van inventory HUD. Do not mutate the returned array. */
+	UFUNCTION(BlueprintPure, Category="GvT|Inventory|UI")
+	TArray<AGvTInteractableItem*> GetCarriedItems() const;
+
+	UFUNCTION(BlueprintPure, Category="GvT|Inventory|UI")
+	int32 GetMaxCapacity() const { return MaxCapacityUnits; }
+
+	UFUNCTION(BlueprintPure, Category="GvT|Inventory|UI")
+	int32 GetSelectedItemIndex() const { return SelectedItemIndex; }
+
 	UFUNCTION(BlueprintPure, Category="GvT|Inventory")
 	bool CanAddItem(const AGvTInteractableItem* Item) const;
 

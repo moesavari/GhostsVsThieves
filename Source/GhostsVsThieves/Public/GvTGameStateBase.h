@@ -4,6 +4,8 @@
 #include "GameFramework/GameStateBase.h"
 #include "GvTGameStateBase.generated.h"
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGvTTeamSecuredLootChanged, int32, NewTeamSecuredLoot);
+
 UENUM(BlueprintType)
 enum class EGvTMissionPhase : uint8
 {
@@ -49,6 +51,9 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
 	void OnMissionDataChanged();
+
+	UPROPERTY(BlueprintAssignable, Category="GvT|Mission")
+	FGvTTeamSecuredLootChanged OnTeamSecuredLootChanged;
 
 	UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
 	void OnMissionResultsReady(EGvTMissionOutcome Outcome, int32 FinalSecuredLoot);

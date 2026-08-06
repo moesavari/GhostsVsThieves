@@ -6,6 +6,7 @@
 #include "World/Items/GvTInteractableItem.h"
 #include "GvTGameModeBase.h"
 #include "GvTGameStateBase.h"
+#include "GvTPlayerController.h"
 
 AGvTReconDepositActor::AGvTReconDepositActor()
 {
@@ -73,6 +74,10 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 	if (!Inventory || !SelectedItem || !SelectedItem->IsStolenLoot())
 	{
 		UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Result=REJECTED Reason=NotStolenLoot"), *GetNameSafe(Thief));
+		if (AGvTPlayerController* PC = Thief ? Cast<AGvTPlayerController>(Thief->GetController()) : nullptr)
+		{
+			PC->Client_ShowHUDMessage(FText::FromString(TEXT("Select stolen loot before depositing.")), false);
+		}
 		return;
 	}
 
@@ -82,6 +87,10 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 	if (!Inventory->TryRemoveSelectedItemForDeposit(RemovedItem) || RemovedItem != SelectedItem)
 	{
 		UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Item=%s Result=REJECTED Reason=InventoryChanged"), *GetNameSafe(Thief), *ItemName);
+		if (AGvTPlayerController* PC = Thief ? Cast<AGvTPlayerController>(Thief->GetController()) : nullptr)
+		{
+			PC->Client_ShowHUDMessage(FText::FromString(TEXT("Deposit failed. Your inventory changed.")), false);
+		}
 		return;
 	}
 
@@ -93,6 +102,10 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 
 	const AGvTGameStateBase* GS = GetWorld()->GetGameState<AGvTGameStateBase>();
 	UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Item=%s Value=%d TeamSecuredTotal=%d Result=SUCCESS"), *GetNameSafe(Thief), *ItemName, SecuredValue, GS ? GS->GetTeamSecuredLoot() : 0);
+	if (AGvTPlayerController* PC = Thief ? Cast<AGvTPlayerController>(Thief->GetController()) : nullptr)
+	{
+		PC->Client_ShowHUDMessage(FText::Format(FText::FromString(TEXT("Loot secured: {0}")), FText::AsNumber(SecuredValue)), true);
+	}
 }
 
 void AGvTReconDepositActor::CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason)

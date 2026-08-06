@@ -44,6 +44,7 @@ void AGvTGameStateBase::SetReadyPlayerCountAuthority(int32 NewCount)
 
 void AGvTGameStateBase::OnRep_MissionData()
 {
+	OnTeamSecuredLootChanged.Broadcast(TeamSecuredLoot);
 	OnMissionDataChanged();
 	if (MissionPhase == EGvTMissionPhase::Results && MissionOutcome != EGvTMissionOutcome::None)
 	{

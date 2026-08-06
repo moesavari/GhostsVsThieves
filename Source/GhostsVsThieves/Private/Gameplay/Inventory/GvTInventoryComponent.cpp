@@ -32,6 +32,20 @@ AGvTInteractableItem* UGvTInventoryComponent::GetSelectedItem() const
 	return CarriedItems.IsValidIndex(SelectedItemIndex) ? CarriedItems[SelectedItemIndex] : nullptr;
 }
 
+TArray<AGvTInteractableItem*> UGvTInventoryComponent::GetCarriedItems() const
+{
+	TArray<AGvTInteractableItem*> Result;
+	Result.Reserve(CarriedItems.Num());
+	for (AGvTInteractableItem* Item : CarriedItems)
+	{
+		if (IsValid(Item))
+		{
+			Result.Add(Item);
+		}
+	}
+	return Result;
+}
+
 bool UGvTInventoryComponent::CanAddItem(const AGvTInteractableItem* Item) const
 {
 	return IsValid(Item) && !CarriedItems.Contains(Item) && Item->GetInventorySpaceCost() <= GetRemainingCapacity();

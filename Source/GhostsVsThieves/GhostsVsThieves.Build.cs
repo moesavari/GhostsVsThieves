@@ -22,6 +22,8 @@ public class GhostsVsThieves : ModuleRules
             "NetCore",
             "NavigationSystem",
             "AIModule",
+            "OnlineSubsystem",
+            "OnlineSubsystemUtils",
         });
         PrivateDependencyModuleNames.AddRange(new string[] {  });
 

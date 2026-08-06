@@ -56,6 +56,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Door|Scare")
 	bool CanTriggerScareSlam() const;
 
+	/** Slowly moves the door to a random safe hinge angle and plays positional creak audio. */
+	UFUNCTION(BlueprintCallable, Category = "Door|Scare")
+	bool TriggerScareCreak();
+
+	UFUNCTION(BlueprintPure, Category = "Door|Scare")
+	bool CanTriggerScareCreak() const;
+
 	UFUNCTION(BlueprintPure, Category = "Door")
 	bool IsOpen() const { return bIsOpen; }
 
@@ -109,6 +116,19 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door|Scare", meta = (ClampMin = "0.01"))
 	float ScareSlamDuration = 0.12f;
 
+	UPROPERTY(EditAnywhere, Category = "Door|Scare|Creak", meta = (ClampMin = "0.1"))
+	float ScareCreakDurationMin = 2.5f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Scare|Creak", meta = (ClampMin = "0.1"))
+	float ScareCreakDurationMax = 5.0f;
+
+	/** Random destinations expressed between ClosedYaw (0) and OpenYaw (1). */
+	UPROPERTY(EditAnywhere, Category = "Door|Scare|Creak")
+	TArray<float> ScareCreakTargetAlphas = { 0.18f, 0.35f, 0.55f, 0.75f };
+
+	UPROPERTY(EditAnywhere, Category = "Door|Scare|Creak", meta = (ClampMin = "0.01", ClampMax = "1.0"))
+	float ScareCreakMinTravelAlpha = 0.12f;
+
 	// ---- Noise ----
 	UPROPERTY(EditAnywhere, Category = "Door|Noise")
 	float DoorNoiseRadius = 1200.f;
@@ -157,6 +177,9 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_DoorAnimStart)
 	bool bReplicatedWasScareSlam = false;
 
+	UPROPERTY(ReplicatedUsing = OnRep_DoorAnimStart)
+	float ReplicatedTargetYaw = 0.f;
+
 	UFUNCTION()
 	void OnRep_IsOpen();
 
@@ -169,6 +192,7 @@ protected:
 
 	void StartDoorAnim(bool bOpen);
 	void StartDoorAnimWithDuration(bool bOpen, float Duration, bool bWasScareSlam);
+	void StartDoorAnimToYaw(float TargetYaw, float Duration, bool bWasScareSlam);
 	void ApplyDoorState(bool bOpen);
 	float GetCurrentOpenAlpha() const;
 	void PlayDoorCloseEndSFX(bool bWasScareSlam);
@@ -182,6 +206,8 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_Unlock = nullptr;
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_ScareSlamStart = nullptr;
 	UPROPERTY(EditAnywhere, Category = "Door|Audio") USoundBase* SFX_ScareSlamEnd = nullptr;
+	UPROPERTY(EditAnywhere, Category = "Door|Audio|Creak") TArray<TObjectPtr<USoundBase>> SFX_ScareCreakOpen;
+	UPROPERTY(EditAnywhere, Category = "Door|Audio|Creak") TArray<TObjectPtr<USoundBase>> SFX_ScareCreakClose;
 
 
 	UFUNCTION(NetMulticast, Reliable)

@@ -112,3 +112,6 @@ Build/*
 Thumbs.db
 Desktop.ini
 *_BuiltData.uasset
+
+# Downloaded Fab marketplace assets
+/Content/Fab/

@@ -16,6 +16,7 @@
 #include "Systems/World/GvTHouseBoundsLibrary.h"
 #include "NavigationSystem.h"
 #include "Systems/GvTPowerBoxActor.h"
+#include "Systems/Light/GvTLightFlickerSubsystem.h"
 #include "Gameplay/Ghosts/GvTGhostCharacterBase.h"
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 #include "Gameplay/Ghosts/GvTGhostSpawnPoint.h"
@@ -128,6 +129,10 @@ void UGvTDirectorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 void UGvTDirectorSubsystem::Deinitialize()
 {
 	StopDirector();
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(TimerHandle_TheftReaction);
+	}
 
 	Super::Deinitialize();
 	UE_LOG(LogTemp, Log, TEXT("GvT Director Subsystem Deinitialized"));
@@ -241,7 +246,8 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 
 	const float Panic01 = GetPanicForPawn(TargetPawn);
 
-	if (!bHauntActive && !bPostHauntRecovery && Panic01 >= HauntChasePanicThreshold01) 
+	const bool bHauntUnlocked = Panic01 >= HauntChasePanicThreshold01 || HouseActivity01 >= HauntActivityUnlock01;
+	if (!bHauntActive && !bPostHauntRecovery && bHauntUnlocked)
 	{
 		AActor* ChaseTarget = TargetPawn;
 		if (FMath::FRand() <= GhostScreamHighestPanicBiasChance)
@@ -295,12 +301,12 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 	TArray<FGvTScareEvent> EligibleEvents;
 	EligibleEvents.Reserve(12);
 
-	if (!bHauntActive && Panic01 >= GhostScareMinPanicThreshold01)
+	if (Panic01 >= GhostScareMinPanicThreshold01 || HouseActivity01 >= GhostScareActivityUnlock01)
 	{
 		EligibleEvents.Add(MakeRearAudioStingEvent(TargetPawn));
 		EligibleEvents.Add(MakeGhostScreamEvent(TargetPawn));
 
-		if (!bHauntActive && FMath::FRand() <= CloseGhostScareSelectionChance)
+		if (FMath::FRand() <= CloseGhostScareSelectionChance)
 		{
 			EligibleEvents.Add(MakeCloseGhostScareEvent(TargetPawn));
 		}
@@ -313,7 +319,7 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 		EligibleEvents.Add(MakeDoorSlamBehindEvent(TargetPawn, Door));
 	}
 
-	if (Panic01 >= MirrorEventPanicThreshold01)
+	if (Panic01 >= MirrorEventPanicThreshold01 || HouseActivity01 >= MirrorActivityUnlock01)
 	{
 		const float MirrorAlpha = FMath::Clamp((Panic01 - MirrorEventPanicThreshold01) / FMath::Max(0.01f, 1.0f - MirrorEventPanicThreshold01), 0.0f, 1.0f);
 		const float MirrorChance = FMath::Lerp(MirrorChanceAtThreshold01, MirrorChanceAtMaxPanic01, MirrorAlpha);
@@ -327,7 +333,7 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 
 	// If the priority chase roll missed, still keep haunt/chase in the fallback pool above 60%.
 	// This prevents a failed priority roll from making high panic feel strangely safe.
-	if (!bPostHauntRecovery && Panic01 >= HauntChasePanicThreshold01)
+	if (!bHauntActive && !bPostHauntRecovery && bHauntUnlocked)
 	{
 		EligibleEvents.Add(MakeCrawlerChaseEvent(TargetPawn));
 	}
@@ -344,32 +350,31 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 		return false;
 	}
 
-	const int32 Index = FMath::RandRange(0, EligibleEvents.Num() - 1);
-	const FGvTScareEvent Event = EligibleEvents[Index];
-
-	const bool bDispatched = DispatchScareEvent(Event);
-	if (bDispatched && GetWorld())
+	while (!EligibleEvents.IsEmpty())
 	{
+		const int32 Index = FMath::RandRange(0, EligibleEvents.Num() - 1);
+		const FGvTScareEvent Event = EligibleEvents[Index];
+		EligibleEvents.RemoveAtSwap(Index);
+
+		const bool bDispatched = DispatchScareEvent(Event);
+		UE_LOG(LogTemp, Log, TEXT("[DirectorThreshold] AutoScare Target=%s Tag=%s Panic=%.2f Activity=%.2f Dispatched=%d"), *GetNameSafe(Event.TargetActor), *Event.ScareTag.ToString(), Panic01, HouseActivity01, bDispatched ? 1 : 0);
+
+		if (!bDispatched)
+		{
+			continue;
+		}
+
 		if (APawn* RememberPawn = Cast<APawn>(Event.TargetActor))
 		{
 			RememberTarget(RememberPawn);
 		}
 
 		LastGlobalHauntTime = GetWorld()->GetTimeSeconds();
-	}
-	if(bDispatched)
 		ApplyHouseTensionImpulse(GetDispatchTensionImpulse(Event));
+		return true;
+	}
 
-	UE_LOG(LogTemp, Log,
-		TEXT("[DirectorThreshold] AutoScare Target=%s Tag=%s Panic=%.2f MirrorMin=%.2f ChaseMin=%.2f Dispatched=%d"),
-		*GetNameSafe(Event.TargetActor),
-		*Event.ScareTag.ToString(),
-		Panic01,
-		MirrorEventPanicThreshold01,
-		HauntChasePanicThreshold01,
-		bDispatched ? 1 : 0);
-
-	return bDispatched;
+	return false;
 }
 
 AActor* UGvTDirectorSubsystem::ChooseBestTarget() const
@@ -550,7 +555,7 @@ void UGvTDirectorSubsystem::ApplyDoorSlamPanicToNearbyPlayers(AGvTDoorActor* Doo
 
 	FGvTPanicEvent PanicEvent;
 	PanicEvent.Source = EGvTPanicSource::DoorSlam;
-	PanicEvent.PanicDelta01 = FMath::Max(0.f, DoorSlamBehindPanicAmount) / 100.f;
+	PanicEvent.PanicDelta01 = ScalePanicAmount(DoorSlamBehindPanicAmount) / 100.f;
 
 	PanicEvent.HauntPressureDelta01 = FMath::Clamp(DoorSlamPressureAmount01, 0.f, 1.f);
 
@@ -620,7 +625,7 @@ void UGvTDirectorSubsystem::ApplyHauntStartPanicToAllPlayers(AActor* HauntSource
 
 	FGvTPanicEvent PanicEvent;
 	PanicEvent.Source = EGvTPanicSource::GhostHauntStart;
-	PanicEvent.PanicDelta01 = HauntStartPanicAmount / 100.f;
+	PanicEvent.PanicDelta01 = ScalePanicAmount(HauntStartPanicAmount) / 100.f;
 	PanicEvent.HauntPressureDelta01 = HauntStartPressureAmount01;
 	PanicEvent.SourceActor = HauntSource;
 	PanicEvent.InstigatorActor = InstigatorActor;
@@ -686,6 +691,12 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	}
 
 	const bool bIsLightChaseEvent = Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase());
+	if (bIsLightChaseEvent && !IsLightingScareAvailable(Event))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DirectorPower] Lighting scare rejected because house power/lights are unavailable. Tag=%s"), *Event.ScareTag.ToString());
+		return false;
+	}
+
 	if (bIsLightChaseEvent && GetWorld())
 	{
 		const float Now = GetWorld()->GetTimeSeconds();
@@ -700,17 +711,13 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
 		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase());
 
-	const bool bIsPhysicalCloseScare =
-		Event.ScareTag.MatchesTagExact(
-			GvTScareTags::GhostScare_Close());
-
 	if (bIsHauntEvent && IsInPostHauntRecovery() && !Event.bIgnorePanicThreshold)
 	{
 		UE_LOG(LogTemp, Log, TEXT("[DirectorRecovery] Ordinary haunt blocked during recovery. Tag=%s Target=%s"), *Event.ScareTag.ToString(), *GetNameSafe(Target));
 		return false;
 	}
 
-	if (IsAnyHauntActive() && (bIsHauntEvent || bIsPhysicalCloseScare))
+	if (IsAnyHauntActive() && bIsHauntEvent)
 	{
 		UE_LOG(LogTemp, Log,
 			TEXT("[Director] Dispatch blocked during active haunt. Tag=%s Target=%s"),
@@ -805,13 +812,13 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		return true;
 	}
 
-	if (PS)
+	if (PS && !bIsLightChaseEvent)
 	{
 		FGvTPanicEvent PanicEvent;
 		PanicEvent.Source = GvTMapScareTagToPanicSource(Event.ScareTag);
 		PanicEvent.PanicDelta01 =
 			(Event.bAffectsPanic && Event.PanicAmount > 0.f)
-			? (Event.PanicAmount / 100.f)
+			? (ScalePanicAmount(Event.PanicAmount) / 100.f)
 			: 0.f;
 		PanicEvent.HauntPressureDelta01 = GvTGetPressureGain01ForScareTag(Event.ScareTag, Event.bTriggerLocalFlicker);
 		PanicEvent.SourceActor = Event.SourceActor;
@@ -830,15 +837,18 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 			PS->GetPanic01(),
 			PS->GetRecentHauntPressure01());
 	}
-	else
+	else if (!PS && !bIsLightChaseEvent)
 	{
 		if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
 		{
-			ScareComp->AddPanic(Event.PanicAmount);
+			ScareComp->AddPanic(ScalePanicAmount(Event.PanicAmount));
 		}
 	}
 
-	ApplyGlobalScarePanicToOtherPlayers(Event, Target);
+	if (!bIsLightChaseEvent)
+	{
+		ApplyGlobalScarePanicToOtherPlayers(Event, Target);
+	}
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()) ||
 		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
@@ -1192,6 +1202,11 @@ bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event,
 		return false;
 	}
 
+	if ((Event.bTriggerGroupFlicker || Event.bTriggerLocalFlicker) && !IsLightingScareAvailable(Event))
+	{
+		return false;
+	}
+
 	if (Event.bTriggerGroupFlicker)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Trigger GROUP flicker"));
@@ -1213,6 +1228,54 @@ bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event,
 	}
 
 	return false;
+}
+
+bool UGvTDirectorSubsystem::IsLightingScareAvailable(const FGvTScareEvent& Event) const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	AGvTPowerBoxActor* PowerBox = const_cast<UGvTDirectorSubsystem*>(this)->FindPowerBoxInWorld();
+	if (!IsValid(PowerBox) || !PowerBox->IsPowerAvailableForScares())
+	{
+		return false;
+	}
+
+	const UGvTLightFlickerSubsystem* FlickerSubsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>();
+	if (!FlickerSubsystem)
+	{
+		return false;
+	}
+
+	if (Event.bTriggerGroupFlicker)
+	{
+		return FlickerSubsystem->CountLightsInRadius(FVector::ZeroVector, 1000000.f) > 0;
+	}
+
+	const FVector Center = !Event.WorldHint.IsNearlyZero() ? Event.WorldHint : Event.TargetActor ? Event.TargetActor->GetActorLocation() : FVector::ZeroVector;
+	const float Radius = Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase()) ? FMath::Max(500.f, LightChaseStartDistance + LightChaseFlickerRadius) : 8000.f;
+	return FlickerSubsystem->CountLightsInRadius(Center, Radius) > 0;
+}
+
+float UGvTDirectorSubsystem::GetPanicMultiplier() const
+{
+	float ActivityGrowth = 0.f;
+	if (HouseActivity01 >= 0.90f) ActivityGrowth = 1.15f;
+	else if (HouseActivity01 >= 0.70f) ActivityGrowth = FMath::Lerp(0.75f, 1.15f, (HouseActivity01 - 0.70f) / 0.20f);
+	else if (HouseActivity01 >= 0.50f) ActivityGrowth = FMath::Lerp(0.45f, 0.75f, (HouseActivity01 - 0.50f) / 0.20f);
+	else if (HouseActivity01 >= 0.25f) ActivityGrowth = FMath::Lerp(0.20f, 0.45f, (HouseActivity01 - 0.25f) / 0.25f);
+
+	const float MinutesSinceFirstTheft = TimeActivityPerSecond > KINDA_SMALL_NUMBER ? (TimeActivity01 / TimeActivityPerSecond) / 60.f : 0.f;
+	const float TimeGrowth = FMath::Min(MaximumPanicTimeGrowth, MinutesSinceFirstTheft * PanicTimeGrowthPerMinute);
+	return FMath::Clamp(1.f + ActivityGrowth + TimeGrowth, 1.f, MaximumPanicMultiplier);
+}
+
+float UGvTDirectorSubsystem::ScalePanicAmount(float BaseAmount) const
+{
+	return FMath::Max(0.f, BaseAmount) * GetPanicMultiplier();
 }
 
 FGvTScareEvent UGvTDirectorSubsystem::MakeMirrorEvent(AActor* Target) const
@@ -1429,18 +1492,18 @@ bool UGvTDirectorSubsystem::CanScareTagRunAtPanic(const FGameplayTag& ScareTag, 
 	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()) ||
 		ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
 	{
-		return Panic01 >= MirrorEventPanicThreshold01;
+		return Panic01 >= MirrorEventPanicThreshold01 || HouseActivity01 >= MirrorActivityUnlock01;
 	}
 
 	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
 		ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase()))
 	{
-		return Panic01 >= HauntChasePanicThreshold01;
+		return Panic01 >= HauntChasePanicThreshold01 || HouseActivity01 >= HauntActivityUnlock01;
 	}
 
 	if (IsGhostScareTag(ScareTag))
 	{
-		return Panic01 >= GhostScareMinPanicThreshold01 && Panic01 <= 1.0f;
+		return (Panic01 >= GhostScareMinPanicThreshold01 || HouseActivity01 >= GhostScareActivityUnlock01) && Panic01 <= 1.0f;
 	}
 
 	return true;
@@ -1901,6 +1964,14 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 		return;
 	}
 
+	if (const AGvTPowerBoxActor* PowerBox = Cast<AGvTPowerBoxActor>(TargetActor))
+	{
+		// Breaker toggles are utility interactions, not paranormal triggers.
+		// Random failure and scripted ghost power events remain independent.
+		UE_LOG(LogTemp, VeryVerbose, TEXT("[DirectorInteraction] Ignored breaker interaction. Breaker=%s State=%d"), *GetNameSafe(PowerBox), static_cast<int32>(PowerBox->GetPowerState()));
+		return;
+	}
+
 	APawn* Pawn = Cast<APawn>(Interactor);
 	if (!IsPawnEligibleForDirector(Pawn))
 	{
@@ -1951,6 +2022,16 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 		// Every unique theft permanently wakes the house and also affects short-term tension.
 		RegisterUniqueTheft(Item);
 		ApplyHouseTensionImpulse(TensionImpulse);
+
+		if (Item->ShouldForceHauntReaction())
+		{
+			TriggerInteractionReaction(Pawn, TargetActor, Item, bIsElectrical, bIsValuable, bIsNoisy, ItemValue01);
+		}
+		else
+		{
+			ScheduleTheftReaction(Pawn, TargetActor, Item, bIsElectrical, bIsValuable, bIsNoisy, ItemValue01);
+		}
+		return;
 	}
 	else
 	{
@@ -1994,6 +2075,64 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 	}
 
 	TriggerInteractionReaction(Pawn, TargetActor, Item, bIsElectrical, bIsValuable, bIsNoisy, ItemValue01);
+}
+
+void UGvTDirectorSubsystem::ScheduleTheftReaction(APawn* Pawn, AActor* TargetActor, const AGvTInteractableItem* Item, bool bIsElectrical, bool bIsValuable, bool bIsNoisy, float ItemValue01)
+{
+	UWorld* World = GetWorld();
+	if (!World || !IsPawnEligibleForDirector(Pawn))
+	{
+		return;
+	}
+
+	PendingTheftPawn = Pawn;
+	PendingTheftSource = TargetActor;
+	bPendingTheftElectrical |= bIsElectrical;
+	bPendingTheftValuable |= bIsValuable;
+	bPendingTheftNoisy |= bIsNoisy;
+	PendingTheftValue01 = FMath::Max(PendingTheftValue01, ItemValue01);
+	PendingTheftCount = FMath::Max(1, PendingTheftCount + 1);
+
+	if (!World->GetTimerManager().IsTimerActive(TimerHandle_TheftReaction))
+	{
+		const float MinDelay = FMath::Max(0.f, TheftReactionDelayMin);
+		const float MaxDelay = FMath::Max(MinDelay, TheftReactionDelayMax);
+		const float Delay = FMath::FRandRange(MinDelay, MaxDelay);
+		World->GetTimerManager().SetTimer(TimerHandle_TheftReaction, this, &UGvTDirectorSubsystem::ExecutePendingTheftReaction, Delay, false);
+		UE_LOG(LogTemp, Log, TEXT("[TheftReactionQueue] Scheduled response in %.2fs Player=%s Item=%s"), Delay, *GetNameSafe(Pawn), *GetNameSafe(TargetActor));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Log, TEXT("[TheftReactionQueue] Rapid theft merged. Count=%d Severity will increase."), PendingTheftCount);
+	}
+}
+
+void UGvTDirectorSubsystem::ExecutePendingTheftReaction()
+{
+	APawn* Pawn = PendingTheftPawn.Get();
+	AActor* Source = PendingTheftSource.Get();
+	const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(Source);
+	const int32 TheftCount = PendingTheftCount;
+	const bool bElectrical = bPendingTheftElectrical;
+	const bool bValuable = bPendingTheftValuable || TheftCount >= 2;
+	const bool bNoisy = bPendingTheftNoisy || TheftCount >= 2;
+	const float Value01 = FMath::Clamp(PendingTheftValue01 + (FMath::Max(0, TheftCount - 1) * 0.15f), 0.f, 1.f);
+
+	PendingTheftPawn.Reset();
+	PendingTheftSource.Reset();
+	bPendingTheftElectrical = false;
+	bPendingTheftValuable = false;
+	bPendingTheftNoisy = false;
+	PendingTheftValue01 = 0.f;
+	PendingTheftCount = 0;
+
+	if (!IsPawnEligibleForDirector(Pawn))
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[TheftReactionQueue] Executing response. Count=%d Player=%s Source=%s"), TheftCount, *GetNameSafe(Pawn), *GetNameSafe(Source));
+	TriggerInteractionReaction(Pawn, Source, Item, bElectrical, bValuable, bNoisy, Value01);
 }
 
 void UGvTDirectorSubsystem::TriggerInteractionReaction(
@@ -2224,14 +2363,6 @@ void UGvTDirectorSubsystem::TriggerInteractionReaction(
 		}
 
 		AttemptedTags.Add(ChosenScare);
-
-		if (ChosenScare.MatchesTagExact(GvTScareTags::LightChase()) && bIsElectrical)
-		{
-			if (AGvTPowerBoxActor* Power = FindPowerBoxInWorld())
-			{
-				Power->ForcePowerStateFromGhost(EGvTHousePowerState::Off);
-			}
-		}
 
 		UE_LOG(LogTemp, Log, TEXT("[DirectorItemReaction] Item=%s Player=%s Event=%s Candidates=%d Panic=%.2f Activity=%.2f Attempt=%d"), *GetNameSafe(TargetActor), *GetNameSafe(Pawn), *ChosenScare.ToString(), WeightedEvents.Num(), Panic, HouseActivity01, AttemptedTags.Num());
 

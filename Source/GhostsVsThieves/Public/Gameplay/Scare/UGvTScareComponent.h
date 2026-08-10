@@ -89,6 +89,9 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void Server_ReportLightChaseResult(bool bSucceeded, float PanicAmount);
 
+	UFUNCTION(Server, Reliable)
+	void Server_ReportFlickerResult(bool bSucceeded, float PanicAmount, FVector WorldCenter, float Radius, bool bWholeHouse);
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|Scare")
 	void BP_PlayScare(const FGvTScareEvent& Event);
 

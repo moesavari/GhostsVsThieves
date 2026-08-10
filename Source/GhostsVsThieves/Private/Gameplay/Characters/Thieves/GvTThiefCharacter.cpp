@@ -25,6 +25,7 @@
 #include "GvTPlayerState.h"
 #include "Kismet/GameplayStatics.h"
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
+#include "World/Items/GvTFlashlightItem.h"
 #include "Components/SceneComponent.h"
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 #include "Gameplay/Ghosts/GvTGhostPerceptionComponent.h"
@@ -238,6 +239,11 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
     if (IA_DropItem)
     {
         EIC->BindAction(IA_DropItem, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnDropItem);
+    }
+
+    if (IA_ToggleFlashlight)
+    {
+        EIC->BindAction(IA_ToggleFlashlight, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnToggleFlashlight);
     }
 
 }
@@ -484,6 +490,22 @@ void AGvTThiefCharacter::OnDropItem()
     {
         InventoryComponent->DropSelectedItem();
     }
+}
+
+void AGvTThiefCharacter::OnToggleFlashlight()
+{
+    if (!IsLocallyControlled() || bIsDead || bInteractionLockMove || bInteractionLockLook || !InventoryComponent)
+    {
+        return;
+    }
+
+    AGvTFlashlightItem* Flashlight = Cast<AGvTFlashlightItem>(InventoryComponent->GetSelectedItem());
+    if (!Flashlight)
+    {
+        return;
+    }
+
+    Flashlight->ToggleFlashlight();
 }
 
 void AGvTThiefCharacter::OnTestMirrorPressed()

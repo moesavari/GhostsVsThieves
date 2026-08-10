@@ -12,6 +12,9 @@
 #include "GvTPlayerState.h"
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "Gameplay/Scare/GvTScareTags.h"
+#include "Sound/SoundBase.h"
+#include "TimerManager.h"
+#include "Engine/GameInstance.h"
 
 static void GvTApplyPowerStatePanicToPlayers(
 	UWorld* World,
@@ -154,6 +157,16 @@ void AGvTPowerBoxActor::ApplyPowerState()
 		BlownIndicatorLight->SetVisibility(PowerState == EGvTHousePowerState::Blown);
 	}
 
+	if (HasAuthority() && GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(TimerHandle_RandomFailure);
+		if (PowerState == EGvTHousePowerState::On)
+		{
+			PowerTurnedOnTime = GetWorld()->GetTimeSeconds();
+			ScheduleRandomFailureCheck();
+		}
+	}
+
 	if (!IsValid(HouseActor))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("PowerBox %s has no HouseActor assigned."), *GetName());
@@ -190,6 +203,68 @@ void AGvTPowerBoxActor::ApplyPowerState()
 	UE_LOG(LogTemp, Warning, TEXT("PowerBox %s applied power state: %d"), *GetName(), static_cast<int32>(PowerState));
 }
 
+void AGvTPowerBoxActor::ScheduleRandomFailureCheck()
+{
+	if (!HasAuthority() || !GetWorld() || PowerState != EGvTHousePowerState::On)
+	{
+		return;
+	}
+
+	const float MinInterval = FMath::Max(0.1f, FailureCheckIntervalMin);
+	const float MaxInterval = FMath::Max(MinInterval, FailureCheckIntervalMax);
+	const float PoweredFor = GetWorld()->GetTimeSeconds() - PowerTurnedOnTime;
+	const float ProtectionRemaining = FMath::Max(0.f, FailureProtectionSeconds - PoweredFor);
+	const float Delay = ProtectionRemaining + FMath::FRandRange(MinInterval, MaxInterval);
+	GetWorld()->GetTimerManager().SetTimer(TimerHandle_RandomFailure, this, &AGvTPowerBoxActor::RunRandomFailureCheck, Delay, false);
+}
+
+float AGvTPowerBoxActor::GetRandomFailureChance() const
+{
+	float Activity = 0.f;
+	if (UGameInstance* GI = GetGameInstance())
+	{
+		if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+		{
+			Activity = Director->GetHouseActivity01();
+		}
+	}
+
+	if (Activity >= 0.90f) return FailureChanceHostile;
+	if (Activity >= 0.70f) return FMath::Lerp(FailureChanceAwake, FailureChanceHostile, (Activity - 0.70f) / 0.20f);
+	if (Activity >= 0.50f) return FailureChanceAwake;
+	if (Activity >= 0.25f) return FailureChanceStirring;
+	return FailureChanceDormant;
+}
+
+void AGvTPowerBoxActor::RunRandomFailureCheck()
+{
+	if (!HasAuthority() || PowerState != EGvTHousePowerState::On)
+	{
+		return;
+	}
+
+	const float FailureChance = FMath::Clamp(GetRandomFailureChance(), 0.f, 1.f);
+	const float Roll = FMath::FRand();
+	UE_LOG(LogTemp, Log, TEXT("[PowerFailure] Breaker=%s Chance=%.3f Roll=%.3f"), *GetNameSafe(this), FailureChance, Roll);
+
+	if (Roll <= FailureChance)
+	{
+		BlowPowerBox();
+		return;
+	}
+
+	ScheduleRandomFailureCheck();
+}
+
+void AGvTPowerBoxActor::Multicast_PlayPowerStateAudio_Implementation(EGvTHousePowerState NewState)
+{
+	USoundBase* Sound = NewState == EGvTHousePowerState::On ? PowerOnSound : NewState == EGvTHousePowerState::Blown ? PowerBlownSound : PowerOffSound;
+	if (Sound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation());
+	}
+}
+
 void AGvTPowerBoxActor::Server_SetPowerState_Implementation(EGvTHousePowerState NewState)
 {
 	if (PowerState == NewState)
@@ -199,6 +274,7 @@ void AGvTPowerBoxActor::Server_SetPowerState_Implementation(EGvTHousePowerState 
 
 	PowerState = NewState;
 	ApplyPowerState();
+	Multicast_PlayPowerStateAudio(PowerState);
 }
 
 void AGvTPowerBoxActor::TogglePower()
@@ -219,6 +295,7 @@ void AGvTPowerBoxActor::TogglePower()
 		: EGvTHousePowerState::On;
 
 	ApplyPowerState();
+	Multicast_PlayPowerStateAudio(PowerState);
 
 	UE_LOG(LogTemp, Log,
 		TEXT("[Power] Player toggled power -> %d"),
@@ -245,6 +322,7 @@ void AGvTPowerBoxActor::BlowPowerBox()
 
 	PowerState = EGvTHousePowerState::Blown;
 	ApplyPowerState();
+	Multicast_PlayPowerStateAudio(PowerState);
 	GvTApplyPowerStatePanicToPlayers(GetWorld(), this, PowerState, EGvTPowerChangeCause::GhostEvent);
 }
 
@@ -268,6 +346,7 @@ void AGvTPowerBoxActor::ForcePowerStateFromGhost(EGvTHousePowerState NewState)
 
 	PowerState = NewState;
 	ApplyPowerState();
+	Multicast_PlayPowerStateAudio(PowerState);
 
 	GvTApplyPowerStatePanicToPlayers(GetWorld(), this, PowerState, EGvTPowerChangeCause::GhostEvent);
 
@@ -332,7 +411,7 @@ void AGvTPowerBoxActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn,
 
 bool AGvTPowerBoxActor::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
 {
-	return Verb == EGvTInteractionVerb::Interact;
+	return Verb == EGvTInteractionVerb::Interact && PowerState != EGvTHousePowerState::Blown;
 }
 
 void AGvTPowerBoxActor::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)

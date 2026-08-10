@@ -15,6 +15,7 @@ class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
 public:
     virtual void BeginPlay() override;
     virtual void Tick(float DeltaSeconds) override;
+    virtual bool InputKey(FKey Key, EInputEvent EventType, float AmountDepressed, bool bGamepad) override;
 
     virtual void OnRep_PlayerState() override;
 
@@ -42,11 +43,17 @@ public:
     UFUNCTION(BlueprintCallable, Category="GvT|Van Inventory")
     void SetVanInventoryOpen(bool bOpen);
 
+    UFUNCTION(BlueprintCallable, Category="GvT|Van Inventory")
+    void CloseVanInventory();
+
     UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
     void OnExtractionMessage(const FText& Message, bool bSuccess);
 
     UFUNCTION(BlueprintImplementableEvent, Category="GvT|Van Inventory")
     void OnOpenVanInventory(AGvTVanInventoryActor* VanInventory);
+
+    UFUNCTION(BlueprintImplementableEvent, Category="GvT|Van Inventory")
+    void OnCloseVanInventory();
 
     UFUNCTION()
     void HandlePanicChanged(float NewPanic01);
@@ -92,4 +99,5 @@ private:
     TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
     FTimerHandle TimerHandle_BindHUDRetry;
     FTimerHandle TimerHandle_BindGameStateRetry;
+    bool bVanInventoryOpen = false;
 };

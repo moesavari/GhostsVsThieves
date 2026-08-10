@@ -43,4 +43,7 @@ struct FGvTLightFlickerEvent
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|LightFlicker")
 	FName ZoneName = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|LightFlicker", meta = (ClampMin = "0.0"))
+	float PanicAmount = 0.f;
 };

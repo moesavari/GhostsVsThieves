@@ -10,6 +10,7 @@ class UStaticMeshComponent;
 class UGvTLightFlickerComponent;
 class UPointLightComponent;
 class UBoxComponent;
+class USoundBase;
 
 UENUM(BlueprintType)
 enum class EGvTHousePowerState : uint8
@@ -63,6 +64,18 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
 	void HandlePlayerInteract(APawn* InstigatorPawn);
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Power")
+	EGvTHousePowerState GetPowerState() const { return PowerState; }
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Power")
+	bool IsPowerAvailableForScares() const { return PowerState == EGvTHousePowerState::On; }
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Power")
+	bool IsPowerOn() const { return PowerState == EGvTHousePowerState::On; }
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Power")
+	bool IsPowerBlown() const { return PowerState == EGvTHousePowerState::Blown; }
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Power|Ghost Reaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float BreakerGhostReactionChance = 0.35f;
 
@@ -77,6 +90,12 @@ protected:
 	void OnRep_PowerState();
 
 	void ApplyPowerState();
+	void ScheduleRandomFailureCheck();
+	void RunRandomFailureCheck();
+	float GetRandomFailureChance() const;
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_PlayPowerStateAudio(EGvTHousePowerState NewState);
 
 	void InitializeIndicatorLights(TObjectPtr<UPointLightComponent> IndicatorLight, FColor Color);
 
@@ -90,16 +109,10 @@ protected:
 	TObjectPtr<UBoxComponent> InteractionBounds;
 
 	UPROPERTY(ReplicatedUsing = OnRep_PowerState, EditAnywhere, BlueprintReadOnly, Category = "GvT|Power")
-	EGvTHousePowerState PowerState = EGvTHousePowerState::On;
+	EGvTHousePowerState PowerState = EGvTHousePowerState::Off;
 
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "GvT|Power")
 	TObjectPtr<AActor> HouseActor = nullptr;
-
-	UFUNCTION(BlueprintPure, Category = "GvT|Power")
-	bool IsPowerOn() const { return PowerState == EGvTHousePowerState::On; }
-
-	UFUNCTION(BlueprintPure, Category = "GvT|Power")
-	bool IsPowerBlown() const { return PowerState == EGvTHousePowerState::Blown; }
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Power")
 	TObjectPtr<UPointLightComponent> OnIndicatorLight;
@@ -112,4 +125,37 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power")
 	FGameplayTag PowerInteractNoiseTag;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0"))
+	float FailureProtectionSeconds = 25.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.1"))
+	float FailureCheckIntervalMin = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.1"))
+	float FailureCheckIntervalMax = 12.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FailureChanceDormant = 0.01f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FailureChanceStirring = 0.03f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FailureChanceAwake = 0.08f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FailureChanceHostile = 0.16f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Audio")
+	TObjectPtr<USoundBase> PowerOnSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Audio")
+	TObjectPtr<USoundBase> PowerOffSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Audio")
+	TObjectPtr<USoundBase> PowerBlownSound;
+
+	FTimerHandle TimerHandle_RandomFailure;
+	float PowerTurnedOnTime = -1000.0f;
 };

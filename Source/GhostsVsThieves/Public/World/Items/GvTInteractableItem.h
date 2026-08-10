@@ -176,7 +176,8 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
 	FVector HeldRelativeLocation = FVector(35.f, 18.f, -18.f);
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
+	/** Rotation used while the item is attached to the held-item anchor. Use this instead of rotating the root Mesh component. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory", meta = (DisplayName = "Held Mesh Rotation"))
 	FRotator HeldRelativeRotation = FRotator::ZeroRotator;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
@@ -207,6 +208,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
 	float DropDownwardImpulse = 35.f;
+
+	/** Additional orientation applied after dropping. The physical Mesh remains the actor root for correct replicated physics. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (DisplayName = "Dropped Mesh Rotation Offset"))
+	FRotator DroppedRotationOffset = FRotator::ZeroRotator;
 
 
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
@@ -358,7 +363,7 @@ protected:
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_PlayDropImpactSound(USoundBase* Sound, FVector Location, float ImpactSpeed);
 
-	void ApplyCarryState();
+	virtual void ApplyCarryState();
 	float LastImpactSoundTime = -1000.f;
 	bool bImpactArmed = false;
 

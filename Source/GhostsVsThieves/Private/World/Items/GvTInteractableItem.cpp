@@ -394,12 +394,20 @@ void AGvTInteractableItem::DropFromInventory(const FVector& WorldLocation, const
 	Carrier = nullptr;
 	bIsEquipped = false;
 	SetOwner(nullptr);
-	SetActorLocationAndRotation(WorldLocation, WorldRotation, false, nullptr, ETeleportType::TeleportPhysics);
+	const FRotator FinalDropRotation = (DroppedRotationOffset.Quaternion() * WorldRotation.Quaternion()).Rotator();
+	SetActorLocationAndRotation(WorldLocation, FinalDropRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	ApplyCarryState();
 
 	if (Mesh)
 	{
+		Mesh->SetMobility(EComponentMobility::Movable);
+		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		Mesh->SetEnableGravity(true);
+		Mesh->SetSimulatePhysics(true);
+		Mesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
+		Mesh->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+		Mesh->WakeAllRigidBodies();
 	}
 
 	bImpactArmed = true;

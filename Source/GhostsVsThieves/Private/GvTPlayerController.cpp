@@ -7,6 +7,7 @@
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "World/Extraction/GvTVanInventoryActor.h"
+#include "InputCoreTypes.h"
 
 void AGvTPlayerController::BeginPlay()
 {
@@ -166,8 +167,39 @@ void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLoc
 
 void AGvTPlayerController::Client_OpenVanInventory_Implementation(AGvTVanInventoryActor* VanInventory)
 {
+	// Client RPCs can arrive repeatedly if interact is spammed before input lock
+	// reaches the player. Never create more than one menu instance.
+	if (!IsLocalController() || bVanInventoryOpen || !IsValid(VanInventory))
+	{
+		return;
+	}
+
 	SetVanInventoryOpen(true);
 	OnOpenVanInventory(VanInventory);
+}
+
+bool AGvTPlayerController::InputKey(FKey Key, EInputEvent EventType, float AmountDepressed, bool bGamepad)
+{
+	if (bVanInventoryOpen && Key == EKeys::Tab && EventType == IE_Pressed)
+	{
+		CloseVanInventory();
+		return true;
+	}
+
+	return Super::InputKey(Key, EventType, AmountDepressed, bGamepad);
+}
+
+void AGvTPlayerController::CloseVanInventory()
+{
+	if (!IsLocalController() || !bVanInventoryOpen)
+	{
+		return;
+	}
+
+	// Restore controller state even if the Blueprint close event removes the
+	// widget synchronously. The open guard prevents orphan duplicate widgets.
+	OnCloseVanInventory();
+	SetVanInventoryOpen(false);
 }
 
 void AGvTPlayerController::RequestTakeVanItem(AGvTVanInventoryActor* VanInventory, int32 StackIndex)
@@ -198,6 +230,7 @@ void AGvTPlayerController::SetVanInventoryOpen(bool bOpen)
 		return;
 	}
 
+	bVanInventoryOpen = bOpen;
 	SetIgnoreMoveInput(bOpen);
 	SetIgnoreLookInput(bOpen);
 	bShowMouseCursor = bOpen;

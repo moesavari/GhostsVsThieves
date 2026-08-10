@@ -81,6 +81,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GvT|Director|Activity")
 	float GetTimeActivity01() const { return TimeActivity01; }
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Director|Panic")
+	float GetPanicMultiplier() const;
+
 	UFUNCTION(BlueprintPure, Category = "GvT|Director|Ghosts")
 	bool IsHauntActiveForDebug() const { return IsAnyHauntActive(); }
 
@@ -101,6 +104,8 @@ public:
 		bool bIsValuable,
 		bool bIsNoisy,
 		float ItemValue01);
+	void ScheduleTheftReaction(APawn* Pawn, AActor* TargetActor, const AGvTInteractableItem* Item, bool bIsElectrical, bool bIsValuable, bool bIsNoisy, float ItemValue01);
+	void ExecutePendingTheftReaction();
 
 	AGvTPowerBoxActor* FindPowerBoxInWorld();
 
@@ -148,6 +153,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float GhostScareMinPanicThreshold01 = 0.45f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MirrorActivityUnlock01 = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float GhostScareActivityUnlock01 = 0.35f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HauntActivityUnlock01 = 0.70f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float HauntChaseChanceAtThreshold01 = 0.20f;
@@ -294,6 +308,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|Ghost Scare", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float CloseGhostScareSelectionChance = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicScaling", meta = (ClampMin = "1.0"))
+	float MaximumPanicMultiplier = 2.5f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicScaling", meta = (ClampMin = "0.0"))
+	float PanicTimeGrowthPerMinute = 0.10f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicScaling", meta = (ClampMin = "0.0"))
+	float MaximumPanicTimeGrowth = 0.50f;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
 	void SetDefaultHauntGhostClass(TSubclassOf<AGvTGhostCharacterBase> InGhostClass);
@@ -461,6 +484,8 @@ private:
 	void RememberTarget(APawn* Pawn);
 
 	bool TriggerRequestedFlicker(const FGvTScareEvent& Event, class UGvTScareComponent* TargetScareComp);
+	bool IsLightingScareAvailable(const FGvTScareEvent& Event) const;
+	float ScalePanicAmount(float BaseAmount) const;
 	bool TryDispatchAutoScare();
 	bool IsPawnEligibleForDirector(const APawn* Pawn) const;
 	float GetPanicForPawn(const APawn* Pawn) const;
@@ -485,6 +510,21 @@ private:
 	FTransform ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag) const;
 
 	float LastLightingResponseTime = -1000.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|TheftReaction", meta = (ClampMin = "0.0"))
+	float TheftReactionDelayMin = 2.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|TheftReaction", meta = (ClampMin = "0.0"))
+	float TheftReactionDelayMax = 5.0f;
+
+	FTimerHandle TimerHandle_TheftReaction;
+	TWeakObjectPtr<APawn> PendingTheftPawn;
+	TWeakObjectPtr<AActor> PendingTheftSource;
+	bool bPendingTheftElectrical = false;
+	bool bPendingTheftValuable = false;
+	bool bPendingTheftNoisy = false;
+	float PendingTheftValue01 = 0.f;
+	int32 PendingTheftCount = 0;
 
 	mutable TMap<TWeakObjectPtr<APawn>, TWeakObjectPtr<AGvTGhostCharacterBase>> ActiveHauntGhostByTarget;
 	mutable TMap<TWeakObjectPtr<APawn>, float> LastManualHauntRequestTimeByTarget;

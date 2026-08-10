@@ -16,7 +16,9 @@
 #include "Systems/Audio/GvTAmbientAudioDirector.h"
 #include "Gameplay/Scare/GvTScareTags.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Systems/Director/GvTDirectorSubsystem.h"
 #include "DrawDebugHelpers.h"
+#include "Engine/GameInstance.h"
 
 namespace
 {
@@ -710,14 +712,15 @@ void UGvTScareComponent::Debug_RequestGroupHouseLightFlicker(float Intensity01, 
 
 void UGvTScareComponent::Debug_RequestLocalHouseLightFlicker(float Intensity01, float Duration)
 {
-	APawn* Pawn = Cast<APawn>(GetOwner());
-	if (!Pawn || !Pawn->IsLocallyControlled())
+	if (!IsServer())
 	{
 		return;
 	}
 
-	const FGvTLightFlickerEvent Event = MakeLightFlickerEvent(Intensity01, Duration, true);
-	PlayLocalLightFlicker(Event);
+	FGvTLightFlickerEvent Event = MakeLightFlickerEvent(Intensity01, Duration, false);
+	Event.WorldCenter = GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
+	Event.Radius = 1200.f;
+	Client_PlayLightFlicker(Event);
 }
 
 void UGvTScareComponent::Debug_RequestLightChase(float Intensity01)
@@ -895,11 +898,8 @@ void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& E
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::RearAudioSting()) ||
 		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_AudioRear()))
 	{
-		if (CanStartNewScare())
-		{
-			BeginLocalScareLifecycle(FMath::Max(0.08f, Event.Duration), RearAudioRecoveryDuration);
-		}
-
+		// Audio is its own presentation category. It may overlap lighting,
+		// mirrors, doors, model scares, and an active haunt.
 		PlayLocalRearAudioSting(Event);
 		BP_PlayScare(Event);
 
@@ -912,11 +912,7 @@ void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& E
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) ||
 		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
 	{
-		if (CanStartNewScare())
-		{
-			BeginLocalScareLifecycle(FMath::Max(0.10f, Event.Duration), GhostScreamRecoveryDuration);
-		}
-
+		// Scream audio does not reserve the shared model/light lifecycle.
 		PlayLocalGhostScream(Event);
 		BP_PlayScare(Event);
 
@@ -949,7 +945,16 @@ void UGvTScareComponent::Client_PlayScare_Implementation(const FGvTScareEvent& E
 
 void UGvTScareComponent::Client_PlayLightFlicker_Implementation(const FGvTLightFlickerEvent& Event)
 {
+	bool bAffectedLights = false;
+	if (const UWorld* World = GetWorld())
+	{
+		if (const UGvTLightFlickerSubsystem* Subsystem = World->GetSubsystem<UGvTLightFlickerSubsystem>())
+		{
+			bAffectedLights = Subsystem->CountLightsInRadius(Event.WorldCenter, Event.bWholeHouse ? 1000000.f : Event.Radius) > 0;
+		}
+	}
 	PlayLocalLightFlicker(Event);
+	Server_ReportFlickerResult(bAffectedLights, Event.PanicAmount, Event.WorldCenter, Event.Radius, Event.bWholeHouse);
 }
 
 void UGvTScareComponent::Server_ApplyDeathRipple(const FVector& DeathLocation, float Radius, float BaseIntensity01)
@@ -1018,6 +1023,7 @@ FGvTLightFlickerEvent UGvTScareComponent::MakeLightFlickerEvent(float Intensity0
 	Event.PulseIntervalMin = 0.03f;
 	Event.PulseIntervalMax = 0.09f;
 	Event.Seed = MakeLocalSeed(GetNowServerSeconds());
+	Event.PanicAmount = bWholeHouse ? 4.f : 3.f;
 	return Event;
 }
 
@@ -1435,9 +1441,18 @@ void UGvTScareComponent::Server_ReportLightChaseResult_Implementation(bool bSucc
 		return;
 	}
 
+	float ScaledPanicAmount = PanicAmount;
+	if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+		{
+			ScaledPanicAmount *= Director->GetPanicMultiplier();
+		}
+	}
+
 	FGvTPanicEvent PanicEvent;
 	PanicEvent.Source = EGvTPanicSource::LightFlicker;
-	PanicEvent.PanicDelta01 = PanicAmount / 100.f;
+	PanicEvent.PanicDelta01 = ScaledPanicAmount / 100.f;
 	PanicEvent.HauntPressureDelta01 = 0.f;
 	PanicEvent.SourceActor = GetOwner();
 	PanicEvent.InstigatorActor = GetOwner();
@@ -1452,6 +1467,42 @@ void UGvTScareComponent::Server_ReportLightChaseResult_Implementation(bool bSucc
 	UE_LOG(LogTemp, Warning,
 		TEXT("[LightChase] Awarded panic to %s. PanicRaw=%.2f Panic01=%.3f"),
 		*GetNameSafe(OwnerPawn),
-		PanicAmount,
+		ScaledPanicAmount,
 		PanicEvent.PanicDelta01);
+}
+void UGvTScareComponent::Server_ReportFlickerResult_Implementation(bool bSucceeded, float PanicAmount, FVector WorldCenter, float Radius, bool bWholeHouse)
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	AGvTPlayerState* PS = OwnerPawn ? OwnerPawn->GetPlayerState<AGvTPlayerState>() : nullptr;
+	if (!bSucceeded || PanicAmount <= 0.f || !OwnerPawn || !PS)
+	{
+		return;
+	}
+
+	if (!bWholeHouse && FVector::DistSquared(OwnerPawn->GetActorLocation(), WorldCenter) > FMath::Square(FMath::Max(0.f, Radius)))
+	{
+		return;
+	}
+
+	float ScaledPanicAmount = PanicAmount;
+	if (UGameInstance* GI = GetWorld() ? GetWorld()->GetGameInstance() : nullptr)
+	{
+		if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+		{
+			ScaledPanicAmount *= Director->GetPanicMultiplier();
+		}
+	}
+
+	FGvTPanicEvent PanicEvent;
+	PanicEvent.Source = EGvTPanicSource::LightFlicker;
+	PanicEvent.PanicDelta01 = ScaledPanicAmount / 100.f;
+	PanicEvent.SourceActor = GetOwner();
+	PanicEvent.InstigatorActor = GetOwner();
+	PanicEvent.WorldLocation = WorldCenter;
+	PanicEvent.bRequiresProximity = !bWholeHouse;
+	PanicEvent.SourceRadius = Radius;
+	PanicEvent.bRequiresSuccessfulExecution = true;
+	PanicEvent.bExecutionSucceeded = true;
+	PanicEvent.CooldownSeconds = 3.f;
+	PS->ApplyPanicEventAuthority(PanicEvent);
 }

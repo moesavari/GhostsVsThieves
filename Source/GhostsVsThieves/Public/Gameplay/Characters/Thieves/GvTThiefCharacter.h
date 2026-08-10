@@ -134,6 +134,7 @@ protected:
     void OnInventoryNext();
     void OnInventoryPrevious();
     void OnDropItem();
+    void OnToggleFlashlight();
 
     UFUNCTION(NetMulticast, Unreliable)
     void Multicast_PlayFootstep(USoundBase* Sound, float Volume, float Pitch);
@@ -265,6 +266,9 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_DropItem;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_ToggleFlashlight;
 
 private:
     void ClearScareStun();

@@ -249,7 +249,23 @@ void AGvTPowerBoxActor::RunRandomFailureCheck()
 
 	if (Roll <= FailureChance)
 	{
-		BlowPowerBox();
+		float Activity = 0.f;
+		if (UGameInstance* GI = GetGameInstance())
+		{
+			if (UGvTDirectorSubsystem* Director = GI->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Activity = Director->GetHouseActivity01();
+			}
+		}
+
+		const float BlowAlpha = Activity <= OffOnlyActivityMax
+			? 0.f
+			: FMath::Clamp((Activity - OffOnlyActivityMax) / FMath::Max(0.01f, 1.f - OffOnlyActivityMax), 0.f, 1.f);
+		const float BlowChance = FMath::Lerp(0.f, BlowChanceAtMaxActivity, BlowAlpha);
+		const bool bShouldBlow = FMath::FRand() <= BlowChance;
+
+		UE_LOG(LogTemp, Log, TEXT("[PowerFailure] Activity=%.2f Result=%s BlowChance=%.2f"), Activity, bShouldBlow ? TEXT("BLOWN") : TEXT("OFF"), BlowChance);
+		ForcePowerStateFromGhost(bShouldBlow ? EGvTHousePowerState::Blown : EGvTHousePowerState::Off);
 		return;
 	}
 

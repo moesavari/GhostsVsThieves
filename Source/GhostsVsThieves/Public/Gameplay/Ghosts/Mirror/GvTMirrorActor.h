@@ -77,7 +77,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Ghost")
 	bool bGhostFacesCapture = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Perf")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror|Perf", meta = (ClampMin = "1.0", ClampMax = "60.0"))
 	float CaptureFPS = 15.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Mirror")

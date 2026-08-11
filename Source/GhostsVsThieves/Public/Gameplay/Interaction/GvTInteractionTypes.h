@@ -63,4 +63,17 @@ struct FGvTInteractionSpec
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Audio")
 	TObjectPtr<USoundBase> CancelSfx = nullptr;
 
+	/** Optional repeated server-authoritative noise while this cast remains valid. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise")
+	bool bEmitPeriodicNoise = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise", meta = (EditCondition = "bEmitPeriodicNoise", ClampMin = "0.05"))
+	float PeriodicNoiseInterval = 0.75f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise", meta = (EditCondition = "bEmitPeriodicNoise", ClampMin = "0.0"))
+	float PeriodicNoiseRadius = 800.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise", meta = (EditCondition = "bEmitPeriodicNoise", ClampMin = "0.0"))
+	float PeriodicNoiseLoudness = 1.f;
+
 };

@@ -36,6 +36,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
 	bool IsInteracting() const { return bIsInteracting; }
 
+	/** Authority-controlled mission gate. Disabling also cancels an active cast. */
+	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+	void SetInteractionEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category="GvT|Interaction")
+	bool IsInteractionEnabled() const { return bInteractionEnabled; }
+
 	UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
 	bool IsScanning() const;
 
@@ -68,6 +75,7 @@ public:
 	FGvTInteractionCompleted OnInteractionCompleted;
 
 protected:
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 	UPROPERTY(EditDefaultsOnly, Category="GvT|Interaction")
 	float TraceDistance = 350.f;
 
@@ -83,6 +91,9 @@ protected:
 	// Replicated state
 	UPROPERTY(ReplicatedUsing=OnRep_InteractionState)
 	bool bIsInteracting = false;
+
+	UPROPERTY(Replicated)
+	bool bInteractionEnabled = true;
 
 	UPROPERTY(ReplicatedUsing=OnRep_InteractionState)
 	AActor* CurrentInteractable = nullptr;
@@ -121,6 +132,7 @@ protected:
 private:
 	// Server helpers
 	void PerformServerTraceAndTryStart(EGvTInteractionVerb Verb);
+	bool TryStartSelectedMedicine();
 	bool GetViewTrace(FVector& OutStart, FVector& OutEnd) const;
 
 	void BeginInteraction(AActor* Target, EGvTInteractionVerb Verb, const FGvTInteractionSpec& Spec);
@@ -134,6 +146,16 @@ private:
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	FTimerHandle InteractionTimerHandle;
+	FTimerHandle PeriodicNoiseTimerHandle;
+
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> RequiredSelectedItem = nullptr;
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Interaction", meta = (ClampMin = "0.0"))
+	float ActiveInteractionRange = 425.f;
+
+	void EmitPeriodicInteractionNoise();
+	bool IsActiveInteractionStillValid() const;
 
 	bool bPrevInteracting_Local = false;
 

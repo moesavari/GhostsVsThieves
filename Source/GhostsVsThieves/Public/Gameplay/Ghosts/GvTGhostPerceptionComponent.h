@@ -44,7 +44,8 @@ public:
 	bool TryFindBestNoiseLocation(
 		FVector& OutNoiseLocation,
 		FGameplayTag& OutNoiseTag,
-		float& OutScore) const;
+		float& OutScore,
+		int64& OutEventId) const;
 
 	virtual void TickComponent(
 		float DeltaTime,

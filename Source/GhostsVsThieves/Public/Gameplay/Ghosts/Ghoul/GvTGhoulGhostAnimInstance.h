@@ -15,6 +15,12 @@ public:
 	float Speed = 0.f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Ghoul|Anim")
+	bool bIsMoving = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ghoul|Anim|Tuning", meta = (ClampMin = "0.0"))
+	float MovingSpeedThreshold = 5.f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Ghoul|Anim")
 	bool bIsChasing = false;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Ghoul|Anim")

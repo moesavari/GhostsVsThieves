@@ -20,6 +20,8 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Perception|Mirror")
 	void Test_MirrorScare(float Intensity01 = 1.f, float LifeSeconds = 1.5f);
 
+	void PlayMirrorScareFromDirector(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds);
+
 protected:
 	UFUNCTION(Server, Reliable)
 	void Server_RequestMirrorActorScare(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds);

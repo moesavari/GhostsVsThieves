@@ -10,6 +10,7 @@ class UStaticMeshComponent;
 class USoundBase;
 class AGvTInteractableItem;
 class AGvTThiefCharacter;
+class UTexture2D;
 
 USTRUCT(BlueprintType)
 struct FGvTVanItemStack
@@ -21,6 +22,31 @@ struct FGvTVanItemStack
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="GvT|Van Inventory", meta=(ClampMin="0"))
 	int32 Quantity = 0;
+};
+
+/** Safe pre-mission hover data. Loot value is intentionally omitted. */
+USTRUCT(BlueprintType)
+struct FGvTVanItemHoverInfo
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Van Inventory")
+	bool bIsValid = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Van Inventory")
+	FText DisplayName;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Van Inventory")
+	FText Description;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Van Inventory")
+	TObjectPtr<UTexture2D> Icon = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Van Inventory")
+	int32 Quantity = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Van Inventory")
+	int32 InventorySpaceCost = 0;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FGvTVanInventoryChanged);
@@ -47,6 +73,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="GvT|Van Inventory")
 	int32 GetStorageSlotCount() const { return StorageSlotCount; }
+
+	/** Returns name, description, icon, quantity, and slot cost for a hovered stack. */
+	UFUNCTION(BlueprintPure, Category="GvT|Van Inventory")
+	FGvTVanItemHoverInfo GetItemHoverInfo(int32 StackIndex) const;
 
 	/** Server-only. Validates and transfers one item from a stack to the requesting player. */
 	bool TryTakeItem(AGvTThiefCharacter* Thief, int32 StackIndex, FText& OutFailureMessage);

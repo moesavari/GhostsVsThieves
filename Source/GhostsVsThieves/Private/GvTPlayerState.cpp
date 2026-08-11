@@ -454,3 +454,29 @@ void AGvTPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AGvTPlayerState, PanicFloor01);
 	DOREPLIFETIME(AGvTPlayerState, bDeadForPanic);
 }
+
+bool AGvTPlayerState::ApplyMedicineAuthority(float Reduction01)
+{
+	if (!HasAuthority() || bDeadForPanic || Reduction01 <= 0.f || Panic01 <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const float OldPanic = Panic01;
+	const float OldFloor = PanicFloor01;
+	float LowerFloor = 0.f;
+	for (const float Threshold : PanicFloorThresholds01)
+	{
+		if (Threshold < PanicFloor01 - KINDA_SMALL_NUMBER)
+		{
+			LowerFloor = FMath::Max(LowerFloor, Threshold);
+		}
+	}
+
+	PanicFloor01 = FMath::Clamp(LowerFloor, 0.f, MaxRecoverablePanicFloor01);
+	Panic01 = FMath::Clamp(Panic01 - Reduction01, PanicFloor01, 1.f);
+	OnRep_Panic();
+	ForceNetUpdate();
+	UE_LOG(LogTemp, Log, TEXT("[Medicine] PlayerState=%s Panic=%.2f->%.2f Floor=%.2f->%.2f"), *GetNameSafe(this), OldPanic, Panic01, OldFloor, PanicFloor01);
+	return !FMath::IsNearlyEqual(OldPanic, Panic01) || !FMath::IsNearlyEqual(OldFloor, PanicFloor01);
+}

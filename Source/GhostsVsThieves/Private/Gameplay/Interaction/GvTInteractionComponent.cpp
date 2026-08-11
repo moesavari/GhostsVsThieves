@@ -1,6 +1,8 @@
 #include "Gameplay/Interaction/GvTInteractionComponent.h"
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "World/Items/GvTInteractableItem.h"
+#include "World/Items/GvTMedicineItem.h"
+#include "World/Doors/GvTDoorActor.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
@@ -16,14 +18,15 @@
 
 UGvTInteractionComponent::UGvTInteractionComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
 	SetIsReplicatedByDefault(true);
 }
 
 void UGvTInteractionComponent::TryInteract()
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled() || !bInteractionEnabled)
 	{
 		return;
 	}
@@ -46,7 +49,7 @@ void UGvTInteractionComponent::TryPhoto()
 void UGvTInteractionComponent::TryScan()
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled() || !bInteractionEnabled)
 		return;
 
 	if (bIsInteracting)
@@ -81,7 +84,26 @@ void UGvTInteractionComponent::TryCancelInteraction(EGvTInteractionCancelReason 
 
 void UGvTInteractionComponent::Server_TryInteract_Implementation(EGvTInteractionVerb Verb)
 {
+	if (!bInteractionEnabled)
+	{
+		return;
+	}
+
 	PerformServerTraceAndTryStart(Verb);
+}
+
+void UGvTInteractionComponent::SetInteractionEnabled(bool bEnabled)
+{
+	if (!GetOwner() || !GetOwner()->HasAuthority())
+	{
+		return;
+	}
+
+	bInteractionEnabled = bEnabled;
+	if (!bEnabled && bIsInteracting)
+	{
+		CancelInteractionInternal(EGvTInteractionCancelReason::Invalid);
+	}
 }
 
 void UGvTInteractionComponent::Server_CancelInteraction_Implementation(EGvTInteractionCancelReason Reason)
@@ -159,6 +181,10 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
 	if (!HitActor || !HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
+		if (Verb == EGvTInteractionVerb::Interact && TryStartSelectedMedicine())
+		{
+			return;
+		}
 		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(OwnerPawn->GetController()))
 		{
 			PC->Client_ShowHUDMessage(FText::FromString(TEXT("Nothing to interact with.")), false);
@@ -171,7 +197,14 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 		UE_LOG(LogTemp, Verbose, TEXT("[Interaction] Player=%s Target=%s Verb=%d Result=REJECTED"), *GetNameSafe(OwnerPawn), *GetNameSafe(HitActor), static_cast<int32>(Verb));
 
 		FText FailureMessage = FText::FromString(TEXT("Cannot interact with that right now."));
-		if (const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(HitActor))
+		if (const AGvTDoorActor* Door = Cast<AGvTDoorActor>(HitActor))
+		{
+			if (Verb == EGvTInteractionVerb::Interact && Door->IsLocked())
+			{
+				FailureMessage = FText::FromString(TEXT("This door is locked. Select a lockpick to unlock it."));
+			}
+		}
+		else if (const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(HitActor))
 		{
 			if (Verb == EGvTInteractionVerb::Scan && Item->HasBeenScanned())
 			{
@@ -222,6 +255,22 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	BeginInteraction(HitActor, Verb, Spec);
 }
 
+bool UGvTInteractionComponent::TryStartSelectedMedicine()
+{
+	AGvTThiefCharacter* Thief = GetOwnerThief();
+	UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+	AGvTMedicineItem* Medicine = Inventory ? Cast<AGvTMedicineItem>(Inventory->GetSelectedItem()) : nullptr;
+	if (!Medicine || !Medicine->CanUseMedicine(Thief))
+	{
+		return false;
+	}
+
+	FGvTInteractionSpec Spec;
+	Medicine->BuildMedicineUseSpec(Spec);
+	BeginInteraction(Medicine, EGvTInteractionVerb::Interact, Spec);
+	return true;
+}
+
 void UGvTInteractionComponent::BeginInteraction(AActor* Target, EGvTInteractionVerb Verb, const FGvTInteractionSpec& Spec)
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
@@ -232,6 +281,10 @@ void UGvTInteractionComponent::BeginInteraction(AActor* Target, EGvTInteractionV
 
 	bIsInteracting = true;
 	CurrentInteractable = Target;
+	if (AGvTThiefCharacter* Thief = GetOwnerThief())
+	{
+		RequiredSelectedItem = Thief->GetInventoryComponent() ? Thief->GetInventoryComponent()->GetSelectedItem() : nullptr;
+	}
 	ActiveVerb = Verb;
 	ActiveSpec = Spec;
 
@@ -241,6 +294,12 @@ void UGvTInteractionComponent::BeginInteraction(AActor* Target, EGvTInteractionV
 	ApplyLockIn(Spec);
 
 	IGvTInteractable::Execute_BeginInteract(Target, OwnerPawn, Verb);
+	SetComponentTickEnabled(true);
+	if (Spec.bEmitPeriodicNoise)
+	{
+		EmitPeriodicInteractionNoise();
+		GetWorld()->GetTimerManager().SetTimer(PeriodicNoiseTimerHandle, this, &UGvTInteractionComponent::EmitPeriodicInteractionNoise, FMath::Max(0.05f, Spec.PeriodicNoiseInterval), true);
+	}
 
 	// Server timer to complete
 	GetWorld()->GetTimerManager().ClearTimer(InteractionTimerHandle);
@@ -260,7 +319,7 @@ void UGvTInteractionComponent::BeginInteraction(AActor* Target, EGvTInteractionV
 void UGvTInteractionComponent::CompleteInteraction()
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
-	if (!OwnerPawn || !bIsInteracting || !CurrentInteractable)
+	if (!OwnerPawn || !bIsInteracting || !CurrentInteractable || !IsActiveInteractionStillValid())
 	{
 		CancelInteractionInternal(EGvTInteractionCancelReason::Invalid);
 		return;
@@ -270,6 +329,8 @@ void UGvTInteractionComponent::CompleteInteraction()
 
 	// Clear state first (prevents re-entrancy)
 	GetWorld()->GetTimerManager().ClearTimer(InteractionTimerHandle);
+	GetWorld()->GetTimerManager().ClearTimer(PeriodicNoiseTimerHandle);
+	SetComponentTickEnabled(false);
 	bIsInteracting = false;
 	CurrentInteractable = nullptr;
 
@@ -301,6 +362,7 @@ void UGvTInteractionComponent::CompleteInteraction()
 
 	Client_PlayInteractionFinishSfx(true, Verb, ActiveSpec);
 	ActiveSpec = FGvTInteractionSpec{};
+	RequiredSelectedItem = nullptr;
 
 	OnRep_InteractionState();
 	OnInteractionCompleted.Broadcast(Verb, Target);
@@ -319,6 +381,8 @@ void UGvTInteractionComponent::CancelInteractionInternal(EGvTInteractionCancelRe
 	const FGvTInteractionSpec SpecSnapshot = ActiveSpec;
 
 	GetWorld()->GetTimerManager().ClearTimer(InteractionTimerHandle);
+	GetWorld()->GetTimerManager().ClearTimer(PeriodicNoiseTimerHandle);
+	SetComponentTickEnabled(false);
 
 	bIsInteracting = false;
 	CurrentInteractable = nullptr;
@@ -347,9 +411,70 @@ void UGvTInteractionComponent::CancelInteractionInternal(EGvTInteractionCancelRe
 	InteractionEndServerTime = 0.f;
 	Client_PlayInteractionFinishSfx(false, Verb, SpecSnapshot);
 	ActiveSpec = FGvTInteractionSpec{};
+	RequiredSelectedItem = nullptr;
 
 	OnRep_InteractionState();
 	OnInteractionCanceled.Broadcast(Verb, Target, Reason);
+}
+
+void UGvTInteractionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	if (GetOwner() && GetOwner()->HasAuthority() && bIsInteracting && !IsActiveInteractionStillValid())
+	{
+		CancelInteractionInternal(EGvTInteractionCancelReason::Invalid);
+	}
+}
+
+bool UGvTInteractionComponent::IsActiveInteractionStillValid() const
+{
+	const AGvTThiefCharacter* Thief = GetOwnerThief();
+	if (!Thief || Thief->IsDead() || !IsValid(CurrentInteractable))
+	{
+		return false;
+	}
+
+	const UGvTInventoryComponent* Inventory = Thief->GetInventoryComponent();
+	if (RequiredSelectedItem && (!Inventory || Inventory->GetSelectedItem() != RequiredSelectedItem))
+	{
+		return false;
+	}
+
+	if (CurrentInteractable != RequiredSelectedItem && FVector::DistSquared(Thief->GetActorLocation(), CurrentInteractable->GetActorLocation()) > FMath::Square(ActiveInteractionRange))
+	{
+		return false;
+	}
+
+	if (const AGvTDoorActor* Door = Cast<AGvTDoorActor>(CurrentInteractable))
+	{
+		if (ActiveSpec.bEmitPeriodicNoise && !Door->IsLocked())
+		{
+			return false;
+		}
+	}
+
+	return IGvTInteractable::Execute_CanInteract(CurrentInteractable, const_cast<AGvTThiefCharacter*>(Thief), ActiveVerb);
+}
+
+void UGvTInteractionComponent::EmitPeriodicInteractionNoise()
+{
+	if (!bIsInteracting || !ActiveSpec.bEmitPeriodicNoise || !IsActiveInteractionStillValid())
+	{
+		return;
+	}
+
+	if (UGameInstance* GI = GetWorld()->GetGameInstance())
+	{
+		if (UGvTNoiseSubsystem* Noise = GI->GetSubsystem<UGvTNoiseSubsystem>())
+		{
+			FGvTNoiseEvent Event;
+			Event.Location = CurrentInteractable ? CurrentInteractable->GetActorLocation() : GetOwner()->GetActorLocation();
+			Event.Radius = ActiveSpec.PeriodicNoiseRadius;
+			Event.Loudness = ActiveSpec.PeriodicNoiseLoudness;
+			Event.NoiseTag = ActiveSpec.InteractionTag;
+			Noise->EmitNoise(Event);
+		}
+	}
 }
 
 void UGvTInteractionComponent::ApplyLockIn(const FGvTInteractionSpec& Spec)
@@ -426,6 +551,7 @@ void UGvTInteractionComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(UGvTInteractionComponent, bIsInteracting);
+	DOREPLIFETIME(UGvTInteractionComponent, bInteractionEnabled);
 	DOREPLIFETIME(UGvTInteractionComponent, CurrentInteractable);
 	DOREPLIFETIME(UGvTInteractionComponent, InteractionStartServerTime);
 	DOREPLIFETIME(UGvTInteractionComponent, InteractionEndServerTime);

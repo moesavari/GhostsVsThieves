@@ -161,6 +161,11 @@ void AGvTPlayerController::Client_ShowHUDMessage_Implementation(const FText& Mes
 
 void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLocked)
 {
+	if (bLocked && bVanInventoryOpen)
+	{
+		CloseVanInventory();
+	}
+
 	SetIgnoreMoveInput(bLocked);
 	SetIgnoreLookInput(bLocked);
 }
@@ -375,12 +380,19 @@ void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 		return;
 	}
 
+	const int32 DisplayedPercent = FMath::RoundToInt(FMath::Clamp(NewPanic01, 0.f, 1.f) * 100.f);
+	if (DisplayedPercent == LastDisplayedPanicPercent)
+	{
+		return;
+	}
+	LastDisplayedPanicPercent = DisplayedPercent;
+
 	if (UGvTHUDWidget* GvTHUD = Cast<UGvTHUDWidget>(HUDWidget))
 	{
 		GvTHUD->UpdatePanicDisplay(NewPanic01);
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("[HUD] Panic display updated: %.2f"), NewPanic01);
+	UE_LOG(LogTemp, Verbose, TEXT("[HUD] Panic display updated: %d%%"), DisplayedPercent);
 }
 
 void AGvTPlayerController::HandleHauntPressureChanged(float NewPressure01)

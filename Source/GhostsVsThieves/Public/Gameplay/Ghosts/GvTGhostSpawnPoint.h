@@ -19,9 +19,6 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GvT|Ghost|Spawn")
 	bool SupportsHauntTag(FGameplayTag HauntTag) const;
 
-	UFUNCTION(BlueprintPure, Category = "GvT|Ghost|Spawn")
-	float ScoreForTarget(const AActor* Target, float IdealDistance, float MinDistance, float MaxDistance) const;
-
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Spawn")
 	bool bEnabled = true;

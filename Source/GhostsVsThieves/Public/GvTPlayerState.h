@@ -108,6 +108,10 @@ public:
 
 	void AddPanicAuthority(float Delta01);
 	void ReducePanicAuthority(float Delta01);
+	bool ApplyMedicineAuthority(float Reduction01);
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Panic|Floor")
+	float GetPanicFloor01() const { return PanicFloor01; }
 
 	// New event-driven panic API
 	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "GvT|Panic")

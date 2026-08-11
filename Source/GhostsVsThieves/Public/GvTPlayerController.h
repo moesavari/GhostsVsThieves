@@ -100,4 +100,5 @@ private:
     FTimerHandle TimerHandle_BindHUDRetry;
     FTimerHandle TimerHandle_BindGameStateRetry;
     bool bVanInventoryOpen = false;
+    int32 LastDisplayedPanicPercent = INDEX_NONE;
 };

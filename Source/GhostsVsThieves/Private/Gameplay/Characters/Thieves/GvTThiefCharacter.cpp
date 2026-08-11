@@ -848,6 +848,24 @@ void AGvTThiefCharacter::Client_PlayGhostScare_Implementation(FGameplayTag Ghost
         return;
     }
 
+    for (TActorIterator<AGvTHauntGhostBase> It(World); It; ++It)
+    {
+        AGvTHauntGhostBase* ActiveHauntGhost = *It;
+        if (!IsValid(ActiveHauntGhost) || ActiveHauntGhost->IsActorBeingDestroyed())
+        {
+            continue;
+        }
+
+        if (ActiveHauntGhost->GetClass() == DebugGhostClass.Get())
+        {
+            UE_LOG(LogTemp, Warning,
+                TEXT("[GhostScare] Close scare blocked: presentation class %s matches active haunt ghost %s."),
+                *GetNameSafe(DebugGhostClass),
+                *GetNameSafe(ActiveHauntGhost));
+            return;
+        }
+    }
+
     FVector SpawnLoc;
     FRotator SpawnRot;
 

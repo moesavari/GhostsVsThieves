@@ -12,6 +12,8 @@
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "GvTPlayerState.h"
 #include "Kismet/GameplayStatics.h"
+#include "Engine/TargetPoint.h"
+#include "Navigation/PathFollowingComponent.h"
 
 AGvTHauntGhostBase::AGvTHauntGhostBase()
 {
@@ -57,6 +59,7 @@ void AGvTHauntGhostBase::BeginPlay()
 	}
 
 	WholeHouseRoamOrigin = GetActorLocation();
+	DiscoverRoomSearchPoints();
 	CacheDefaultMeshTransform();
 	ConfigureClientGhostProxyMovement();
 }
@@ -76,8 +79,17 @@ void AGvTHauntGhostBase::Tick(float DeltaSeconds)
 	{
 		HauntElapsedSeconds += DeltaSeconds;
 
-		if (MaxHauntDurationSeconds > 0.f && HauntElapsedSeconds >= MaxHauntDurationSeconds)
+		const float EffectiveHauntDuration = MaxHauntDurationSeconds + HauntDurationBonusSeconds + (bHauntDurationGraceApplied ? RoomSearchArrivalGraceSeconds : 0.f);
+
+		if (MaxHauntDurationSeconds > 0.f && HauntElapsedSeconds >= EffectiveHauntDuration)
 		{
+			if (!bHauntDurationGraceApplied && RoomSearchArrivalGraceSeconds > 0.f && IsValid(ActiveRoomSearchPoint))
+			{
+				bHauntDurationGraceApplied = true;
+				UE_LOG(LogTemp, Log, TEXT("[GhostRoomSearch] Arrival grace granted. Ghost=%s Point=%s Grace=%.1f"), *GetNameSafe(this), *GetNameSafe(ActiveRoomSearchPoint), RoomSearchArrivalGraceSeconds);
+				return;
+			}
+
 			StartHauntDespawnSequence();
 			return;
 		}
@@ -279,6 +291,10 @@ void AGvTHauntGhostBase::StartGhostChase(AActor* Target)
 
 	HauntElapsedSeconds = 0.f;
 	RoamRepathTimer = 0.f;
+	bHauntDurationGraceApplied = false;
+	RoomSearchFocusLocation = LastKnownTargetLocation;
+	VisitedRoomSearchPoints.Reset();
+	ClearActiveRoomSearchPoint();
 
 	SetGhostPresenceActive(true);
 	SetHauntState(EGvTHauntGhostState::Chasing);
@@ -551,11 +567,13 @@ void AGvTHauntGhostBase::StartSearchFromLastKnownLocation()
 
 	SearchElapsedSeconds = 0.f;
 	SearchRepathTimer = SearchRepathInterval;
+	ClearActiveRoomSearchPoint();
 	SetHauntState(EGvTHauntGhostState::Searching);
 	OnHauntSearchStarted();
 	MoveToSearchLocation(LastKnownTargetLocation);
 
 	bWholeHouseRoamActive = false;
+	ClearActiveRoomSearchPoint();
 	bReachedLastKnownLocation = false;
 
 	UE_LOG(LogTemp, Warning,
@@ -696,6 +714,7 @@ void AGvTHauntGhostBase::HandleSearchExpired()
 	}
 
 	SetCurrentChaseTarget(nullptr);
+	RoomSearchFocusLocation = LastKnownTargetLocation;
 	LastKnownTargetLocation = FVector::ZeroVector;
 	bWholeHouseRoamActive = true;
 
@@ -1128,12 +1147,63 @@ void AGvTHauntGhostBase::UpdateRoaming(float DeltaSeconds)
 
 	if (TryResumeChaseFromSearch())
 	{
+		if (IsValid(ActiveRoomSearchPoint))
+		{
+			UE_LOG(LogTemp, Log, TEXT("[GhostRoomSearch] Interrupted by player. Ghost=%s Point=%s"), *GetNameSafe(this), *GetNameSafe(ActiveRoomSearchPoint));
+		}
+		ClearActiveRoomSearchPoint();
 		return;
 	}
 
 	if (TryInvestigateRecentNoise())
 	{
+		if (IsValid(ActiveRoomSearchPoint))
+		{
+			UE_LOG(LogTemp, Log, TEXT("[GhostRoomSearch] Interrupted by noise. Ghost=%s Point=%s"), *GetNameSafe(this), *GetNameSafe(ActiveRoomSearchPoint));
+		}
+		ClearActiveRoomSearchPoint();
 		return;
+	}
+
+	if (bWholeHouseRoamActive && IsValid(ActiveRoomSearchPoint))
+	{
+		const float DistanceToPoint = FVector::Dist2D(GetActorLocation(), ActiveRoomSearchDestination);
+
+		if (DistanceToPoint <= RoomSearchAcceptanceRadius)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[GhostRoomSearch] Reached. Ghost=%s Point=%s"), *GetNameSafe(this), *GetNameSafe(ActiveRoomSearchPoint));
+			VisitedRoomSearchPoints.Add(ActiveRoomSearchPoint);
+			PreviousRoomSearchPoint = ActiveRoomSearchPoint;
+			ClearActiveRoomSearchPoint();
+			RoamRepathTimer = RoamRepathInterval;
+		}
+		else
+		{
+			if (DistanceToPoint <= RoomSearchBestDistance - RoomSearchProgressThreshold)
+			{
+				RoomSearchBestDistance = DistanceToPoint;
+				RoomSearchStuckElapsedSeconds = 0.f;
+			}
+			else if (GetVelocity().SizeSquared2D() <= FMath::Square(5.f))
+			{
+				RoomSearchStuckElapsedSeconds += DeltaSeconds;
+			}
+			else
+			{
+				RoomSearchStuckElapsedSeconds = 0.f;
+			}
+
+			if (RoomSearchStuckElapsedSeconds < RoomSearchStuckTimeoutSeconds)
+			{
+				return;
+			}
+
+			UE_LOG(LogTemp, Warning, TEXT("[GhostRoomSearch] Stuck. Ghost=%s Point=%s Distance=%.0f"), *GetNameSafe(this), *GetNameSafe(ActiveRoomSearchPoint), DistanceToPoint);
+			VisitedRoomSearchPoints.Add(ActiveRoomSearchPoint);
+			PreviousRoomSearchPoint = ActiveRoomSearchPoint;
+			ClearActiveRoomSearchPoint();
+			RoamRepathTimer = RoamRepathInterval;
+		}
 	}
 
 	RoamRepathTimer += DeltaSeconds;
@@ -1147,6 +1217,11 @@ void AGvTHauntGhostBase::UpdateRoaming(float DeltaSeconds)
 void AGvTHauntGhostBase::MoveToRandomRoamLocation()
 {
 	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	if (bWholeHouseRoamActive && SelectAndMoveToRoomSearchPoint())
 	{
 		return;
 	}
@@ -1218,6 +1293,122 @@ void AGvTHauntGhostBase::MoveToRandomRoamLocation()
 				*Origin.ToString(), Radius, *BestLocation.Location.ToString(), BestScore);
 		}
 	}
+}
+
+void AGvTHauntGhostBase::DiscoverRoomSearchPoints()
+{
+	RoomSearchPoints.Reset();
+
+	if (!HasAuthority() || !GetWorld())
+	{
+		return;
+	}
+
+	for (TActorIterator<ATargetPoint> It(GetWorld()); It; ++It)
+	{
+		ATargetPoint* SearchPoint = *It;
+		if (IsValid(SearchPoint) && SearchPoint->ActorHasTag(RoomSearchPointTag))
+		{
+			RoomSearchPoints.Add(SearchPoint);
+		}
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[GhostRoomSearch] Discovered. Ghost=%s Tag=%s Count=%d"), *GetNameSafe(this), *RoomSearchPointTag.ToString(), RoomSearchPoints.Num());
+}
+
+bool AGvTHauntGhostBase::SelectAndMoveToRoomSearchPoint()
+{
+	if (!HasAuthority() || RoomSearchPoints.IsEmpty())
+	{
+		return false;
+	}
+
+	TArray<ATargetPoint*> Candidates;
+	for (ATargetPoint* SearchPoint : RoomSearchPoints)
+	{
+		if (IsValid(SearchPoint) && !VisitedRoomSearchPoints.Contains(SearchPoint))
+		{
+			Candidates.Add(SearchPoint);
+		}
+	}
+
+	if (Candidates.IsEmpty())
+	{
+		VisitedRoomSearchPoints.Reset();
+		for (ATargetPoint* SearchPoint : RoomSearchPoints)
+		{
+			if (IsValid(SearchPoint))
+			{
+				Candidates.Add(SearchPoint);
+			}
+		}
+	}
+
+	if (Candidates.Num() > 1 && IsValid(PreviousRoomSearchPoint))
+	{
+		Candidates.Remove(PreviousRoomSearchPoint);
+	}
+
+	Candidates.Sort([this](const ATargetPoint& A, const ATargetPoint& B)
+	{
+		const FVector Focus = RoomSearchFocusLocation.IsNearlyZero() ? GetActorLocation() : RoomSearchFocusLocation;
+		return FVector::DistSquared2D(A.GetActorLocation(), Focus) < FVector::DistSquared2D(B.GetActorLocation(), Focus);
+	});
+
+	const int32 ShortlistCount = FMath::Min(Candidates.Num(), FMath::Max(1, RoomSearchNearestCandidateCount));
+	while (!Candidates.IsEmpty())
+	{
+		const int32 RandomIndex = FMath::RandRange(0, FMath::Min(ShortlistCount, Candidates.Num()) - 1);
+		ATargetPoint* Candidate = Candidates[RandomIndex];
+		Candidates.RemoveAt(RandomIndex);
+
+		if (MoveToRoomSearchPoint(Candidate))
+		{
+			return true;
+		}
+
+		VisitedRoomSearchPoints.Add(Candidate);
+		UE_LOG(LogTemp, Warning, TEXT("[GhostRoomSearch] Move rejected. Ghost=%s Point=%s"), *GetNameSafe(this), *GetNameSafe(Candidate));
+	}
+
+	return false;
+}
+
+bool AGvTHauntGhostBase::MoveToRoomSearchPoint(ATargetPoint* SearchPoint)
+{
+	if (!IsValid(SearchPoint))
+	{
+		return false;
+	}
+
+	AAIController* AI = Cast<AAIController>(GetController());
+	if (!AI)
+	{
+		return false;
+	}
+
+	const FVector ProjectedDestination = GetNavigationSafeGhostLocation(SearchPoint->GetActorLocation());
+	const EPathFollowingRequestResult::Type MoveResult = AI->MoveToLocation(ProjectedDestination, RoomSearchAcceptanceRadius, true, true, true, false, nullptr, true);
+	if (MoveResult == EPathFollowingRequestResult::Failed) 
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[GhostRoomSearch] Path failed. Ghost=%s Point=%s Destination=%s"), *GetNameSafe(this), *GetNameSafe(SearchPoint), *ProjectedDestination.ToCompactString());
+		return false;
+	}
+
+	ActiveRoomSearchPoint = SearchPoint;
+	ActiveRoomSearchDestination = ProjectedDestination;
+	RoomSearchBestDistance = FVector::Dist2D(GetActorLocation(), ProjectedDestination);
+	RoomSearchStuckElapsedSeconds = 0.f;
+	UE_LOG(LogTemp, Log, TEXT("[GhostRoomSearch] Selected. Ghost=%s Point=%s Destination=%s"), *GetNameSafe(this), *GetNameSafe(SearchPoint), *ProjectedDestination.ToCompactString());
+	return true;
+}
+
+void AGvTHauntGhostBase::ClearActiveRoomSearchPoint()
+{
+	ActiveRoomSearchPoint = nullptr;
+	ActiveRoomSearchDestination = FVector::ZeroVector;
+	RoomSearchBestDistance = TNumericLimits<float>::Max();
+	RoomSearchStuckElapsedSeconds = 0.f;
 }
 
 void AGvTHauntGhostBase::UpdateUniversalDoorHandling(float DeltaSeconds)
@@ -1352,11 +1543,26 @@ bool AGvTHauntGhostBase::TryInvestigateRecentNoise()
 	FVector NoiseLocation = FVector::ZeroVector;
 	FGameplayTag NoiseTag;
 	float NoiseScore = 0.f;
+	int64 NoiseEventId = 0;
 
-	if (!GhostPerceptionComponent->TryFindBestNoiseLocation(NoiseLocation, NoiseTag, NoiseScore))
+	if (!GhostPerceptionComponent->TryFindBestNoiseLocation(NoiseLocation, NoiseTag, NoiseScore, NoiseEventId))
 	{
 		return false;
 	}
+
+	if (NoiseEventId <= LastProcessedNoiseEventId)
+	{
+		return false;
+	}
+
+	if (HauntState == EGvTHauntGhostState::Investigating && NoiseScore <= ActiveInvestigationNoiseScore)
+	{
+		LastProcessedNoiseEventId = NoiseEventId;
+		return false;
+	}
+
+	LastProcessedNoiseEventId = NoiseEventId;
+	ActiveInvestigationNoiseScore = NoiseScore;
 
 	MoveToSearchLocation(NoiseLocation);
 

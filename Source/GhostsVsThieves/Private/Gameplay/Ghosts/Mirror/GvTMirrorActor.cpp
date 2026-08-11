@@ -382,7 +382,8 @@ void AGvTMirrorActor::StartScareCapture(float LifeSeconds)
 	if (bScareActive) return;
 	bScareActive = true;
 
-	const float Interval = (CaptureFPS <= 0.f) ? 0.066f : (1.f / CaptureFPS);
+	const float SafeCaptureFPS = FMath::Clamp(CaptureFPS, 1.f, 60.f);
+	const float Interval = 1.f / SafeCaptureFPS;
 	GetWorldTimerManager().SetTimer(CaptureTimer, this, &AGvTMirrorActor::CaptureOnce, Interval, true);
 
 	GetWorldTimerManager().ClearTimer(StopTimer);
@@ -393,7 +394,7 @@ void AGvTMirrorActor::StartScareCapture(float LifeSeconds)
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[Mirror] StartScareCapture FPS=%.2f RT=%s Ghost=%s"),
-		CaptureFPS,
+		SafeCaptureFPS,
 		*GetNameSafe(RenderTarget),
 		*GetNameSafe(GhostInstance));
 }

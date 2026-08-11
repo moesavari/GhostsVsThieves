@@ -58,24 +58,23 @@ void AGvTInteractableItem::BeginPlay()
 
 	if (bSnapToSurfaceOnBeginPlay)
 	{
-		SnapMeshBottomToSurface();
+		SnapMeshToSurface();
 	}
 }
 
-void AGvTInteractableItem::SnapMeshBottomToSurface()
+void AGvTInteractableItem::SnapMeshToSurface()
 {
 	if (!HasAuthority() || !Mesh || !Mesh->GetStaticMesh() || !GetWorld())
 	{
 		return;
 	}
 
-	// Mesh bounds are already transformed into world space, so this works for every variant,
-	// regardless of its pivot location, scale, or rotation.
 	const FBoxSphereBounds WorldBounds = Mesh->Bounds;
-	const float MeshBottomZ = WorldBounds.Origin.Z - WorldBounds.BoxExtent.Z;
-
-	const FVector TraceStart(WorldBounds.Origin.X, WorldBounds.Origin.Y, MeshBottomZ + 5.f);
-	const FVector TraceEnd = TraceStart - FVector(0.f, 0.f, FMath::Max(SurfaceTraceDistance, 1.f));
+	const FVector TraceDirection = PlacementMode == EGvTItemPlacementMode::Wall
+		? -GetActorForwardVector().GetSafeNormal()
+		: FVector::DownVector;
+	const FVector TraceStart = WorldBounds.Origin - (TraceDirection * 5.f);
+	const FVector TraceEnd = TraceStart + (TraceDirection * FMath::Max(SurfaceTraceDistance, 1.f));
 
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_ItemSurfaceSnap), false, this);
 	Params.AddIgnoredActor(this);
@@ -86,12 +85,30 @@ void AGvTInteractableItem::SnapMeshBottomToSurface()
 		return;
 	}
 
-	const float VerticalOffset = (Hit.ImpactPoint.Z + SurfaceClearance) - MeshBottomZ;
-	if (!FMath::IsNearlyZero(VerticalOffset))
+	if (PlacementMode == EGvTItemPlacementMode::Wall)
 	{
-		AddActorWorldOffset(FVector(0.f, 0.f, VerticalOffset), false, nullptr, ETeleportType::TeleportPhysics);
-		ForceNetUpdate();
+		const FVector WallNormal = Hit.ImpactNormal.GetSafeNormal();
+		const FRotator WallRotation = FRotationMatrix::MakeFromXZ(WallNormal, FVector::UpVector).Rotator();
+		SetActorRotation(WallRotation, ETeleportType::TeleportPhysics);
+		Mesh->UpdateBounds();
+
+		const FBoxSphereBounds RotatedBounds = Mesh->Bounds;
+		const FVector Extent = RotatedBounds.BoxExtent;
+		const float NormalExtent =
+			FMath::Abs(WallNormal.X) * Extent.X +
+			FMath::Abs(WallNormal.Y) * Extent.Y +
+			FMath::Abs(WallNormal.Z) * Extent.Z;
+		const FVector DesiredCenter = Hit.ImpactPoint + WallNormal * (NormalExtent + SurfaceClearance);
+		AddActorWorldOffset(DesiredCenter - RotatedBounds.Origin, false, nullptr, ETeleportType::TeleportPhysics);
 	}
+	else
+	{
+		const float MeshBottomZ = WorldBounds.Origin.Z - WorldBounds.BoxExtent.Z;
+		const float VerticalOffset = (Hit.ImpactPoint.Z + SurfaceClearance) - MeshBottomZ;
+		AddActorWorldOffset(FVector(0.f, 0.f, VerticalOffset), false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	ForceNetUpdate();
 }
 
 
@@ -394,16 +411,21 @@ void AGvTInteractableItem::DropFromInventory(const FVector& WorldLocation, const
 	Carrier = nullptr;
 	bIsEquipped = false;
 	SetOwner(nullptr);
-	const FRotator FinalDropRotation = (DroppedRotationOffset.Quaternion() * WorldRotation.Quaternion()).Rotator();
-	SetActorLocationAndRotation(WorldLocation, FinalDropRotation, false, nullptr, ETeleportType::TeleportPhysics);
+	SetActorLocationAndRotation(WorldLocation, WorldRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	ApplyCarryState();
 
 	if (Mesh)
 	{
+		// Configure the body completely before applying velocity or impulse. This
+		// prevents thin props from taking their first physics step with stale collision.
 		Mesh->SetMobility(EComponentMobility::Movable);
 		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		Mesh->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
 		Mesh->SetEnableGravity(true);
+		Mesh->SetLinearDamping(DroppedLinearDamping);
+		Mesh->SetAngularDamping(DroppedAngularDamping);
+		Mesh->SetUseCCD(bUseContinuousCollisionDetectionWhenDropped);
 		Mesh->SetSimulatePhysics(true);
 		Mesh->SetPhysicsLinearVelocity(FVector::ZeroVector);
 		Mesh->SetPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
@@ -445,7 +467,11 @@ void AGvTInteractableItem::ApplyCarryState()
 		SetActorEnableCollision(true);
 		Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Mesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+		Mesh->SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
 		Mesh->SetEnableGravity(true);
+		Mesh->SetLinearDamping(DroppedLinearDamping);
+		Mesh->SetAngularDamping(DroppedAngularDamping);
+		Mesh->SetUseCCD(bUseContinuousCollisionDetectionWhenDropped);
 		Mesh->SetSimulatePhysics(true);
 		Mesh->WakeAllRigidBodies();
 	}

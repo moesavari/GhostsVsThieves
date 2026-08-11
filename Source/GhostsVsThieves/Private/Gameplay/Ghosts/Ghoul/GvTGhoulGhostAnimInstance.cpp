@@ -10,6 +10,7 @@ void UGvTGhoulGhostAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	if (!Ghoul)
 	{
 		Speed = 0.f;
+		bIsMoving = false;
 		bIsChasing = false;
 		bIsPerformingScare = false;
 		MovePlayRate = 1.f;
@@ -18,6 +19,7 @@ void UGvTGhoulGhostAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 	}
 
 	Speed = Ghoul->GetReplicatedSpeed();
+	bIsMoving = Speed > MovingSpeedThreshold;
 	bIsChasing = Ghoul->IsChasing();
 	bIsPerformingScare = Ghoul->IsPerformingScare();
 	GhostState = Ghoul->GetGhoulHauntState();

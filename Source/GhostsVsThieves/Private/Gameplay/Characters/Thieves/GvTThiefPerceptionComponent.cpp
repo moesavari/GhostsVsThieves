@@ -128,6 +128,14 @@ void UGvTThiefPerceptionComponent::Test_MirrorScare(float Intensity01, float Lif
 	}
 }
 
+void UGvTThiefPerceptionComponent::PlayMirrorScareFromDirector(AGvTMirrorActor* Mirror, float Intensity01, float LifeSeconds)
+{
+	if (IsValid(Mirror))
+	{
+		Client_PlayMirrorActorScare(Mirror, Intensity01, LifeSeconds);
+	}
+}
+
 void UGvTThiefPerceptionComponent::TickMirrorReflectSense()
 {
 	if (!bEnableMirrorReflectSense)

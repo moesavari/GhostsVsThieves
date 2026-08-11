@@ -52,6 +52,9 @@ public:
 	/** Server-only. Removes the selected item without dropping it into the world. */
 	bool TryRemoveSelectedItemForDeposit(AGvTInteractableItem*& OutItem);
 
+	/** Server-only atomic removal used by consumables. ExpectedItem prevents stale/double requests. */
+	bool ConsumeSelectedItem(AGvTInteractableItem* ExpectedItem);
+
 	UFUNCTION(BlueprintPure, Category="GvT|Inventory")
 	bool ContainsStolenLoot() const;
 

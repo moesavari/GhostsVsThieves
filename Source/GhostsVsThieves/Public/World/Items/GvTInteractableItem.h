@@ -33,6 +33,13 @@ enum class EGvTItemPurpose : uint8
 };
 
 UENUM(BlueprintType)
+enum class EGvTItemPlacementMode : uint8
+{
+	Floor	UMETA(DisplayName = "Floor"),
+	Wall	UMETA(DisplayName = "Wall")
+};
+
+UENUM(BlueprintType)
 enum class EGvTItemGhostTrait : uint8
 {
 	Electrical			UMETA(DisplayName = "Electrical"),
@@ -159,8 +166,8 @@ public:
 protected:
 	virtual void BeginPlay() override;
 
-	/** Snaps the selected mesh so its lowest world-space bound rests on the first surface below it. */
-	void SnapMeshBottomToSurface();
+	/** Snaps the selected mesh to its configured display surface. */
+	void SnapMeshToSurface();
 
 	UPROPERTY(VisibleAnywhere, Category = "Item")
 	UStaticMeshComponent* Mesh;
@@ -209,9 +216,17 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (ClampMin = "0.0"))
 	float DropDownwardImpulse = 35.f;
 
-	/** Additional orientation applied after dropping. The physical Mesh remains the actor root for correct replicated physics. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop", meta = (DisplayName = "Dropped Mesh Rotation Offset"))
-	FRotator DroppedRotationOffset = FRotator::ZeroRotator;
+	/** Slows sliding after a dropped item lands without making the initial toss feel frozen. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop|Physics", meta = (ClampMin = "0.0"))
+	float DroppedLinearDamping = 0.4f;
+
+	/** Higher values help cylindrical props settle instead of rolling indefinitely. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop|Physics", meta = (ClampMin = "0.0"))
+	float DroppedAngularDamping = 4.0f;
+
+	/** Continuous collision detection helps fast or thin dropped props avoid tunneling through floors. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Drop|Physics")
+	bool bUseContinuousCollisionDetectionWhenDropped = true;
 
 
 	UPROPERTY(EditAnywhere, Category="Item|Interaction")
@@ -234,6 +249,9 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement")
 	bool bSnapToSurfaceOnBeginPlay = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement")
+	EGvTItemPlacementMode PlacementMode = EGvTItemPlacementMode::Floor;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement", meta = (ClampMin = "1.0"))
 	float SurfaceTraceDistance = 1000.f;

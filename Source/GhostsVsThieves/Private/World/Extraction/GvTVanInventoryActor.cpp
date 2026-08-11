@@ -156,3 +156,27 @@ void AGvTVanInventoryActor::OnRep_ItemStacks()
 {
 	OnVanInventoryChanged.Broadcast();
 }
+
+FGvTVanItemHoverInfo AGvTVanInventoryActor::GetItemHoverInfo(int32 StackIndex) const
+{
+	FGvTVanItemHoverInfo Result;
+	if (!ItemStacks.IsValidIndex(StackIndex))
+	{
+		return Result;
+	}
+
+	const FGvTVanItemStack& Stack = ItemStacks[StackIndex];
+	const AGvTInteractableItem* ItemDefaults = Stack.ItemClass ? Stack.ItemClass->GetDefaultObject<AGvTInteractableItem>() : nullptr;
+	if (!ItemDefaults)
+	{
+		return Result;
+	}
+
+	Result.bIsValid = true;
+	Result.DisplayName = ItemDefaults->GetInventoryDisplayName();
+	Result.Description = ItemDefaults->GetInventoryDescription();
+	Result.Icon = ItemDefaults->GetInventoryIcon();
+	Result.Quantity = FMath::Max(0, Stack.Quantity);
+	Result.InventorySpaceCost = ItemDefaults->GetInventorySpaceCost();
+	return Result;
+}

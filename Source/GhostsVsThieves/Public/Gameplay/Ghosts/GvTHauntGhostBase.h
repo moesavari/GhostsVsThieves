@@ -10,6 +10,7 @@ class APawn;
 class UCharacterMovementComponent;
 class UGvTGhostPerceptionComponent;
 class AGvTDoorActor;
+class ATargetPoint;
 
 UENUM(BlueprintType)
 enum class EGvTHauntGhostState : uint8
@@ -132,6 +133,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt", meta = (ClampMin = "0.0"))
 	float MaxHauntDurationSeconds = 30.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt", meta = (ClampMin = "0.0"))
+	float HauntDurationBonusSeconds = 8.f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Roaming", meta = (ClampMin = "0.0"))
 	float RoamRepathInterval = 2.0f;
 
@@ -140,6 +144,24 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Roaming", meta = (ClampMin = "0.0"))
 	float WholeHouseRoamPointRadius = 5000.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Room Search")
+	FName RoomSearchPointTag = TEXT("GhostRoomSearch");
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Room Search", meta = (ClampMin = "25.0"))
+	float RoomSearchAcceptanceRadius = 125.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Room Search", meta = (ClampMin = "1", ClampMax = "8"))
+	int32 RoomSearchNearestCandidateCount = 3;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Room Search", meta = (ClampMin = "0.0"))
+	float RoomSearchProgressThreshold = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Room Search", meta = (ClampMin = "1.0"))
+	float RoomSearchStuckTimeoutSeconds = 4.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Room Search", meta = (ClampMin = "0.0"))
+	float RoomSearchArrivalGraceSeconds = 2.5f;
 
 	UPROPERTY(Transient, BlueprintReadOnly, Category = "GvT|Ghost|Roaming")
 	bool bWholeHouseRoamActive = false;
@@ -152,6 +174,10 @@ protected:
 
 	virtual void UpdateRoaming(float DeltaSeconds);
 	virtual void MoveToRandomRoamLocation();
+	void DiscoverRoomSearchPoints();
+	bool SelectAndMoveToRoomSearchPoint();
+	bool MoveToRoomSearchPoint(ATargetPoint* SearchPoint);
+	void ClearActiveRoomSearchPoint();
 
 	// Universal door handling shared by every haunt ghost.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
@@ -223,6 +249,8 @@ protected:
 	void ConfigureClientGhostProxyMovement();
 
 	virtual bool TryInvestigateRecentNoise();
+	int64 LastProcessedNoiseEventId = 0;
+	float ActiveInvestigationNoiseScore = 0.f;
 	virtual void StartSearchFromLastKnownLocation();
 	virtual void UpdateSearch(float DeltaSeconds);
 	virtual void MoveToSearchLocation(const FVector& SearchLocation);
@@ -274,6 +302,24 @@ protected:
 
 	UPROPERTY(Transient)
 	TArray<FVector> RecentRoamDestinations;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<ATargetPoint>> RoomSearchPoints;
+
+	UPROPERTY(Transient)
+	TSet<TObjectPtr<ATargetPoint>> VisitedRoomSearchPoints;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ATargetPoint> ActiveRoomSearchPoint = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<ATargetPoint> PreviousRoomSearchPoint = nullptr;
+
+	FVector RoomSearchFocusLocation = FVector::ZeroVector;
+	FVector ActiveRoomSearchDestination = FVector::ZeroVector;
+	float RoomSearchBestDistance = TNumericLimits<float>::Max();
+	float RoomSearchStuckElapsedSeconds = 0.f;
+	bool bHauntDurationGraceApplied = false;
 
 	struct FPendingGhostDoor
 	{

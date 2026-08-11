@@ -8,6 +8,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
 #include "TimerManager.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Gameplay/Inventory/GvTInventoryComponent.h"
+#include "World/Items/GvTLockpickItem.h"
 
 AGvTDoorActor::AGvTDoorActor()
 {
@@ -25,6 +28,7 @@ AGvTDoorActor::AGvTDoorActor()
 	DoorMesh->SetCanEverAffectNavigation(false);
 
 	DoorNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Interact"));
+	LockpickNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Mechanical"));
 
 	PrimaryActorTick.bCanEverTick = true;
 	PrimaryActorTick.bStartWithTickEnabled = false;
@@ -35,7 +39,104 @@ AGvTDoorActor::AGvTDoorActor()
 void AGvTDoorActor::BeginPlay()
 {
 	Super::BeginPlay();
-	ApplyDoorState(bIsOpen);
+
+	if (HasAuthority())
+	{
+		InitializeStartingState();
+	}
+	else if (bInitialDoorStateReady)
+	{
+		ApplyInitialDoorState();
+	}
+}
+
+void AGvTDoorActor::InitializeStartingState()
+{
+	if (bInitialDoorStateReady)
+	{
+		return;
+	}
+
+	GetWorldTimerManager().ClearTimer(TimerHandle_CloseEnd);
+	bAnimating = false;
+	SetActorTickEnabled(false);
+	bReplicatedWasScareSlam = false;
+	ReplicatedAnimDuration = 0.f;
+	DoorAnimStartServerTime = GetWorld()->GetTimeSeconds();
+
+	if (bIsExitDoor)
+	{
+		bIsOpen = false;
+		bIsLocked = true;
+		ReplicatedTargetYaw = ClosedYaw;
+	}
+	else if (bRandomizeStartingState)
+	{
+		const float ClosedUnlockedWeight = FMath::Max(0.f, StartClosedUnlockedChance);
+		const float ClosedLockedWeight = FMath::Max(0.f, StartClosedLockedChance);
+		const float OpenUnlockedWeight = FMath::Max(0.f, StartOpenUnlockedChance);
+		const float TotalWeight = ClosedUnlockedWeight + ClosedLockedWeight + OpenUnlockedWeight;
+		const float Roll = TotalWeight > KINDA_SMALL_NUMBER ? FMath::FRandRange(0.f, TotalWeight) : 0.f;
+
+		if (TotalWeight <= KINDA_SMALL_NUMBER || Roll < ClosedUnlockedWeight)
+		{
+			bIsOpen = false;
+			bIsLocked = false;
+			ReplicatedTargetYaw = ClosedYaw;
+		}
+		else if (Roll < ClosedUnlockedWeight + ClosedLockedWeight)
+		{
+			bIsOpen = false;
+			bIsLocked = true;
+			ReplicatedTargetYaw = ClosedYaw;
+		}
+		else
+		{
+			const float MinAngle = FMath::Min(StartOpenAngleMin, StartOpenAngleMax);
+			const float MaxAngle = FMath::Max(StartOpenAngleMin, StartOpenAngleMax);
+			const float OpenAngle = FMath::FRandRange(MinAngle, MaxAngle);
+			bIsOpen = true;
+			bIsLocked = false;
+			ReplicatedTargetYaw = ClosedYaw + (bInvertDirection ? -OpenAngle : OpenAngle);
+		}
+	}
+	else
+	{
+		const float SignedOpen = bInvertDirection ? -OpenYaw : OpenYaw;
+		ReplicatedTargetYaw = bIsOpen ? SignedOpen : ClosedYaw;
+		if (bIsOpen)
+		{
+			bIsLocked = false;
+		}
+	}
+
+	bInitialDoorStateReady = true;
+	ApplyInitialDoorState();
+	ForceNetUpdate();
+
+	UE_LOG(LogTemp, Log, TEXT("[DoorStart] Door=%s Exit=%d Open=%d Locked=%d Yaw=%.1f"), *GetNameSafe(this), bIsExitDoor ? 1 : 0, bIsOpen ? 1 : 0, bIsLocked ? 1 : 0, ReplicatedTargetYaw);
+}
+
+void AGvTDoorActor::ApplyInitialDoorState()
+{
+	if (!Hinge)
+	{
+		return;
+	}
+
+	bAnimating = false;
+	SetActorTickEnabled(false);
+	AnimFromYaw = ReplicatedTargetYaw;
+	AnimToYaw = ReplicatedTargetYaw;
+	Hinge->SetRelativeRotation(FRotator(0.f, ReplicatedTargetYaw, 0.f));
+}
+
+void AGvTDoorActor::OnRep_InitialDoorState()
+{
+	if (bInitialDoorStateReady)
+	{
+		ApplyInitialDoorState();
+	}
 }
 
 void AGvTDoorActor::Tick(float DeltaSeconds)
@@ -66,19 +167,43 @@ void AGvTDoorActor::Tick(float DeltaSeconds)
 void AGvTDoorActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
 {
 	OutSpec = FGvTInteractionSpec{};
-	OutSpec.CastTime = 0.f;
-	OutSpec.bLockMovement = false;
-	OutSpec.bLockLook = false;
-	OutSpec.bCancelable = false;
+	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
+	const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+	const bool bPickingLock = bIsLocked && Inventory && Inventory->GetSelectedItem() && Inventory->GetSelectedItem()->IsA<AGvTLockpickItem>();
+	OutSpec.CastTime = bPickingLock ? LockpickDuration : 0.f;
+	OutSpec.bLockMovement = bPickingLock;
+	OutSpec.bLockLook = bPickingLock;
+	OutSpec.bCancelable = bPickingLock;
 	OutSpec.bEmitNoiseOnCancel = false;
 	OutSpec.CancelNoiseRadius = 0.f;
 	OutSpec.CancelNoiseLoudness = 0.f;
-	OutSpec.InteractionTag = DoorNoiseTag;
+	OutSpec.InteractionTag = bPickingLock ? LockpickNoiseTag : DoorNoiseTag;
+	OutSpec.bEmitPeriodicNoise = bPickingLock;
+	OutSpec.PeriodicNoiseInterval = LockpickNoiseInterval;
+	OutSpec.PeriodicNoiseRadius = LockpickNoiseRadius;
+	OutSpec.PeriodicNoiseLoudness = LockpickNoiseLoudness;
 }
 
 bool AGvTDoorActor::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
 {
-	return Verb == EGvTInteractionVerb::Interact;
+	if (Verb != EGvTInteractionVerb::Interact)
+	{
+		return false;
+	}
+
+	if (bLockedByHaunt)
+	{
+		return false;
+	}
+
+	if (!bIsLocked)
+	{
+		return true;
+	}
+
+	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
+	const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+	return Inventory && Inventory->GetSelectedItem() && Inventory->GetSelectedItem()->IsA<AGvTLockpickItem>();
 }
 
 void AGvTDoorActor::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)
@@ -94,10 +219,13 @@ void AGvTDoorActor::CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTI
 	if (Verb != EGvTInteractionVerb::Interact)
 		return;
 
-	// If locked: rattle SFX + small noise, do not toggle.
+	// A locked door reaches completion only after the server validated a selected lockpick.
 	if (bIsLocked)
 	{
-		const bool bUnlocked = TryUnlock(InstigatorPawn, EDoorUnlockMethod::Key, /*bAutoOpenOnSuccess=*/true);
+		const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(InstigatorPawn);
+		const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+		const bool bHasLockpick = Inventory && Inventory->GetSelectedItem() && Inventory->GetSelectedItem()->IsA<AGvTLockpickItem>();
+		const bool bUnlocked = bHasLockpick && TryUnlock(InstigatorPawn, EDoorUnlockMethod::Lockpick, /*bAutoOpenOnSuccess=*/false);
 		if (!bUnlocked)
 		{
 			Multicast_PlaySFX(SFX_LockedRattle);
@@ -105,6 +233,10 @@ void AGvTDoorActor::CompleteInteract_Implementation(APawn* InstigatorPawn, EGvTI
 			{
 				DoorNoiseEmitter->EmitNoise(DoorNoiseTag, 500.f, 1.0f);
 			}
+		}
+		else
+		{
+			UE_LOG(LogTemp, Log, TEXT("[Lockpick] Player=%s Door=%s Result=SUCCESS"), *GetNameSafe(InstigatorPawn), *GetNameSafe(this));
 		}
 		return;
 	}
@@ -171,6 +303,17 @@ void AGvTDoorActor::Multicast_PlaySFX_Implementation(USoundBase* Sound)
 
 void AGvTDoorActor::OnRep_DoorAnimStart()
 {
+	if (!bInitialDoorStateReady)
+	{
+		return;
+	}
+
+	if (ReplicatedAnimDuration <= KINDA_SMALL_NUMBER)
+	{
+		ApplyInitialDoorState();
+		return;
+	}
+
 	StartDoorAnimToYaw(ReplicatedTargetYaw, ReplicatedAnimDuration, bReplicatedWasScareSlam);
 }
 
@@ -216,13 +359,23 @@ bool AGvTDoorActor::TryUnlock(APawn* InstigatorPawn, EDoorUnlockMethod Method, b
 	if (!HasAuthority())
 		return false;
 
+	// The supernatural haunt lock is absolute. Lockpicks, keys, and debug force
+	// may change ordinary locks, but none may bypass an active haunt lockdown.
+	if (bLockedByHaunt)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("[DoorHauntLock] Unlock rejected door=%s method=%d"),
+			*GetNameSafe(this),
+			static_cast<int32>(Method));
+		return false;
+	}
+
 	if (!bIsLocked)
 		return true;
 
-	// MVP gating:
-	// - Force always succeeds (debug / future brute force)
-	// - Others fail for now until inventory/skill exists
-	const bool bSuccess = (Method == EDoorUnlockMethod::Force);
+	// Force is reserved for debug/future brute force. A completed lockpick
+	// interaction has already been validated by the interaction component.
+	const bool bSuccess = Method == EDoorUnlockMethod::Force || Method == EDoorUnlockMethod::Lockpick;
 
 	if (!bSuccess)
 	{
@@ -299,6 +452,7 @@ void AGvTDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 	DOREPLIFETIME(AGvTDoorActor, ReplicatedAnimDuration);
 	DOREPLIFETIME(AGvTDoorActor, bReplicatedWasScareSlam);
 	DOREPLIFETIME(AGvTDoorActor, ReplicatedTargetYaw);
+	DOREPLIFETIME(AGvTDoorActor, bInitialDoorStateReady);
 	DOREPLIFETIME(AGvTDoorActor, bIsLocked);
 }
 

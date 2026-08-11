@@ -2,6 +2,7 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
+#include "Gameplay/Ghosts/GvTGhostPerceptionComponent.h"
 #include "Systems/World/GvTHouseBoundsLibrary.h"
 
 void UGvTNoiseSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -21,6 +22,7 @@ void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& InEvent)
 
 	FGvTNoiseEvent E = InEvent;
 	E.TimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	E.EventId = NextEventId++;
 
 	UE_LOG(LogTemp, Log, TEXT("Noise [%s] at %s | R=%.1f | L=%.2f"),
 		*E.NoiseTag.ToString(),
@@ -52,7 +54,9 @@ void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& InEvent)
 			}
 
 			const float Dist = FVector::Dist(Ghost->GetActorLocation(), E.Location);
-			const float EffectiveRadius = E.Radius * FMath::Max(E.Loudness, 0.01f) * GhostHearingLoudnessRadiusMultiplier;
+			const UGvTGhostPerceptionComponent* Perception = Ghost->FindComponentByClass<UGvTGhostPerceptionComponent>();
+			const float GhostHearingRadius = Perception ? Perception->HearingRadius : 0.f;
+			const float EffectiveRadius = (GhostHearingRadius + E.Radius) * GhostHearingLoudnessRadiusMultiplier;
 			const bool bHeard = Dist <= EffectiveRadius;
 
 			const FString Msg = FString::Printf(
@@ -129,11 +133,13 @@ bool UGvTNoiseSubsystem::TryGetBestRecentNoiseNearLocation(
 	float MemorySeconds,
 	FVector& OutNoiseLocation,
 	FGameplayTag& OutNoiseTag,
-	float& OutScore) const
+	float& OutScore,
+	int64& OutEventId) const
 {
 	OutNoiseLocation = FVector::ZeroVector;
 	OutNoiseTag = FGameplayTag();
 	OutScore = 0.f;
+	OutEventId = 0;
 
 	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
 	const float HearingRadiusSq = FMath::Square(HearingRadius);
@@ -168,6 +174,7 @@ bool UGvTNoiseSubsystem::TryGetBestRecentNoiseNearLocation(
 			OutNoiseLocation = E.Location;
 			OutNoiseTag = E.NoiseTag;
 			OutScore = Score;
+			OutEventId = E.EventId;
 		}
 	}
 

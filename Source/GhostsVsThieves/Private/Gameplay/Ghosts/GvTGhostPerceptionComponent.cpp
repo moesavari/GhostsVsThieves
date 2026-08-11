@@ -125,11 +125,13 @@ APawn* UGvTGhostPerceptionComponent::FindBestVisibleVictim(AActor* PreferredTarg
 bool UGvTGhostPerceptionComponent::TryFindBestNoiseLocation(
 	FVector& OutNoiseLocation,
 	FGameplayTag& OutNoiseTag,
-	float& OutScore) const
+	float& OutScore,
+	int64& OutEventId) const
 {
 	OutNoiseLocation = FVector::ZeroVector;
 	OutNoiseTag = FGameplayTag();
 	OutScore = 0.f;
+	OutEventId = 0;
 
 	const AActor* OwnerActor = GetOwner();
 	if (!OwnerActor || !GetWorld())
@@ -147,7 +149,8 @@ bool UGvTGhostPerceptionComponent::TryFindBestNoiseLocation(
 				NoiseMemorySeconds,
 				OutNoiseLocation,
 				OutNoiseTag,
-				OutScore);
+				OutScore,
+				OutEventId);
 		}
 	}
 

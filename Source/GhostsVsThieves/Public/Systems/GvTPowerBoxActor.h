@@ -147,6 +147,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float FailureChanceHostile = 0.16f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float OffOnlyActivityMax = 0.30f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Failure", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float BlowChanceAtMaxActivity = 0.65f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Power|Audio")
 	TObjectPtr<USoundBase> PowerOnSound;
 

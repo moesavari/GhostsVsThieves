@@ -15,6 +15,7 @@ class AGvTHauntGhostBase;
 class UGvTGhostModelData;
 class UGvTGhostTypeData;
 class AGvTInteractableItem;
+class AGvTMirrorActor;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTDirectorSubsystem : public UGameInstanceSubsystem
@@ -141,15 +142,21 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Recovery", meta = (ClampMin = "0.0"))
 	float PostHauntRecoveryDuration = 40.0f;
 
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Recovery", meta = (ClampMin = "0.0"))
+	float PostHauntStrongScareBlockDuration = 15.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Recovery", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float PostHauntPanicMultiplier = 0.50f;
+
 	UPROPERTY(BlueprintReadOnly, Category = "GvT|Director|Recovery")
 	float LastHauntEndTime = -1000.0f;
 
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float MirrorEventPanicThreshold01 = 0.40f;
+	float MirrorEventPanicThreshold01 = 0.30f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float HauntChasePanicThreshold01 = 0.70f;
+	float HauntChasePanicThreshold01 = 0.60f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|PanicThresholds", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float GhostScareMinPanicThreshold01 = 0.45f;
@@ -330,18 +337,6 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
 	TArray<TObjectPtr<UGvTGhostTypeData>> GhostTypes;
 
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts")
-	bool bUseGhostSpawnPoints = true;
-
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
-	float HauntSpawnIdealDistance = 650.f;
-
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
-	float HauntSpawnMinDistance = 250.f;
-
-	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
-	float HauntSpawnMaxDistance = 1800.f;
-
 	// Spawn points are placed on the floor, while Character actor locations are capsule centers.
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Ghosts", meta = (ClampMin = "0.0"))
 	float HauntSpawnPointZOffset = 92.f;
@@ -391,6 +386,24 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity", meta = (ClampMin = "0.0"))
 	float MainObjectiveTheftActivityImpulse = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity|TheftPanic", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SmallTheftPanic01 = 0.03f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity|TheftPanic", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MediumTheftPanic01 = 0.075f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity|TheftPanic", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LargeTheftPanic01 = 0.12f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity|TheftPanic", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float MainObjectiveTheftPanic01 = 0.18f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity|TheftPanic", meta = (ClampMin = "0.0"))
+	float NearbyTheftPanicRadius = 1200.f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity|TheftPanic", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float NearbyTheftPanicMultiplier = 0.50f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Activity", meta = (ClampMin = "0.0"))
 	float TheftActivityWeight = 0.45f;
@@ -475,6 +488,13 @@ private:
 
 	bool IsAnyHauntActive() const;
 	bool IsInPostHauntRecovery() const;
+	float GetPostHauntRecoveryElapsed() const;
+	float GetRecoveryPanicMultiplier(const FGameplayTag& ScareTag) const;
+	bool IsStrongRecoveryScare(const FGameplayTag& ScareTag) const;
+	bool IsScareTagOnCooldown(const FGameplayTag& ScareTag) const;
+	void RememberDispatchedScare(const FGameplayTag& ScareTag);
+	float GetPerScareCooldown(const FGameplayTag& ScareTag) const;
+	AGvTMirrorActor* FindEligibleMirrorForTarget(APawn* TargetPawn) const;
 	AGvTHauntGhostBase* FindActiveHauntGhost() const;
 	bool bHauntSpawnInProgress = false;
 	bool bWasHauntActiveLastTick = false;
@@ -507,9 +527,19 @@ private:
 	AGvTDoorActor* ChooseBestDoorSlamTarget(APawn* TargetPawn) const;
 	float ScoreDoorForSlam(const APawn* TargetPawn, const AGvTDoorActor* Door) const;
 	TSubclassOf<AGvTGhostCharacterBase> ChooseHauntGhostClass() const;
-	FTransform ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag) const;
+	bool ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag, FTransform& OutSpawnTransform) const;
 
 	float LastLightingResponseTime = -1000.0f;
+	TMap<FGameplayTag, float> LastScareDispatchTimes;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareCooldowns", meta = (ClampMin = "0.0"))
+	float MirrorRepeatCooldown = 35.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareCooldowns", meta = (ClampMin = "0.0"))
+	float GhostScreamRepeatCooldown = 20.0f;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareCooldowns", meta = (ClampMin = "0.0"))
+	float DefaultScareRepeatCooldown = 10.0f;
 
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|TheftReaction", meta = (ClampMin = "0.0"))
 	float TheftReactionDelayMin = 2.0f;

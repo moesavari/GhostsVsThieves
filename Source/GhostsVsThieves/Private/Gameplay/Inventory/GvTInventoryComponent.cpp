@@ -192,6 +192,22 @@ bool UGvTInventoryComponent::TryRemoveSelectedItemForDeposit(AGvTInteractableIte
 	return true;
 }
 
+bool UGvTInventoryComponent::ConsumeSelectedItem(AGvTInteractableItem* ExpectedItem)
+{
+	AGvTThiefCharacter* Thief = GetOwnerThief();
+	if (!Thief || !Thief->HasAuthority() || !IsValid(ExpectedItem) || GetSelectedItem() != ExpectedItem)
+	{
+		return false;
+	}
+
+	const int32 RemovedIndex = SelectedItemIndex;
+	RemoveItemAtIndex(RemovedIndex);
+	RefreshSelection();
+	ExpectedItem->Destroy();
+	UE_LOG(LogTemp, Log, TEXT("[InventoryConsume] Player=%s Item=%s Result=SUCCESS Count=%d"), *GetNameSafe(Thief), *GetNameSafe(ExpectedItem), CarriedItems.Num());
+	return true;
+}
+
 bool UGvTInventoryComponent::ContainsStolenLoot() const
 {
 	for (const AGvTInteractableItem* Item : CarriedItems)

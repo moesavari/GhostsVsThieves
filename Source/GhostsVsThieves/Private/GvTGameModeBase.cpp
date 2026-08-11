@@ -5,6 +5,7 @@
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
+#include "Gameplay/Interaction/GvTInteractionComponent.h"
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "World/Items/GvTInteractableItem.h"
 #include "Engine/GameInstance.h"
@@ -149,6 +150,10 @@ void AGvTGameModeBase::FinishMission(bool bSuccess)
 	for (TActorIterator<AGvTThiefCharacter> It(GetWorld()); It; ++It)
 	{
 		if (It->IsDead()) continue;
+		if (UGvTInteractionComponent* Interaction = It->FindComponentByClass<UGvTInteractionComponent>())
+		{
+			Interaction->SetInteractionEnabled(false);
+		}
 		It->SetInteractionLock(true, true);
 		if (UCharacterMovementComponent* Movement = It->GetCharacterMovement())
 		{

@@ -24,6 +24,9 @@ struct FGvTNoiseEvent
 
     UPROPERTY(BlueprintReadOnly)
     float TimeSeconds = 0.f;
+
+	UPROPERTY(BlueprintReadOnly)
+	int64 EventId = 0;
 };
 
 UCLASS()
@@ -56,7 +59,8 @@ public:
 		float MemorySeconds,
 		FVector& OutNoiseLocation,
 		FGameplayTag& OutNoiseTag,
-		float& OutScore) const;
+		float& OutScore,
+		int64& OutEventId) const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise|Debug")
 	bool bDebugGhostHearingOnScreen = true;
@@ -73,4 +77,6 @@ private:
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Noise")
 	int32 MaxRecentEvents = 64;
+
+	int64 NextEventId = 1;
 };

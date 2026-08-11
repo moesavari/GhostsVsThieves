@@ -11,6 +11,7 @@ class USceneComponent;
 class UStaticMeshComponent;
 class UGvTNoiseEmitterComponent;
 class USoundBase;
+class AGvTLockpickItem;
 
 UENUM(BlueprintType)
 enum class EDoorUnlockMethod : uint8
@@ -107,6 +108,26 @@ protected:
 	UPROPERTY(EditAnywhere, Category = "Door|Rotation")
 	bool bInvertDirection = false;
 
+	// ---- Match start state ----
+	/** Interior doors roll one starting state on the authority at BeginPlay. */
+	UPROPERTY(EditAnywhere, Category = "Door|Starting State")
+	bool bRandomizeStartingState = true;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Starting State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float StartClosedUnlockedChance = 0.55f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Starting State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float StartClosedLockedChance = 0.20f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Starting State", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float StartOpenUnlockedChance = 0.25f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Starting State", meta = (ClampMin = "0.0"))
+	float StartOpenAngleMin = 25.f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Starting State", meta = (ClampMin = "0.0"))
+	float StartOpenAngleMax = 100.f;
+
 	UPROPERTY(EditAnywhere, Category = "Door|Scare", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float ScareSlamMinOpenAlpha = 0.25f;
 
@@ -135,6 +156,21 @@ protected:
 
 	UPROPERTY(EditAnywhere, Category = "Door|Noise")
 	float CloseEndNoiseRadius = 1200.f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Lockpick", meta = (ClampMin = "0.1"))
+	float LockpickDuration = 5.f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Lockpick", meta = (ClampMin = "0.0"))
+	float LockpickNoiseRadius = 850.f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Lockpick", meta = (ClampMin = "0.0"))
+	float LockpickNoiseLoudness = 1.f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Lockpick", meta = (ClampMin = "0.05"))
+	float LockpickNoiseInterval = 0.8f;
+
+	UPROPERTY(EditAnywhere, Category = "Door|Lockpick")
+	FGameplayTag LockpickNoiseTag;
 
 	UPROPERTY(EditAnywhere, Category = "Door|Noise")
 	FGameplayTag DoorNoiseTag;
@@ -180,6 +216,12 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_DoorAnimStart)
 	float ReplicatedTargetYaw = 0.f;
 
+	UPROPERTY(ReplicatedUsing = OnRep_InitialDoorState)
+	bool bInitialDoorStateReady = false;
+
+	UFUNCTION()
+	void OnRep_InitialDoorState();
+
 	UFUNCTION()
 	void OnRep_IsOpen();
 
@@ -194,6 +236,8 @@ protected:
 	void StartDoorAnimWithDuration(bool bOpen, float Duration, bool bWasScareSlam);
 	void StartDoorAnimToYaw(float TargetYaw, float Duration, bool bWasScareSlam);
 	void ApplyDoorState(bool bOpen);
+	void InitializeStartingState();
+	void ApplyInitialDoorState();
 	float GetCurrentOpenAlpha() const;
 	void PlayDoorCloseEndSFX(bool bWasScareSlam);
 

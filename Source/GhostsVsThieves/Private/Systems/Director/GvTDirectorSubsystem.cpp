@@ -25,6 +25,7 @@
 #include "Gameplay/Ghosts/GvTEventGhostBase.h"
 #include "World/Items/GvTInteractableItem.h"
 #include "Gameplay/Characters/Thieves/GvTThiefPerceptionComponent.h"
+#include "Gameplay/Ghosts/Mirror/GvTMirrorActor.h"
 
 static const TCHAR* GvTNetModeToString(ENetMode NetMode)
 {
@@ -246,7 +247,7 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 
 	const float Panic01 = GetPanicForPawn(TargetPawn);
 
-	const bool bHauntUnlocked = Panic01 >= HauntChasePanicThreshold01 || HouseActivity01 >= HauntActivityUnlock01;
+	const bool bHauntUnlocked = Panic01 >= HauntChasePanicThreshold01;
 	if (!bHauntActive && !bPostHauntRecovery && bHauntUnlocked)
 	{
 		AActor* ChaseTarget = TargetPawn;
@@ -306,7 +307,7 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 		EligibleEvents.Add(MakeRearAudioStingEvent(TargetPawn));
 		EligibleEvents.Add(MakeGhostScreamEvent(TargetPawn));
 
-		if (FMath::FRand() <= CloseGhostScareSelectionChance)
+		if (!bHauntActive && !bPostHauntRecovery && FMath::FRand() <= CloseGhostScareSelectionChance)
 		{
 			EligibleEvents.Add(MakeCloseGhostScareEvent(TargetPawn));
 		}
@@ -319,7 +320,7 @@ bool UGvTDirectorSubsystem::TryDispatchAutoScare()
 		EligibleEvents.Add(MakeDoorSlamBehindEvent(TargetPawn, Door));
 	}
 
-	if (Panic01 >= MirrorEventPanicThreshold01 || HouseActivity01 >= MirrorActivityUnlock01)
+	if (Panic01 >= MirrorEventPanicThreshold01)
 	{
 		const float MirrorAlpha = FMath::Clamp((Panic01 - MirrorEventPanicThreshold01) / FMath::Max(0.01f, 1.0f - MirrorEventPanicThreshold01), 0.0f, 1.0f);
 		const float MirrorChance = FMath::Lerp(MirrorChanceAtThreshold01, MirrorChanceAtMaxPanic01, MirrorAlpha);
@@ -596,7 +597,7 @@ void UGvTDirectorSubsystem::ApplyGlobalScarePanicToOtherPlayers(const FGvTScareE
 
 	FGvTPanicEvent PanicEvent;
 	PanicEvent.Source = GvTMapScareTagToPanicSource(Event.ScareTag);
-	PanicEvent.PanicDelta01 = Event.PanicAmount / 100.f;
+	PanicEvent.PanicDelta01 = (Event.PanicAmount / 100.f) * GetRecoveryPanicMultiplier(Event.ScareTag);
 	PanicEvent.HauntPressureDelta01 = GvTGetPressureGain01ForScareTag(Event.ScareTag, Event.bTriggerLocalFlicker);
 	PanicEvent.SourceActor = Event.SourceActor;
 	PanicEvent.InstigatorActor = PrimaryTarget;
@@ -660,7 +661,34 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		}
 	}
 
-	if (!Event.bIgnorePanicThreshold)
+	const bool bIsMirrorEvent = Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()) || Event.ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror());
+	const bool bIsCloseGhostScare = Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close());
+
+	if (bIsCloseGhostScare && IsAnyHauntActive())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DirectorHauntLifecycle] Close scare blocked during active haunt. Target=%s"), *GetNameSafe(Target));
+		return false;
+	}
+
+	if (bIsCloseGhostScare && IsInPostHauntRecovery())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DirectorRecovery] Close scare blocked for full post-haunt recovery. Target=%s Remaining=%.1f"), *GetNameSafe(Target), FMath::Max(0.f, PostHauntRecoveryDuration - GetPostHauntRecoveryElapsed()));
+		return false;
+	}
+
+	if (IsScareTagOnCooldown(Event.ScareTag))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DirectorCooldown] Per-scare cooldown blocked Tag=%s Target=%s"), *Event.ScareTag.ToString(), *GetNameSafe(Target));
+		return false;
+	}
+
+	if (IsInPostHauntRecovery() && GetPostHauntRecoveryElapsed() < PostHauntStrongScareBlockDuration && IsStrongRecoveryScare(Event.ScareTag))
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DirectorRecovery] Strong scare blocked during early recovery. Tag=%s Elapsed=%.1f"), *Event.ScareTag.ToString(), GetPostHauntRecoveryElapsed());
+		return false;
+	}
+
+	if (!Event.bIgnorePanicThreshold || bIsMirrorEvent)
 	{
 		if (APawn* TargetPawnForThreshold = Cast<APawn>(Target))
 		{
@@ -688,6 +716,24 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Dispatch failed: %s has no GvTScareComponent."), *GetNameSafe(Target));
 		return false;
+	}
+
+	AGvTMirrorActor* SelectedMirror = nullptr;
+	if (bIsMirrorEvent)
+	{
+		APawn* TargetPawn = Cast<APawn>(Target);
+		SelectedMirror = FindEligibleMirrorForTarget(TargetPawn);
+		AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Target);
+		UGvTThiefPerceptionComponent* Perception = Thief ? Thief->FindComponentByClass<UGvTThiefPerceptionComponent>() : nullptr;
+
+		if (!SelectedMirror || !Perception)
+		{
+			UE_LOG(LogTemp, Log, TEXT("[MirrorDispatch] Rejected: no visible eligible mirror. Target=%s"), *GetNameSafe(Target));
+			return false;
+		}
+
+		Perception->PlayMirrorScareFromDirector(SelectedMirror, Event.Intensity01, Event.Duration);
+		UE_LOG(LogTemp, Log, TEXT("[MirrorDispatch] Confirmed Mirror=%s Target=%s"), *GetNameSafe(SelectedMirror), *GetNameSafe(Target));
 	}
 
 	const bool bIsLightChaseEvent = Event.ScareTag.MatchesTagExact(GvTScareTags::LightChase());
@@ -757,9 +803,12 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		}
 
 		TriggerRequestedFlicker(Event, ScareComp);
+		RememberDispatchedScare(Event.ScareTag);
 
 		return true;
 	}
+
+	RememberDispatchedScare(Event.ScareTag);
 
 	TriggerRequestedFlicker(Event, ScareComp);
 
@@ -818,10 +867,10 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		PanicEvent.Source = GvTMapScareTagToPanicSource(Event.ScareTag);
 		PanicEvent.PanicDelta01 =
 			(Event.bAffectsPanic && Event.PanicAmount > 0.f)
-			? (ScalePanicAmount(Event.PanicAmount) / 100.f)
+			? (ScalePanicAmount(Event.PanicAmount) / 100.f) * GetRecoveryPanicMultiplier(Event.ScareTag)
 			: 0.f;
 		PanicEvent.HauntPressureDelta01 = GvTGetPressureGain01ForScareTag(Event.ScareTag, Event.bTriggerLocalFlicker);
-		PanicEvent.SourceActor = Event.SourceActor;
+		PanicEvent.SourceActor = SelectedMirror ? SelectedMirror : Event.SourceActor;
 		PanicEvent.InstigatorActor = Target;
 		PanicEvent.WorldLocation = !Event.WorldHint.IsNearlyZero() ? Event.WorldHint : Target->GetActorLocation();
 		PanicEvent.bRequiresProximity = false;
@@ -841,7 +890,7 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 	{
 		if (Event.bAffectsPanic && Event.PanicAmount > 0.f)
 		{
-			ScareComp->AddPanic(ScalePanicAmount(Event.PanicAmount));
+			ScareComp->AddPanic(ScalePanicAmount(Event.PanicAmount) * GetRecoveryPanicMultiplier(Event.ScareTag));
 		}
 	}
 
@@ -850,16 +899,9 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		ApplyGlobalScarePanicToOtherPlayers(Event, Target);
 	}
 
-	if (Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()) ||
-		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
+	if (bIsMirrorEvent)
 	{
-		if (AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(Target))
-		{
-			Thief->Client_PlayGhostEvent(GvTScareTags::GhostEvent_Mirror());
-			return true;
-		}
-
-		return false;
+		return true;
 	}
 
 	if (Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerOverhead()))
@@ -1001,94 +1043,53 @@ TSubclassOf<AGvTGhostCharacterBase> UGvTDirectorSubsystem::ChooseHauntGhostClass
 	return Candidates[FMath::RandRange(0, Candidates.Num() - 1)];
 }
 
-FTransform UGvTDirectorSubsystem::ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag) const
+bool UGvTDirectorSubsystem::ChooseHauntSpawnTransform(APawn* TargetPawn, FGameplayTag HauntTag, FTransform& OutSpawnTransform) const
 {
 	if (!TargetPawn)
 	{
-		return FTransform::Identity;
+		return false;
 	}
 
 	const FVector TargetLoc = TargetPawn->GetActorLocation();
-	FVector SpawnLoc = TargetLoc - TargetPawn->GetActorForwardVector() * HauntSpawnIdealDistance + FVector(0.f, 0.f, 80.f);
-	bool bUsedSpawnPoint = false;
+	AGvTGhostSpawnPoint* SpawnPoint = nullptr;
 
-	if (bUseGhostSpawnPoints)
+	if (UWorld* World = GetWorld())
 	{
-		AGvTGhostSpawnPoint* BestPoint = nullptr;
-		float BestScore = -FLT_MAX;
-
-		if (UWorld* World = GetWorld())
+		for (TActorIterator<AGvTGhostSpawnPoint> It(World); It; ++It)
 		{
-			for (TActorIterator<AGvTGhostSpawnPoint> It(World); It; ++It)
+			AGvTGhostSpawnPoint* Point = *It;
+			if (!Point || !Point->SupportsHauntTag(HauntTag))
 			{
-				AGvTGhostSpawnPoint* Point = *It;
-				if (!Point || !Point->SupportsHauntTag(HauntTag))
-				{
-					continue;
-				}
-
-				const float Score = Point->ScoreForTarget(TargetPawn, HauntSpawnIdealDistance, HauntSpawnMinDistance, HauntSpawnMaxDistance);
-				if (Score > BestScore)
-				{
-					BestScore = Score;
-					BestPoint = Point;
-				}
+				continue;
 			}
-		}
 
-		if (BestPoint)
-		{
-			// Designers place spawn points on the floor. Character actor locations are capsule centers,
-			// so add a small Z offset and do NOT let nav projection jump us to another floor.
-			SpawnLoc = BestPoint->GetActorLocation() + FVector(0.f, 0.f, HauntSpawnPointZOffset);
-			bUsedSpawnPoint = true;
-
-			UE_LOG(LogTemp, Warning,
-				TEXT("[GhostSpawn] Using spawn point=%s raw=%s final=%s tag=%s"),
-				*GetNameSafe(BestPoint),
-				*BestPoint->GetActorLocation().ToString(),
-				*SpawnLoc.ToString(),
-				*HauntTag.ToString());
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning,
-				TEXT("[GhostSpawn] No valid indoor spawn point found for target=%s tag=%s. Falling back behind target."),
-				*GetNameSafe(TargetPawn),
-				*HauntTag.ToString());
+			SpawnPoint = Point;
+			break;
 		}
 	}
 
-	if (!bUsedSpawnPoint)
+	if (!SpawnPoint)
 	{
-		if (UWorld* World = GetWorld())
-		{
-			if (UNavigationSystemV1* NavSys = FNavigationSystem::GetCurrent<UNavigationSystemV1>(World))
-			{
-				FNavLocation ProjectedLoc;
-				if (NavSys->ProjectPointToNavigation(SpawnLoc, ProjectedLoc, FVector(300.f, 300.f, 600.f)))
-				{
-					SpawnLoc = ProjectedLoc.Location;
-				}
-			}
-
-			FHitResult GroundHit;
-			FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_HauntSpawnGroundSnap), false, TargetPawn);
-			Params.AddIgnoredActor(TargetPawn);
-			if (World->LineTraceSingleByChannel(
-				GroundHit,
-				SpawnLoc + FVector(0.f, 0.f, 600.f),
-				SpawnLoc - FVector(0.f, 0.f, 1200.f),
-				ECC_Visibility,
-				Params))
-			{
-				SpawnLoc.Z = GroundHit.ImpactPoint.Z + HauntSpawnPointZOffset;
-			}
-		}
+		UE_LOG(LogTemp, Error,
+			TEXT("[GhostSpawn] FAILED: No enabled GvTGhostSpawnPoint supports haunt tag=%s. Haunt cancelled; player-relative fallback is disabled."),
+			*HauntTag.ToString());
+		return false;
 	}
 
+	// Designers place spawn points on the floor. Character actor locations are capsule centers,
+	// so add a small Z offset and never nav-project the spawn to another floor or the roof.
+	const FVector SpawnLoc = SpawnPoint->GetActorLocation() + FVector(0.f, 0.f, HauntSpawnPointZOffset);
 	const FRotator SpawnRot = (TargetLoc - SpawnLoc).Rotation();
-	return FTransform(SpawnRot, SpawnLoc);
+	OutSpawnTransform = FTransform(SpawnRot, SpawnLoc);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[GhostSpawn] Using required spawn point=%s raw=%s final=%s tag=%s"),
+		*GetNameSafe(SpawnPoint),
+		*SpawnPoint->GetActorLocation().ToString(),
+		*SpawnLoc.ToString(),
+		*HauntTag.ToString());
+
+	return true;
 }
 
 AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* TargetPawn, FGameplayTag HauntTag, TSubclassOf<AGvTGhostCharacterBase> FallbackGhostClass)
@@ -1152,13 +1153,20 @@ AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* T
 		return nullptr;
 	}
 
-	const FTransform SpawnTransform = ChooseHauntSpawnTransform(TargetPawn, HauntTag);
+	FTransform SpawnTransform;
+	if (!ChooseHauntSpawnTransform(TargetPawn, HauntTag, SpawnTransform))
+	{
+		return nullptr;
+	}
 
 	FActorSpawnParameters Params;
 	Params.Owner = TargetPawn;
 	Params.Instigator = TargetPawn;
-	Params.SpawnCollisionHandlingOverride =	ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+	// The placed spawn point is authoritative. Collision adjustment must never relocate
+	// the ghost away from it (including vertically onto the roof).
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
+	SetHauntExitDoorsLocked(true);
 	bHauntSpawnInProgress = true;
 
 	AGvTGhostCharacterBase* Ghost =
@@ -1171,6 +1179,7 @@ AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* T
 
 	if (!IsValid(Ghost))
 	{
+		SetHauntExitDoorsLocked(false);
 		UE_LOG(LogTemp, Warning,
 			TEXT("[GhostHaunt] Failed to spawn haunt ghost class=%s."),
 			*GetNameSafe(SpawnClass));
@@ -1187,7 +1196,6 @@ AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* T
 
 	ActiveHauntGhostByTarget.Add(TargetKey, Ghost);
 
-	SetHauntExitDoorsLocked(true);
 	Ghost->BeginGhostHaunt(TargetPawn, HauntTag);
 
 	ApplyHauntStartPanicToAllPlayers(Ghost, TargetPawn);
@@ -1492,13 +1500,13 @@ bool UGvTDirectorSubsystem::CanScareTagRunAtPanic(const FGameplayTag& ScareTag, 
 	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()) ||
 		ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
 	{
-		return Panic01 >= MirrorEventPanicThreshold01 || HouseActivity01 >= MirrorActivityUnlock01;
+		return Panic01 >= MirrorEventPanicThreshold01;
 	}
 
 	if (ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
 		ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase()))
 	{
-		return Panic01 >= HauntChasePanicThreshold01 || HouseActivity01 >= HauntActivityUnlock01;
+		return Panic01 >= HauntChasePanicThreshold01;
 	}
 
 	if (IsGhostScareTag(ScareTag))
@@ -2023,6 +2031,44 @@ void UGvTDirectorSubsystem::OnPlayerInteractionEvent(AActor* Interactor, AActor*
 		RegisterUniqueTheft(Item);
 		ApplyHouseTensionImpulse(TensionImpulse);
 
+		float TheftPanic01 = SmallTheftPanic01;
+		switch (Item->GetItemTier())
+		{
+		case EGvTItemTier::Medium: TheftPanic01 = MediumTheftPanic01; break;
+		case EGvTItemTier::Large: TheftPanic01 = LargeTheftPanic01; break;
+		case EGvTItemTier::MainObjective: TheftPanic01 = MainObjectiveTheftPanic01; break;
+		case EGvTItemTier::Small:
+		default: break;
+		}
+
+		TArray<AActor*> Thieves;
+		UGameplayStatics::GetAllActorsOfClass(GetWorld(), AGvTThiefCharacter::StaticClass(), Thieves);
+		for (AActor* ThiefActor : Thieves)
+		{
+			APawn* AffectedPawn = Cast<APawn>(ThiefActor);
+			AGvTPlayerState* AffectedPS = AffectedPawn ? AffectedPawn->GetPlayerState<AGvTPlayerState>() : nullptr;
+			if (!AffectedPS || AffectedPS->IsDeadForPanic())
+			{
+				continue;
+			}
+
+			const bool bPrimaryThief = AffectedPawn == Pawn;
+			if (!bPrimaryThief && FVector::DistSquared(AffectedPawn->GetActorLocation(), Item->GetActorLocation()) > FMath::Square(NearbyTheftPanicRadius))
+			{
+				continue;
+			}
+
+			FGvTPanicEvent TheftPanicEvent;
+			TheftPanicEvent.Source = Item->GetItemTier() >= EGvTItemTier::Large ? EGvTPanicSource::ItemPickupHighValue : EGvTPanicSource::ItemPickup;
+			TheftPanicEvent.PanicDelta01 = TheftPanic01 * (bPrimaryThief ? 1.f : NearbyTheftPanicMultiplier);
+			TheftPanicEvent.HauntPressureDelta01 = TheftPanicEvent.PanicDelta01 * 0.50f;
+			TheftPanicEvent.InstigatorActor = Pawn;
+			TheftPanicEvent.SourceActor = TargetActor;
+			TheftPanicEvent.WorldLocation = Item->GetActorLocation();
+			TheftPanicEvent.bExecutionSucceeded = true;
+			AffectedPS->ApplyPanicEventAuthority(TheftPanicEvent);
+		}
+
 		if (Item->ShouldForceHauntReaction())
 		{
 			TriggerInteractionReaction(Pawn, TargetActor, Item, bIsElectrical, bIsValuable, bIsNoisy, ItemValue01);
@@ -2443,6 +2489,121 @@ bool UGvTDirectorSubsystem::IsInPostHauntRecovery() const
 	}
 
 	return (World->GetTimeSeconds() - LastHauntEndTime) < PostHauntRecoveryDuration;
+}
+
+float UGvTDirectorSubsystem::GetPostHauntRecoveryElapsed() const
+{
+	const UWorld* World = GetWorld();
+	return World ? FMath::Max(0.f, World->GetTimeSeconds() - LastHauntEndTime) : BIG_NUMBER;
+}
+
+bool UGvTDirectorSubsystem::IsStrongRecoveryScare(const FGameplayTag& ScareTag) const
+{
+	return ScareTag.MatchesTagExact(GvTScareTags::Mirror())
+		|| ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror())
+		|| ScareTag.MatchesTagExact(GvTScareTags::GhostScream())
+		|| ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream());
+}
+
+float UGvTDirectorSubsystem::GetRecoveryPanicMultiplier(const FGameplayTag& ScareTag) const
+{
+	return IsInPostHauntRecovery() ? FMath::Clamp(PostHauntPanicMultiplier, 0.f, 1.f) : 1.f;
+}
+
+float UGvTDirectorSubsystem::GetPerScareCooldown(const FGameplayTag& ScareTag) const
+{
+	if (ScareTag.MatchesTagExact(GvTScareTags::Mirror()) || ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror()))
+	{
+		return MirrorRepeatCooldown;
+	}
+
+	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) || ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
+	{
+		return GhostScreamRepeatCooldown;
+	}
+
+	return DefaultScareRepeatCooldown;
+}
+
+bool UGvTDirectorSubsystem::IsScareTagOnCooldown(const FGameplayTag& ScareTag) const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	const FGameplayTag CanonicalTag =
+		(ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror())) ? GvTScareTags::Mirror() :
+		(ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream())) ? GvTScareTags::GhostScream() : ScareTag;
+	const float* LastTime = LastScareDispatchTimes.Find(CanonicalTag);
+	return LastTime && (World->GetTimeSeconds() - *LastTime) < GetPerScareCooldown(CanonicalTag);
+}
+
+void UGvTDirectorSubsystem::RememberDispatchedScare(const FGameplayTag& ScareTag)
+{
+	if (!GetWorld())
+	{
+		return;
+	}
+
+	const FGameplayTag CanonicalTag =
+		(ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror())) ? GvTScareTags::Mirror() :
+		(ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream())) ? GvTScareTags::GhostScream() : ScareTag;
+	LastScareDispatchTimes.Add(CanonicalTag, GetWorld()->GetTimeSeconds());
+}
+
+AGvTMirrorActor* UGvTDirectorSubsystem::FindEligibleMirrorForTarget(APawn* TargetPawn) const
+{
+	UWorld* World = GetWorld();
+	if (!World || !IsValid(TargetPawn))
+	{
+		return nullptr;
+	}
+
+	FVector ViewLocation;
+	FRotator ViewRotation;
+	TargetPawn->GetActorEyesViewPoint(ViewLocation, ViewRotation);
+	const FVector ViewForward = ViewRotation.Vector();
+
+	AGvTMirrorActor* BestMirror = nullptr;
+	float BestDot = 0.86f;
+
+	for (TActorIterator<AGvTMirrorActor> It(World); It; ++It)
+	{
+		AGvTMirrorActor* Mirror = *It;
+		if (!IsValid(Mirror))
+		{
+			continue;
+		}
+
+		const FVector ToMirror = Mirror->GetActorLocation() - ViewLocation;
+		const float Distance = ToMirror.Size();
+		if (Distance > 1500.f || Distance <= KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+
+		const float Dot = FVector::DotProduct(ViewForward, ToMirror / Distance);
+		if (Dot < BestDot)
+		{
+			continue;
+		}
+
+		FHitResult Hit;
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(GvT_DirectorMirrorVisibility), false, TargetPawn);
+		Params.AddIgnoredActor(TargetPawn);
+		const bool bHit = World->LineTraceSingleByChannel(Hit, ViewLocation, Mirror->GetActorLocation(), ECC_Visibility, Params);
+		if (bHit && Hit.GetActor() != Mirror)
+		{
+			continue;
+		}
+
+		BestDot = Dot;
+		BestMirror = Mirror;
+	}
+
+	return BestMirror;
 }
 
 bool UGvTDirectorSubsystem::IsAnyHauntActive() const

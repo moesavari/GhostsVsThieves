@@ -1,6 +1,7 @@
 #include "GvTPlayerState.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/World.h"
+#include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 
 AGvTPlayerState::AGvTPlayerState()
 {
@@ -219,6 +220,12 @@ void AGvTPlayerState::ApplyPanicEventAuthority(const FGvTPanicEvent& Event)
 	{
 		OnRep_Panic();
 	}
+
+    const float AcceptedPanicIncrease01 = FMath::Max(0.f, Panic01 - OldPanic);
+    if (AcceptedPanicIncrease01 > KINDA_SMALL_NUMBER)
+    {
+        TryPlayFearReactionForAcceptedEvent(Event, AcceptedPanicIncrease01);
+    }
 
 	if (bPressureChanged)
 	{
@@ -453,6 +460,52 @@ void AGvTPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AGvTPlayerState, RecentHauntPressure01);
 	DOREPLIFETIME(AGvTPlayerState, PanicFloor01);
 	DOREPLIFETIME(AGvTPlayerState, bDeadForPanic);
+}
+
+void AGvTPlayerState::TryPlayFearReactionForAcceptedEvent(const FGvTPanicEvent& Event, float AcceptedPanicIncrease01)
+{
+    if (!HasAuthority() || bDeadForPanic || AcceptedPanicIncrease01 <= KINDA_SMALL_NUMBER)
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+    AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(GetPawn());
+    if (!World || !Thief || Thief->IsDead())
+    {
+        return;
+    }
+
+    const float Now = World->GetTimeSeconds();
+    const bool bIsHauntStart = Event.Source == EGvTPanicSource::GhostHauntStart;
+    if (!bIsHauntStart && (Now - LastFearReactionServerTime) < FearReactionCooldownSeconds)
+    {
+        UE_LOG(LogTemp, Verbose, TEXT("[FearReaction] Cooldown blocked Player=%s Source=%s"), *GetNameSafe(Thief), PanicSourceToString(Event.Source));
+        return;
+    }
+
+    EGvTFearReactionType ReactionType = EGvTFearReactionType::ModerateGasp;
+    if (bIsHauntStart)
+    {
+        ReactionType = EGvTFearReactionType::HauntStart;
+    }
+    else if (Event.Source == EGvTPanicSource::LightFlicker ||
+             Event.Source == EGvTPanicSource::LightShutdown ||
+             Event.Source == EGvTPanicSource::PowerOutage ||
+             Event.Source == EGvTPanicSource::PowerRestore ||
+             AcceptedPanicIncrease01 <= LightReactionMaxPanicIncrease01)
+    {
+        ReactionType = EGvTFearReactionType::LightStartle;
+    }
+    else if (AcceptedPanicIncrease01 > ModerateReactionMaxPanicIncrease01)
+    {
+        ReactionType = EGvTFearReactionType::SevereFear;
+    }
+
+    LastFearReactionServerTime = Now;
+    Thief->PlayFearReactionAuthority(ReactionType);
+
+    UE_LOG(LogTemp, Log, TEXT("[FearReaction] Player=%s Source=%s AcceptedIncrease=%.3f Category=%d"), *GetNameSafe(Thief), PanicSourceToString(Event.Source), AcceptedPanicIncrease01, static_cast<int32>(ReactionType));
 }
 
 bool AGvTPlayerState::ApplyMedicineAuthority(float Reduction01)

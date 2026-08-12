@@ -2,10 +2,12 @@
 #include "Blueprint/UserWidget.h"
 #include "GvTPlayerState.h"
 #include "GvTGameStateBase.h"
+#include "Systems/GvTMissionResultsWidget.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Engine/World.h"
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "World/Items/GvTInteractableItem.h"
 #include "World/Extraction/GvTVanInventoryActor.h"
 #include "InputCoreTypes.h"
 
@@ -170,6 +172,43 @@ void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLoc
 	SetIgnoreLookInput(bLocked);
 }
 
+void AGvTPlayerController::Client_ShowMissionResults_Implementation(const FGvTMissionResults& Results)
+{
+	if (!IsLocalController()) return;
+
+	if (bVanInventoryOpen)
+	{
+		CloseVanInventory();
+	}
+
+	if (HUDWidget)
+	{
+		HUDWidget->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	if (!MissionResultsWidgetClass)
+	{
+		UE_LOG(LogTemp, Error, TEXT("GvTPlayerController: MissionResultsWidgetClass is not set."));
+		return;
+	}
+
+	if (!MissionResultsWidget)
+	{
+		MissionResultsWidget = CreateWidget<UGvTMissionResultsWidget>(this, MissionResultsWidgetClass);
+	}
+
+	if (!MissionResultsWidget) return;
+
+	MissionResultsWidget->SetMissionResults(Results);
+	if (!MissionResultsWidget->IsInViewport())
+	{
+		MissionResultsWidget->AddToViewport(5000);
+	}
+
+	bShowMouseCursor = false;
+	SetInputMode(FInputModeUIOnly());
+}
+
 void AGvTPlayerController::Client_OpenVanInventory_Implementation(AGvTVanInventoryActor* VanInventory)
 {
 	// Client RPCs can arrive repeatedly if interact is spammed before input lock
@@ -331,18 +370,14 @@ void AGvTPlayerController::UpdateHighlight()
 	}
 
 	// Only highlight interactables you can Interact with (spooky, not spammy)
-	if (HitActor && HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
-	{
-		const bool bCan = IGvTInteractable::Execute_CanInteract(HitActor, GetPawn(), EGvTInteractionVerb::Interact);
-		if (!bCan)
-		{
-			HitActor = nullptr;
-		}
-	}
-	else
+	if (!HitActor || !HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
 		HitActor = nullptr;
 	}
+	//else
+	//{
+	//	HitActor = nullptr;
+	//}
 
 	AActor* Prev = CurrentHighlightedActor.Get();
 	if (Prev != HitActor)
@@ -368,18 +403,14 @@ void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
 		Comp->SetRenderCustomDepth(bHighlighted);
 		if (bHighlighted)
 		{
-			Comp->SetCustomDepthStencilValue(HighlightStencilValue);
+			const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(Actor);
+			Comp->SetCustomDepthStencilValue(Item && Item->IsMainObjective() ? MainObjectiveHighlightStencilValue : HighlightStencilValue);
 		}
 	}
 }
 
 void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 {
-	if (!HUDWidget)
-	{
-		return;
-	}
-
 	const int32 DisplayedPercent = FMath::RoundToInt(FMath::Clamp(NewPanic01, 0.f, 1.f) * 100.f);
 	if (DisplayedPercent == LastDisplayedPanicPercent)
 	{

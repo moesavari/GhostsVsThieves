@@ -42,6 +42,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Extraction|Audio")
 	TObjectPtr<USoundBase> DepartureEndSfx = nullptr;
 
+	/** One random engine-start sound plays once when the final living thief is ready. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Extraction|Audio")
+	TArray<TObjectPtr<USoundBase>> EngineStartSounds;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Extraction|Audio")
 	TObjectPtr<USoundBase> DepartureCancelSfx = nullptr;
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayEngineStart(USoundBase* Sound);
 };

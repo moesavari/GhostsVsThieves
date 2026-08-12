@@ -19,6 +19,17 @@ class UGvTThiefPerceptionComponent;
 class UGvTInventoryComponent;
 class USceneComponent;
 class USoundBase;
+class UAudioComponent;
+class USoundAttenuation;
+
+UENUM(BlueprintType)
+enum class EGvTFearReactionType : uint8
+{
+    LightStartle UMETA(DisplayName = "Light Startle"),
+    ModerateGasp UMETA(DisplayName = "Moderate Gasp"),
+    SevereFear UMETA(DisplayName = "Severe Fear"),
+    HauntStart UMETA(DisplayName = "Haunt Start")
+};
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
@@ -51,6 +62,9 @@ public:
 
     UFUNCTION(Client, Reliable)
     void Client_PlayGhostEvent(FGameplayTag GhostEventTag);
+
+    /** Server-only entry point used after an authoritative panic event is accepted. */
+    void PlayFearReactionAuthority(EGvTFearReactionType ReactionType);
 
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     bool IsInteractionMoveLocked() const { return bInteractionLockMove; }
@@ -129,6 +143,7 @@ protected:
     void ApplyDebugDrawState(bool bEnabled);
     void TestNoise();
     void OnInteractPressed();
+    void OnUseHeldItemPressed();
     void OnPhotoPressed();
     void OnTestMirrorPressed();
     void OnInventoryNext();
@@ -138,6 +153,12 @@ protected:
 
     UFUNCTION(NetMulticast, Unreliable)
     void Multicast_PlayFootstep(USoundBase* Sound, float Volume, float Pitch);
+
+    UFUNCTION(Client, Reliable)
+    void Client_PlayFearReactionLocal(USoundBase* Sound, bool bInterruptExisting);
+
+    UFUNCTION(NetMulticast, Reliable)
+    void Multicast_PlayFearReactionSpatial(USoundBase* Sound, bool bSuppressSpatialPlayback, bool bInterruptExisting);
 
     void UpdateFootsteps(float DeltaSeconds);
 
@@ -199,6 +220,25 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps")
     TArray<TObjectPtr<USoundBase>> FootstepSounds;
 
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Audio|Fear Reactions")
+    TArray<TObjectPtr<USoundBase>> LightStartleSounds;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Audio|Fear Reactions")
+    TArray<TObjectPtr<USoundBase>> ModerateGaspSounds;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Audio|Fear Reactions")
+    TArray<TObjectPtr<USoundBase>> SevereFearSounds;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Audio|Fear Reactions")
+    TArray<TObjectPtr<USoundBase>> HauntStartSounds;
+
+    /** Controls how far teammates can hear reactions. Assign a spatial attenuation asset. */
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Audio|Fear Reactions")
+    TObjectPtr<USoundAttenuation> FearReactionAttenuation = nullptr;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Audio|Fear Reactions", meta = (ClampMin = "0.0"))
+    float FearReactionVolume = 1.0f;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Footsteps")
     FGameplayTag FootstepNoiseTag;
 
@@ -252,6 +292,10 @@ protected:
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_Interact;
 
+    /** Equipment-only input. Map this to Left Mouse Button; E remains world interaction. */
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
+    UInputAction* IA_UseHeldItem;
+
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_Photo;
 
@@ -271,6 +315,8 @@ protected:
     UInputAction* IA_ToggleFlashlight;
 
 private:
+    const TArray<TObjectPtr<USoundBase>>& GetFearReactionPool(EGvTFearReactionType ReactionType) const;
+    void PlayFearReactionComponent(USoundBase* Sound, bool bSpatialized, bool bInterruptExisting);
     void ClearScareStun();
     void ClearScareStun(int32 ClearCountAtScheduleTime);
 
@@ -280,4 +326,7 @@ private:
 
     FTimerHandle TimerHandle_ClearScareStun;
     FTimerHandle TimerHandle_LocalCloseScareCleanup;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UAudioComponent> ActiveFearReactionAudio = nullptr;
 };

@@ -32,6 +32,8 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "GvTGameModeBase.h"
+#include "Components/AudioComponent.h"
+#include "Sound/SoundAttenuation.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -216,6 +218,11 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_Interact, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnInteractPressed);
     }
 
+    if (IA_UseHeldItem)
+    {
+        EIC->BindAction(IA_UseHeldItem, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnUseHeldItemPressed);
+    }
+
     if (IA_Photo)
     {
         EIC->BindAction(IA_Photo, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnPhotoPressed);
@@ -239,11 +246,6 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
     if (IA_DropItem)
     {
         EIC->BindAction(IA_DropItem, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnDropItem);
-    }
-
-    if (IA_ToggleFlashlight)
-    {
-        EIC->BindAction(IA_ToggleFlashlight, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnToggleFlashlight);
     }
 
 }
@@ -457,6 +459,115 @@ void AGvTThiefCharacter::OnInteractPressed()
         return;
 
     InteractionComponent->TryInteract();
+}
+
+const TArray<TObjectPtr<USoundBase>>& AGvTThiefCharacter::GetFearReactionPool(EGvTFearReactionType ReactionType) const
+{
+    switch (ReactionType)
+    {
+    case EGvTFearReactionType::LightStartle:
+        return LightStartleSounds;
+    case EGvTFearReactionType::SevereFear:
+        return SevereFearSounds;
+    case EGvTFearReactionType::HauntStart:
+        return HauntStartSounds;
+    case EGvTFearReactionType::ModerateGasp:
+    default:
+        return ModerateGaspSounds;
+    }
+}
+
+void AGvTThiefCharacter::PlayFearReactionAuthority(EGvTFearReactionType ReactionType)
+{
+    if (!HasAuthority() || bIsDead)
+    {
+        return;
+    }
+
+    const TArray<TObjectPtr<USoundBase>>& Pool = GetFearReactionPool(ReactionType);
+    TArray<USoundBase*> ValidSounds;
+    for (USoundBase* Sound : Pool)
+    {
+        if (IsValid(Sound))
+        {
+            ValidSounds.Add(Sound);
+        }
+    }
+
+    if (ValidSounds.IsEmpty())
+    {
+        return;
+    }
+
+    USoundBase* SelectedSound = ValidSounds[FMath::RandRange(0, ValidSounds.Num() - 1)];
+    const bool bIsHauntStart = ReactionType == EGvTFearReactionType::HauntStart;
+    Client_PlayFearReactionLocal(SelectedSound, bIsHauntStart);
+
+    // Every player receives their own haunt-start line locally. Suppressing its
+    // teammate version prevents six spatial voices from stacking at once.
+    Multicast_PlayFearReactionSpatial(SelectedSound, bIsHauntStart, bIsHauntStart);
+}
+
+void AGvTThiefCharacter::PlayFearReactionComponent(USoundBase* Sound, bool bSpatialized, bool bInterruptExisting)
+{
+    if (!Sound || bIsDead || GetNetMode() == NM_DedicatedServer)
+    {
+        return;
+    }
+
+    if (ActiveFearReactionAudio && ActiveFearReactionAudio->IsPlaying())
+    {
+        if (!bInterruptExisting)
+        {
+            return;
+        }
+
+        ActiveFearReactionAudio->Stop();
+        ActiveFearReactionAudio = nullptr;
+    }
+
+    if (bSpatialized)
+    {
+        ActiveFearReactionAudio = UGameplayStatics::SpawnSoundAtLocation(this, Sound, GetActorLocation(), FRotator::ZeroRotator, FearReactionVolume, 1.0f, 0.0f, FearReactionAttenuation);
+    }
+    else
+    {
+        ActiveFearReactionAudio = UGameplayStatics::SpawnSound2D(this, Sound, FearReactionVolume);
+    }
+}
+
+void AGvTThiefCharacter::Client_PlayFearReactionLocal_Implementation(USoundBase* Sound, bool bInterruptExisting)
+{
+    if (IsLocallyControlled())
+    {
+        PlayFearReactionComponent(Sound, false, bInterruptExisting);
+    }
+}
+
+void AGvTThiefCharacter::Multicast_PlayFearReactionSpatial_Implementation(USoundBase* Sound, bool bSuppressSpatialPlayback, bool bInterruptExisting)
+{
+    if (bSuppressSpatialPlayback || IsLocallyControlled())
+    {
+        return;
+    }
+
+    PlayFearReactionComponent(Sound, true, bInterruptExisting);
+}
+
+void AGvTThiefCharacter::OnUseHeldItemPressed()
+{
+    if (!IsLocallyControlled() || bIsDead || IsScareStunned() || bInteractionLockMove || bInteractionLockLook || !InventoryComponent || !InteractionComponent)
+    {
+        return;
+    }
+
+    if (Cast<AGvTFlashlightItem>(InventoryComponent->GetSelectedItem()))
+    {
+        OnToggleFlashlight();
+        return;
+    }
+
+    InteractionComponent->TryUseSelectedEquipment();
 }
 
 void AGvTThiefCharacter::OnPhotoPressed()
@@ -719,6 +830,12 @@ void AGvTThiefCharacter::OnRep_IsDead()
     if (!bIsDead)
     {
         return;
+    }
+
+    if (ActiveFearReactionAudio)
+    {
+        ActiveFearReactionAudio->Stop();
+        ActiveFearReactionAudio = nullptr;
     }
 
     // Client-side effects: UI, camera, input disable, etc.

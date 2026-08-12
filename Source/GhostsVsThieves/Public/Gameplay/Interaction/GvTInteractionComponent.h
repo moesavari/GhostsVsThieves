@@ -23,6 +23,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
 	void TryInteract();
 
+	/** Uses the selected medicine or lockpick. Bind this to the equipment input, never world-interact. */
+	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
+	void TryUseSelectedEquipment();
+
 	UFUNCTION(BlueprintCallable, Category="GvT|Interaction")
 	void TryPhoto();
 
@@ -124,6 +128,9 @@ protected:
 	void Server_TryInteract(EGvTInteractionVerb Verb);
 
 	UFUNCTION(Server, Reliable)
+	void Server_TryUseSelectedEquipment();
+
+	UFUNCTION(Server, Reliable)
 	void Server_CancelInteraction(EGvTInteractionCancelReason Reason);
 
 	UFUNCTION(Client, Reliable)
@@ -131,7 +138,7 @@ protected:
 
 private:
 	// Server helpers
-	void PerformServerTraceAndTryStart(EGvTInteractionVerb Verb);
+	void PerformServerTraceAndTryStart(EGvTInteractionVerb Verb, bool bEquipmentUse = false);
 	bool TryStartSelectedMedicine();
 	bool GetViewTrace(FVector& OutStart, FVector& OutEnd) const;
 

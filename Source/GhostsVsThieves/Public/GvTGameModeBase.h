@@ -46,13 +46,7 @@ protected:
 	bool bRequireMainObjectiveForSuccess = true;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Mission", meta=(ClampMin="0.0"))
-	float ResultsDelayBeforeRestart = 8.f;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Mission")
-	bool bAutomaticallyRestartAfterResults = false;
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Mission")
-	bool bReturnToMainMenuAfterResults = true;
+	float ResultsScreenDuration = 8.f;
 
 	/** Package path such as /Game/Maps/L_MainMenu. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Mission")
@@ -68,6 +62,7 @@ private:
 	int32 GetLivingThiefCount() const;
 
 	TSet<TWeakObjectPtr<AGvTPlayerState>> ReadyPlayers;
+	int32 SecuredItemCount = 0;
 	bool bMissionFinished = false;
 	FTimerHandle RestartTimerHandle;
 };

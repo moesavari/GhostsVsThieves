@@ -2,10 +2,12 @@
 
 #include "CoreMinimal.h"
 #include "Systems/GvTHUDWidget.h"
+#include "GvTGameStateBase.h"
 #include "GameFramework/PlayerController.h"
 #include "GvTPlayerController.generated.h"
 
 class AGvTVanInventoryActor;
+class UGvTMissionResultsWidget;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
@@ -31,6 +33,9 @@ public:
 
     UFUNCTION(Client, Reliable)
     void Client_SetMissionInputLocked(bool bLocked);
+
+	UFUNCTION(Client, Reliable)
+	void Client_ShowMissionResults(const FGvTMissionResults& Results);
 
     UFUNCTION(Client, Reliable)
     void Client_OpenVanInventory(AGvTVanInventoryActor* VanInventory);
@@ -83,8 +88,15 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Highlight")
     int32 HighlightStencilValue = 1;
 
+    /** Main objectives use a separate stencil so the outline material can render them red. */
+    UPROPERTY(EditDefaultsOnly, Category = "Highlight")
+    int32 MainObjectiveHighlightStencilValue = 2;
+
     UPROPERTY(EditDefaultsOnly, Category = "UI")
     TSubclassOf<UGvTHUDWidget> HUDWidgetClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "UI")
+	TSubclassOf<UGvTMissionResultsWidget> MissionResultsWidgetClass;
 
 private:
 	UFUNCTION(Server, Reliable)
@@ -97,6 +109,7 @@ private:
 
     TWeakObjectPtr<AActor> CurrentHighlightedActor;
     TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
+	TObjectPtr<UGvTMissionResultsWidget> MissionResultsWidget = nullptr;
     FTimerHandle TimerHandle_BindHUDRetry;
     FTimerHandle TimerHandle_BindGameStateRetry;
     bool bVanInventoryOpen = false;

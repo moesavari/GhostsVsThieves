@@ -23,6 +23,7 @@ void AGvTGameModeBase::StartPlay()
 {
 	Super::StartPlay();
 	bMissionFinished = false;
+	SecuredItemCount = 0;
 	ReadyPlayers.Reset();
 	if (AGvTGameStateBase* GS = GetGameState<AGvTGameStateBase>())
 	{
@@ -70,6 +71,7 @@ void AGvTGameModeBase::NotifyLootDeposited(AGvTInteractableItem* DepositedItem, 
 	if (AGvTGameStateBase* GS = GetGameState<AGvTGameStateBase>())
 	{
 		GS->AddSecuredLootAuthority(SecuredValue, DepositedItem->IsMainObjective());
+		++SecuredItemCount;
 	}
 }
 
@@ -127,9 +129,18 @@ void AGvTGameModeBase::FinishMission(bool bSuccess)
 	if (bMissionFinished) return;
 	bMissionFinished = true;
 
+	FGvTMissionResults Results;
+	Results.Outcome = bSuccess ? EGvTMissionOutcome::Success : EGvTMissionOutcome::Failure;
+	Results.bMissionComplete = bSuccess;
+	Results.SurvivingPlayers = GetLivingThiefCount();
+	Results.ItemsStolen = SecuredItemCount;
+
 	if (AGvTGameStateBase* GS = GetGameState<AGvTGameStateBase>())
 	{
-		GS->SetMissionOutcomeAuthority(bSuccess ? EGvTMissionOutcome::Success : EGvTMissionOutcome::Failure);
+		Results.TotalPlayers = GS->PlayerArray.Num();
+		Results.MoneyAccumulated = GS->GetTeamSecuredLoot();
+		GS->SetMissionResultsAuthority(Results);
+		GS->SetMissionOutcomeAuthority(Results.Outcome);
 		GS->SetMissionPhaseAuthority(EGvTMissionPhase::Results);
 	}
 
@@ -159,19 +170,24 @@ void AGvTGameModeBase::FinishMission(bool bSuccess)
 		{
 			Movement->DisableMovement();
 		}
-		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(It->GetController()))
+	}
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(It->Get()))
 		{
 			PC->Client_SetMissionInputLocked(true);
+			PC->Client_ShowMissionResults(Results);
 		}
 	}
 
-	if (bAutomaticallyRestartAfterResults)
+	if (!MainMenuMapPath.IsEmpty())
 	{
-		GetWorldTimerManager().SetTimer(RestartTimerHandle, this, &AGvTGameModeBase::RestartMission, ResultsDelayBeforeRestart, false);
+		GetWorldTimerManager().SetTimer(RestartTimerHandle, this, &AGvTGameModeBase::ReturnAllPlayersToMainMenu, ResultsScreenDuration, false);
 	}
-	else if (bReturnToMainMenuAfterResults && !MainMenuMapPath.IsEmpty())
+	else
 	{
-		GetWorldTimerManager().SetTimer(RestartTimerHandle, this, &AGvTGameModeBase::ReturnAllPlayersToMainMenu, ResultsDelayBeforeRestart, false);
+		UE_LOG(LogTemp, Error, TEXT("[MissionResults] MainMenuMapPath is empty. Results screen will remain open instead of restarting the mission."));
 	}
 }
 

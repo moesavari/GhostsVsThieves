@@ -5,6 +5,8 @@
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "GvTGameModeBase.h"
 #include "GvTPlayerController.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 AGvTExtractionDepartureActor::AGvTExtractionDepartureActor()
 {
@@ -71,12 +73,24 @@ void AGvTExtractionDepartureActor::CompleteInteract_Implementation(APawn* Instig
 					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("Ready. Waiting for the remaining thieves.")), true);
 					break;
 				case EGvTExtractionRequestResult::DepartureStarted:
+					if (EngineStartSounds.Num() > 0)
+					{
+						Multicast_PlayEngineStart(EngineStartSounds[FMath::RandRange(0, EngineStartSounds.Num() - 1)]);
+					}
 					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("Everyone is ready. Leaving now.")), true);
 					break;
 				default:
 					break;
 			}
 		}
+	}
+}
+
+void AGvTExtractionDepartureActor::Multicast_PlayEngineStart_Implementation(USoundBase* Sound)
+{
+	if (Sound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, Sound, GetActorLocation());
 	}
 }
 

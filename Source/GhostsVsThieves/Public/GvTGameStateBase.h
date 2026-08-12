@@ -22,6 +22,30 @@ enum class EGvTMissionOutcome : uint8
 	Failure
 };
 
+USTRUCT(BlueprintType)
+struct FGvTMissionResults
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Mission Results")
+	EGvTMissionOutcome Outcome = EGvTMissionOutcome::None;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Mission Results")
+	bool bMissionComplete = false;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Mission Results")
+	int32 SurvivingPlayers = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Mission Results")
+	int32 TotalPlayers = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Mission Results")
+	int32 ItemsStolen = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category="GvT|Mission Results")
+	int32 MoneyAccumulated = 0;
+};
+
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTGameStateBase : public AGameStateBase
 {
@@ -49,6 +73,9 @@ public:
 	UFUNCTION(BlueprintPure, Category="GvT|Mission")
 	int32 GetReadyPlayerCount() const { return ReadyPlayerCount; }
 
+	UFUNCTION(BlueprintPure, Category="GvT|Mission")
+	FGvTMissionResults GetMissionResults() const { return MissionResults; }
+
 	UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
 	void OnMissionDataChanged();
 
@@ -58,11 +85,15 @@ public:
 	UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
 	void OnMissionResultsReady(EGvTMissionOutcome Outcome, int32 FinalSecuredLoot);
 
+	UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
+	void OnMissionSummaryReady(const FGvTMissionResults& Results);
+
 	void SetMissionPhaseAuthority(EGvTMissionPhase NewPhase);
 	void SetMissionOutcomeAuthority(EGvTMissionOutcome NewOutcome);
 	void AddSecuredLootAuthority(int32 Amount, bool bWasMainObjective);
 	void SetLivingPlayerCountAuthority(int32 NewCount);
 	void SetReadyPlayerCountAuthority(int32 NewCount);
+	void SetMissionResultsAuthority(const FGvTMissionResults& NewResults);
 
 protected:
 	UPROPERTY(ReplicatedUsing=OnRep_MissionData, BlueprintReadOnly, Category="GvT|Mission")
@@ -82,6 +113,9 @@ protected:
 
 	UPROPERTY(ReplicatedUsing=OnRep_MissionData, BlueprintReadOnly, Category="GvT|Mission")
 	int32 ReadyPlayerCount = 0;
+
+	UPROPERTY(ReplicatedUsing=OnRep_MissionData, BlueprintReadOnly, Category="GvT|Mission")
+	FGvTMissionResults MissionResults;
 
 	UFUNCTION()
 	void OnRep_MissionData();

@@ -217,7 +217,8 @@ protected:
 	float DefaultPowerCooldownSeconds = 15.0f;
 
 private:
-	void ApplyPanicDecay(float DeltaSeconds);
+    void TryPlayFearReactionForAcceptedEvent(const FGvTPanicEvent& Event, float AcceptedPanicIncrease01);
+    void ApplyPanicDecay(float DeltaSeconds);
 	void ApplyHauntPressureDecay(float DeltaSeconds);
 
 	bool CanApplyPanicSource(EGvTPanicSource Source, float CooldownSeconds) const;
@@ -228,4 +229,15 @@ private:
 
 	UPROPERTY()
 	TMap<uint8, float> LastAppliedPanicSourceTime;
+
+    UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Fear Reactions", meta = (ClampMin = "0.0"))
+    float FearReactionCooldownSeconds = 3.0f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Fear Reactions", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float LightReactionMaxPanicIncrease01 = 0.04f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "GvT|Panic|Fear Reactions", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float ModerateReactionMaxPanicIncrease01 = 0.08f;
+
+    float LastFearReactionServerTime = -1000.f;
 };

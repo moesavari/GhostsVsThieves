@@ -2,6 +2,7 @@
 #include "Systems/Director/GvTDirectorSubsystem.h"
 #include "World/Items/GvTInteractableItem.h"
 #include "World/Items/GvTMedicineItem.h"
+#include "World/Items/GvTLockpickItem.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
@@ -39,6 +40,23 @@ void UGvTInteractionComponent::TryInteract()
 	}
 
 	Server_TryInteract(EGvTInteractionVerb::Interact);
+}
+
+void UGvTInteractionComponent::TryUseSelectedEquipment()
+{
+	APawn* OwnerPawn = Cast<APawn>(GetOwner());
+	if (!OwnerPawn || !OwnerPawn->IsLocallyControlled() || !bInteractionEnabled)
+	{
+		return;
+	}
+
+	if (bIsInteracting)
+	{
+		TryCancelInteraction(EGvTInteractionCancelReason::UserCanceled);
+		return;
+	}
+
+	Server_TryUseSelectedEquipment();
 }
 
 void UGvTInteractionComponent::TryPhoto()
@@ -89,7 +107,17 @@ void UGvTInteractionComponent::Server_TryInteract_Implementation(EGvTInteraction
 		return;
 	}
 
-	PerformServerTraceAndTryStart(Verb);
+	PerformServerTraceAndTryStart(Verb, false);
+}
+
+void UGvTInteractionComponent::Server_TryUseSelectedEquipment_Implementation()
+{
+	if (!bInteractionEnabled)
+	{
+		return;
+	}
+
+	PerformServerTraceAndTryStart(EGvTInteractionVerb::Interact, true);
 }
 
 void UGvTInteractionComponent::SetInteractionEnabled(bool bEnabled)
@@ -140,7 +168,7 @@ bool UGvTInteractionComponent::GetViewTrace(FVector& OutStart, FVector& OutEnd) 
 	return true;
 }
 
-void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb Verb)
+void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb Verb, bool bEquipmentUse)
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
 	if (!OwnerPawn || bIsInteracting)
@@ -179,15 +207,39 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	}
 
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
+	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(OwnerPawn);
+	const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+	const bool bHoldingLockpick = Inventory && Inventory->GetSelectedItem() && Inventory->GetSelectedItem()->IsA<AGvTLockpickItem>();
+
 	if (!HitActor || !HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass()))
 	{
-		if (Verb == EGvTInteractionVerb::Interact && TryStartSelectedMedicine())
+		if (bEquipmentUse && Verb == EGvTInteractionVerb::Interact && TryStartSelectedMedicine())
 		{
 			return;
 		}
 		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(OwnerPawn->GetController()))
 		{
 			PC->Client_ShowHUDMessage(FText::FromString(TEXT("Nothing to interact with.")), false);
+		}
+		return;
+	}
+
+	if (const AGvTDoorActor* Door = Cast<AGvTDoorActor>(HitActor))
+	{
+		if (Door->IsLocked() && !Door->IsHauntLocked() && bHoldingLockpick && !bEquipmentUse)
+		{
+			if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(OwnerPawn->GetController()))
+			{
+				PC->Client_ShowHUDMessage(FText::FromString(TEXT("Left Click to use the selected lockpick.")), false);
+			}
+			return;
+		}
+	}
+	else if (bEquipmentUse)
+	{
+		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(OwnerPawn->GetController()))
+		{
+			PC->Client_ShowHUDMessage(FText::FromString(TEXT("That equipment cannot be used here.")), false);
 		}
 		return;
 	}
@@ -199,7 +251,11 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 		FText FailureMessage = FText::FromString(TEXT("Cannot interact with that right now."));
 		if (const AGvTDoorActor* Door = Cast<AGvTDoorActor>(HitActor))
 		{
-			if (Verb == EGvTInteractionVerb::Interact && Door->IsLocked())
+			if (Verb == EGvTInteractionVerb::Interact && Door->IsHauntLocked())
+			{
+				FailureMessage = FText::FromString(TEXT("The house will not let this door open."));
+			}
+			else if (Verb == EGvTInteractionVerb::Interact && Door->IsLocked())
 			{
 				FailureMessage = FText::FromString(TEXT("This door is locked. Select a lockpick to unlock it."));
 			}
@@ -212,9 +268,10 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 			}
 			else if (Verb == EGvTInteractionVerb::Interact)
 			{
-				const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(OwnerPawn);
-				const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
-				if (Inventory && Item->GetInventorySpaceCost() > Inventory->GetRemainingCapacity())
+				const AGvTThiefCharacter* InventoryThief = Cast<AGvTThiefCharacter>(OwnerPawn);
+				UGvTInventoryComponent* InventoryForCheck = InventoryThief ? InventoryThief->GetInventoryComponent() : nullptr;
+
+				if (InventoryForCheck && Item->GetInventorySpaceCost() > InventoryForCheck->GetRemainingCapacity())
 				{
 					FailureMessage = FText::FromString(TEXT("Not enough inventory space."));
 				}

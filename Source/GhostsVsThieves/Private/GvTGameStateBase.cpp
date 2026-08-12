@@ -42,6 +42,13 @@ void AGvTGameStateBase::SetReadyPlayerCountAuthority(int32 NewCount)
 	OnRep_MissionData();
 }
 
+void AGvTGameStateBase::SetMissionResultsAuthority(const FGvTMissionResults& NewResults)
+{
+	if (!HasAuthority()) return;
+	MissionResults = NewResults;
+	OnRep_MissionData();
+}
+
 void AGvTGameStateBase::OnRep_MissionData()
 {
 	OnTeamSecuredLootChanged.Broadcast(TeamSecuredLoot);
@@ -49,6 +56,7 @@ void AGvTGameStateBase::OnRep_MissionData()
 	if (MissionPhase == EGvTMissionPhase::Results && MissionOutcome != EGvTMissionOutcome::None)
 	{
 		OnMissionResultsReady(MissionOutcome, TeamSecuredLoot);
+		OnMissionSummaryReady(MissionResults);
 	}
 }
 
@@ -61,4 +69,5 @@ void AGvTGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AGvTGameStateBase, bMainObjectiveSecured);
 	DOREPLIFETIME(AGvTGameStateBase, LivingPlayerCount);
 	DOREPLIFETIME(AGvTGameStateBase, ReadyPlayerCount);
+	DOREPLIFETIME(AGvTGameStateBase, MissionResults);
 }

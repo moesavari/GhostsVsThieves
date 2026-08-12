@@ -42,6 +42,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Door|Lock")
 	bool IsLocked() const { return bIsLocked; }
 
+	UFUNCTION(BlueprintPure, Category = "Door|Haunt")
+	bool IsHauntLocked() const { return bLockedByHaunt; }
+
 	UFUNCTION(BlueprintCallable, Category = "Door|Lock")
 	void SetLocked(bool bNewLocked);
 

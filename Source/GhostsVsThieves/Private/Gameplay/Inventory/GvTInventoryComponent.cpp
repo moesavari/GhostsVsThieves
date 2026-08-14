@@ -1,5 +1,6 @@
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "GvTPlayerController.h"
 #include "World/Items/GvTInteractableItem.h"
 #include "Net/UnrealNetwork.h"
 #include "Engine/World.h"
@@ -68,6 +69,10 @@ bool UGvTInventoryComponent::TryAddItem(AGvTInteractableItem* Item)
 
 	Item->SetCarriedBy(Thief, false);
 	RefreshSelection();
+	if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(Thief->GetController()))
+	{
+		PC->Client_ShowOnboardingPrompt(EGvTOnboardingPrompt::FirstItemCollected);
+	}
 
 	UE_LOG(LogTemp, Log, TEXT("[InventoryPickup] Player=%s Item=%s Result=SUCCESS Used=%d Max=%d Cost=%d Count=%d"), *GetNameSafe(Thief), *GetNameSafe(Item), GetUsedCapacity(), MaxCapacityUnits, Item->GetInventorySpaceCost(), CarriedItems.Num());
 	return true;

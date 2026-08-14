@@ -4,6 +4,7 @@
 #include "World/Items/GvTMedicineItem.h"
 #include "World/Items/GvTLockpickItem.h"
 #include "World/Doors/GvTDoorActor.h"
+#include "World/Extraction/GvTReconDepositActor.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
@@ -197,6 +198,7 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 	FHitResult Hit;
 	const bool bHit = GetWorld()->LineTraceSingleByChannel(Hit, Start, End, TraceChannel, Params);
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (bDebugDraw)
 	{
 		DrawDebugLine(GetWorld(), Start, End, bHit ? FColor::Green : FColor::Red, false, 1.0f, 0, 1.0f);
@@ -205,6 +207,7 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 			DrawDebugSphere(GetWorld(), Hit.ImpactPoint, 10.f, 12, FColor::Yellow, false, 1.0f);
 		}
 	}
+#endif
 
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
 	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(OwnerPawn);
@@ -275,6 +278,23 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 				{
 					FailureMessage = FText::FromString(TEXT("Not enough inventory space."));
 				}
+			}
+		}
+		else if (HitActor->IsA<AGvTReconDepositActor>())
+		{
+			const AGvTThiefCharacter* DepositThief = Cast<AGvTThiefCharacter>(OwnerPawn);
+			const UGvTInventoryComponent* DepositInventory = DepositThief ? DepositThief->GetInventoryComponent() : nullptr;
+			const AGvTInteractableItem* SelectedItem = DepositInventory ? DepositInventory->GetSelectedItem() : nullptr;
+
+			if (!SelectedItem)
+			{
+				FailureMessage = FText::FromString(TEXT("Select stolen loot, then press E to deposit it."));
+			}
+			else if (!SelectedItem->IsStolenLoot())
+			{
+				FailureMessage = FText::Format(
+					FText::FromString(TEXT("{0} is equipment and cannot be deposited. Select stolen loot first.")),
+					SelectedItem->GetInventoryDisplayName());
 			}
 		}
 

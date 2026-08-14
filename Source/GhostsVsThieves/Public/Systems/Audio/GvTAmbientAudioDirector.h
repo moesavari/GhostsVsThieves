@@ -55,6 +55,7 @@ public:
 	AGvTAmbientAudioDirector();
 
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Ambient")
 	void HandleScareStarted(FGameplayTag ScareTag, FVector WorldLocation, float Intensity01 = 1.0f);
@@ -75,8 +76,32 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Base", meta = (ClampMin = "0.1"))
 	float BaseLoopPitch = 1.0f;
 
+	/** Existing BaseAmbientLoops remain the indoor ambience bed. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Outdoor|Base")
+	TArray<TObjectPtr<USoundBase>> OutdoorAmbientLoops;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Outdoor|Base", meta = (ClampMin = "0.0"))
+	float OutdoorLoopVolume = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Outdoor|Base", meta = (ClampMin = "0.1"))
+	float OutdoorLoopPitch = 1.0f;
+
+	/** How quickly the local player's indoor/outdoor ambience blends after crossing HouseBounds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Zones", meta = (ClampMin = "0.01"))
+	float ZoneCrossfadeSpeed = 1.5f;
+
+	/** Small outdoor bleed while inside keeps windows and exterior weather from disappearing completely. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Zones", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float OutdoorVolumeWhileInside = 0.08f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Zones", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float IndoorVolumeWhileOutside = 0.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Random")
 	TArray<FGvTAmbientSoundEntry> RandomAmbientShots;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Outdoor|Random")
+	TArray<FGvTAmbientSoundEntry> OutdoorRandomAmbientShots;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|Ambient|Scare")
 	TArray<FGvTAmbientSoundEntry> GenericScareStartAccents;
@@ -110,18 +135,28 @@ private:
 	TArray<TObjectPtr<UAudioComponent>> ActiveBaseLoopComponents;
 
 	UPROPERTY(Transient)
-	TArray<TWeakObjectPtr<AGvTAmbientAudioPoint>> AmbientPoints;
+	TArray<TObjectPtr<UAudioComponent>> ActiveOutdoorLoopComponents;
+
+	UPROPERTY(Transient)
+	TArray<TWeakObjectPtr<AGvTAmbientAudioPoint>> IndoorAmbientPoints;
+
+	UPROPERTY(Transient)
+	TArray<TWeakObjectPtr<AGvTAmbientAudioPoint>> OutdoorAmbientPoints;
 
 	FTimerHandle TimerHandle_RandomShot;
 	float SuppressRandomUntilTime = 0.0f;
+	float CurrentIndoorBlend = 1.0f;
 
 	void CacheAmbientPoints();
 	void StartBaseLoops();
+	void StartLoopSet(const TArray<TObjectPtr<USoundBase>>& Sounds, float Pitch, TArray<TObjectPtr<UAudioComponent>>& OutComponents);
+	void UpdateZoneMix(float DeltaSeconds);
+	bool IsLocalPlayerInsideHouse() const;
 	void ScheduleNextRandomShot();
 	void PlayRandomAmbientShot();
 	void PlaySoundEntry(const FGvTAmbientSoundEntry& Entry, const FVector& WorldLocation, float Intensity01);
 	const FGvTAmbientSoundEntry* PickWeightedEntry(const TArray<FGvTAmbientSoundEntry>& Entries) const;
 	const FGvTTaggedAmbientAccentSet* FindTaggedSet(FGameplayTag ScareTag) const;
-	FVector ResolveAmbientPlaybackLocation(const FVector& FallbackLocation) const;
+	FVector ResolveAmbientPlaybackLocation(const FVector& FallbackLocation, bool bIndoor) const;
 	bool CanPlayLocalAudio() const;
 };

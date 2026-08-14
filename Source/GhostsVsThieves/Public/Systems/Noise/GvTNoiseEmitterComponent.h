@@ -17,7 +17,7 @@ public:
     void EmitNoise(FGameplayTag NoiseTag, float Radius, float Loudness);
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise")
-    bool bDrawDebug = true;
+    bool bDrawDebug = false;
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise")
     float DebugDrawTime = 1.0f;

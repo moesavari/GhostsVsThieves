@@ -22,7 +22,7 @@ AGvTReflectGhostActor::AGvTReflectGhostActor()
 		GetMesh()->bHiddenInSceneCapture = true;
 	}
 
-	if (UArrowComponent* Arrow = GetArrowComponent())
+	if (UArrowComponent* Arrow = FindComponentByClass<UArrowComponent>())
 	{
 		Arrow->SetVisibility(false, true);
 		Arrow->SetHiddenInGame(true);

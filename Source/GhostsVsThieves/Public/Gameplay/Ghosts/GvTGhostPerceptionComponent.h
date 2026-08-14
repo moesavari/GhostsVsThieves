@@ -31,7 +31,7 @@ public:
 	float NoiseMemorySeconds = 4.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Debug")
-	bool bDrawPerceptionDebug = true;
+	bool bDrawPerceptionDebug = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Debug")
 	float DebugDrawDuration = 0.05f;
@@ -53,7 +53,7 @@ public:
 		FActorComponentTickFunction* ThisTickFunction) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Debug")
-	bool bDrawDetectionRangesConstantly = true;
+	bool bDrawDetectionRangesConstantly = false;
 
 	void DrawDetectionRangesDebug() const;
 

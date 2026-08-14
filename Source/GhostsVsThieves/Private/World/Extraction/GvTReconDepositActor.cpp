@@ -82,6 +82,8 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 	}
 
 	const int32 SecuredValue = SelectedItem->GetSecuredLootValue();
+	const bool bWasMainObjective = SelectedItem->IsMainObjective();
+	const FText ItemDisplayName = SelectedItem->GetInventoryDisplayName();
 	const FString ItemName = GetNameSafe(SelectedItem);
 	AGvTInteractableItem* RemovedItem = nullptr;
 	if (!Inventory->TryRemoveSelectedItemForDeposit(RemovedItem) || RemovedItem != SelectedItem)
@@ -104,7 +106,18 @@ void AGvTReconDepositActor::CompleteInteract_Implementation(APawn* InstigatorPaw
 	UE_LOG(LogTemp, Log, TEXT("[ReconDeposit] Player=%s Item=%s Value=%d TeamSecuredTotal=%d Result=SUCCESS"), *GetNameSafe(Thief), *ItemName, SecuredValue, GS ? GS->GetTeamSecuredLoot() : 0);
 	if (AGvTPlayerController* PC = Thief ? Cast<AGvTPlayerController>(Thief->GetController()) : nullptr)
 	{
-		PC->Client_ShowHUDMessage(FText::Format(FText::FromString(TEXT("Loot secured: {0}")), FText::AsNumber(SecuredValue)), true);
+		if (bWasMainObjective)
+		{
+			PC->Client_ShowOnboardingPrompt(EGvTOnboardingPrompt::ObjectiveSecured);
+		}
+		else
+		{
+			PC->Client_ShowHUDMessage(
+				FText::Format(
+					FText::FromString(TEXT("Loot secured: {0}")),
+					FText::AsNumber(SecuredValue)),
+				true);
+		}
 	}
 }
 

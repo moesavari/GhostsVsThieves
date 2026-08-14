@@ -2,12 +2,16 @@
 #include "Systems/Audio/GvTAmbientAudioPoint.h"
 #include "Components/AudioComponent.h"
 #include "Components/SceneComponent.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/Pawn.h"
 #include "Kismet/GameplayStatics.h"
 #include "Sound/SoundBase.h"
+#include "Systems/World/GvTHouseBoundsLibrary.h"
 
 AGvTAmbientAudioDirector::AGvTAmbientAudioDirector()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickInterval = 0.20f;
 	bReplicates = true;
 
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
@@ -22,12 +26,23 @@ void AGvTAmbientAudioDirector::BeginPlay()
 
 	if (CanPlayLocalAudio())
 	{
+		CurrentIndoorBlend = IsLocalPlayerInsideHouse() ? 1.0f : 0.0f;
 		StartBaseLoops();
 
 		if (bAllowRandomShots)
 		{
 			ScheduleNextRandomShot();
 		}
+	}
+}
+
+void AGvTAmbientAudioDirector::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	if (CanPlayLocalAudio())
+	{
+		UpdateZoneMix(DeltaSeconds);
 	}
 }
 
@@ -38,7 +53,8 @@ bool AGvTAmbientAudioDirector::CanPlayLocalAudio() const
 
 void AGvTAmbientAudioDirector::CacheAmbientPoints()
 {
-	AmbientPoints.Reset();
+	IndoorAmbientPoints.Reset();
+	OutdoorAmbientPoints.Reset();
 
 	TArray<AActor*> Found;
 	UGameplayStatics::GetAllActorsOfClass(this, AGvTAmbientAudioPoint::StaticClass(), Found);
@@ -49,7 +65,14 @@ void AGvTAmbientAudioDirector::CacheAmbientPoints()
 		{
 			if (Point->IsPointEnabled())
 			{
-				AmbientPoints.Add(Point);
+				if (Point->GetAmbientZone() == EGvTAmbientZone::Outdoor)
+				{
+					OutdoorAmbientPoints.Add(Point);
+				}
+				else
+				{
+					IndoorAmbientPoints.Add(Point);
+				}
 			}
 		}
 	}
@@ -58,29 +81,83 @@ void AGvTAmbientAudioDirector::CacheAmbientPoints()
 void AGvTAmbientAudioDirector::StartBaseLoops()
 {
 	ActiveBaseLoopComponents.Reset();
+	ActiveOutdoorLoopComponents.Reset();
+	StartLoopSet(BaseAmbientLoops, BaseLoopPitch, ActiveBaseLoopComponents);
+	StartLoopSet(OutdoorAmbientLoops, OutdoorLoopPitch, ActiveOutdoorLoopComponents);
+	UpdateZoneMix(0.0f);
+}
 
-	for (USoundBase* LoopSound : BaseAmbientLoops)
+void AGvTAmbientAudioDirector::StartLoopSet(const TArray<TObjectPtr<USoundBase>>& Sounds, float Pitch, TArray<TObjectPtr<UAudioComponent>>& OutComponents)
+{
+	for (USoundBase* LoopSound : Sounds)
 	{
 		if (!LoopSound)
 		{
 			continue;
 		}
 
-		if (UAudioComponent* AC = UGameplayStatics::SpawnSoundAtLocation(
+		if (UAudioComponent* AC = UGameplayStatics::SpawnSound2D(
 			this,
 			LoopSound,
-			GetActorLocation(),
-			GetActorRotation(),
-			BaseLoopVolume,
-			BaseLoopPitch,
+			1.0f,
+			Pitch,
 			0.0f,
 			nullptr,
-			nullptr,
+			false,
 			true))
 		{
-			//AC->bLooping = true;
-			AC->Play();
-			ActiveBaseLoopComponents.Add(AC);
+			OutComponents.Add(AC);
+		}
+	}
+}
+
+bool AGvTAmbientAudioDirector::IsLocalPlayerInsideHouse() const
+{
+	if (!GetWorld())
+	{
+		return true;
+	}
+
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		const APlayerController* PC = It->Get();
+		const APawn* Pawn = PC && PC->IsLocalController() ? PC->GetPawn() : nullptr;
+		if (!Pawn)
+		{
+			continue;
+		}
+
+		bool bFoundHouseBounds = false;
+		const bool bInside = UGvTHouseBoundsLibrary::IsLocationInsideHouse(this, Pawn->GetActorLocation(), bFoundHouseBounds);
+		return !bFoundHouseBounds || bInside;
+	}
+
+	return true;
+}
+
+void AGvTAmbientAudioDirector::UpdateZoneMix(float DeltaSeconds)
+{
+	const float TargetIndoorBlend = IsLocalPlayerInsideHouse() ? 1.0f : 0.0f;
+	CurrentIndoorBlend = DeltaSeconds > 0.0f
+		? FMath::FInterpTo(CurrentIndoorBlend, TargetIndoorBlend, DeltaSeconds, ZoneCrossfadeSpeed)
+		: TargetIndoorBlend;
+
+	const float IndoorVolume = BaseLoopVolume * FMath::Lerp(IndoorVolumeWhileOutside, 1.0f, CurrentIndoorBlend);
+	const float OutdoorVolume = OutdoorLoopVolume * FMath::Lerp(1.0f, OutdoorVolumeWhileInside, CurrentIndoorBlend);
+
+	for (UAudioComponent* Component : ActiveBaseLoopComponents)
+	{
+		if (Component)
+		{
+			Component->SetVolumeMultiplier(IndoorVolume);
+		}
+	}
+
+	for (UAudioComponent* Component : ActiveOutdoorLoopComponents)
+	{
+		if (Component)
+		{
+			Component->SetVolumeMultiplier(OutdoorVolume);
 		}
 	}
 }
@@ -137,15 +214,16 @@ const FGvTAmbientSoundEntry* AGvTAmbientAudioDirector::PickWeightedEntry(const T
 	return nullptr;
 }
 
-FVector AGvTAmbientAudioDirector::ResolveAmbientPlaybackLocation(const FVector& FallbackLocation) const
+FVector AGvTAmbientAudioDirector::ResolveAmbientPlaybackLocation(const FVector& FallbackLocation, bool bIndoor) const
 {
-	if (!bUseAmbientPoints || AmbientPoints.Num() == 0)
+	const TArray<TWeakObjectPtr<AGvTAmbientAudioPoint>>& ZonePoints = bIndoor ? IndoorAmbientPoints : OutdoorAmbientPoints;
+	if (!bUseAmbientPoints || ZonePoints.Num() == 0)
 	{
 		return FallbackLocation;
 	}
 
 	TArray<TWeakObjectPtr<AGvTAmbientAudioPoint>> ValidPoints;
-	for (const TWeakObjectPtr<AGvTAmbientAudioPoint>& Point : AmbientPoints)
+	for (const TWeakObjectPtr<AGvTAmbientAudioPoint>& Point : ZonePoints)
 	{
 		if (Point.IsValid() && Point->IsPointEnabled())
 		{
@@ -204,9 +282,14 @@ void AGvTAmbientAudioDirector::PlayRandomAmbientShot()
 		return;
 	}
 
-	if (const FGvTAmbientSoundEntry* Entry = PickWeightedEntry(RandomAmbientShots))
+	const bool bIndoor = IsLocalPlayerInsideHouse();
+	const TArray<FGvTAmbientSoundEntry>& Pool = !bIndoor && OutdoorRandomAmbientShots.Num() > 0
+		? OutdoorRandomAmbientShots
+		: RandomAmbientShots;
+
+	if (const FGvTAmbientSoundEntry* Entry = PickWeightedEntry(Pool))
 	{
-		const FVector Loc = ResolveAmbientPlaybackLocation(GetActorLocation());
+		const FVector Loc = ResolveAmbientPlaybackLocation(GetActorLocation(), bIndoor);
 		PlaySoundEntry(*Entry, Loc, 1.0f);
 	}
 

@@ -43,6 +43,7 @@ void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& InEvent)
 		RecentEvents.Num(),
 		E.TimeSeconds);
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (bDebugGhostHearingOnScreen && GetWorld())
 	{
 		for (TActorIterator<AGvTHauntGhostBase> It(GetWorld()); It; ++It)
@@ -80,6 +81,7 @@ void UGvTNoiseSubsystem::EmitNoise(const FGvTNoiseEvent& InEvent)
 			}
 		}
 	}
+#endif
 }
 
 int32 UGvTNoiseSubsystem::GetRecentTagCount(FGameplayTag Tag, float WindowSeconds) const

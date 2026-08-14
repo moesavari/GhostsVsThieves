@@ -32,6 +32,7 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "GvTGameModeBase.h"
+#include "GvTPlayerController.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundAttenuation.h"
 
@@ -106,7 +107,7 @@ void AGvTThiefCharacter::Tick(float DeltaSeconds)
         UpdateFootsteps(DeltaSeconds);
     }
 
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (IsLocallyControlled() && bDebugHUDEnabled)
     {
         UpdateDebugHUD();
@@ -187,6 +188,11 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_Sprint, ETriggerEvent::Canceled, this, &AGvTThiefCharacter::StopSprint);
     }
 
+    if (IA_Pause)
+    {
+        EIC->BindAction(IA_Pause, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnPausePressed);
+    }
+
     if (IA_Crouch)
     {
         EIC->BindAction(IA_Crouch, ETriggerEvent::Started, this, &AGvTThiefCharacter::StartCrouch);
@@ -194,24 +200,19 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_Crouch, ETriggerEvent::Canceled, this, &AGvTThiefCharacter::StopCrouch);
     }
 
-    if (IA_Jump)
-    {
-        EIC->BindAction(IA_Jump, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnJumpStarted);
-        EIC->BindAction(IA_Jump, ETriggerEvent::Completed, this, &AGvTThiefCharacter::OnJumpStopped);
-        EIC->BindAction(IA_Jump, ETriggerEvent::Canceled, this, &AGvTThiefCharacter::OnJumpStopped);
-    }
-
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (IA_ToggleDebugHUD)
     {
         EIC->BindAction(IA_ToggleDebugHUD, ETriggerEvent::Started, this, &AGvTThiefCharacter::ToggleDebugHUD);
     }
 #endif
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (IA_TestNoise)
     {
         EIC->BindAction(IA_TestNoise, ETriggerEvent::Started, this, &AGvTThiefCharacter::TestNoise);
     }
+#endif
 
     if (IA_Interact)
     {
@@ -228,10 +229,12 @@ void AGvTThiefCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
         EIC->BindAction(IA_Photo, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnPhotoPressed);
     }
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (IA_TestMirror)
     {
         EIC->BindAction(IA_TestMirror, ETriggerEvent::Started, this, &AGvTThiefCharacter::OnTestMirrorPressed);
     }
+#endif
 
     if (IA_InventoryNext)
     {
@@ -311,29 +314,17 @@ void AGvTThiefCharacter::StopCrouch()
     UnCrouch();
 }
 
-void AGvTThiefCharacter::OnJumpStarted()
+void AGvTThiefCharacter::OnPausePressed()
 {
-    if (bIsDead || bInteractionLockMove || IsScareStunned())
+    if (AGvTPlayerController* GvTController = Cast<AGvTPlayerController>(GetController()))
     {
-        return;
+        GvTController->TogglePauseMenu();
     }
-
-    if (bIsCrouched)
-    {
-        UnCrouch();
-    }
-
-    Jump();
-}
-
-void AGvTThiefCharacter::OnJumpStopped()
-{
-    StopJumping();
 }
 
 void AGvTThiefCharacter::ToggleDebugHUD()
 {
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (!IsLocallyControlled())
     {
         return;
@@ -351,21 +342,21 @@ void AGvTThiefCharacter::ToggleDebugHUD()
 
 void AGvTThiefCharacter::Server_SetDebugDrawEnabled_Implementation(bool bEnabled)
 {
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     Multicast_SetDebugDrawEnabled(bEnabled);
 #endif
 }
 
 void AGvTThiefCharacter::Multicast_SetDebugDrawEnabled_Implementation(bool bEnabled)
 {
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     ApplyDebugDrawState(bEnabled);
 #endif
 }
 
 void AGvTThiefCharacter::ApplyDebugDrawState(bool bEnabled)
 {
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (!GetWorld())
     {
         return;
@@ -404,7 +395,7 @@ void AGvTThiefCharacter::ApplyDebugDrawState(bool bEnabled)
 
 void AGvTThiefCharacter::UpdateDebugHUD()
 {
-#if !UE_BUILD_SHIPPING
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (!GEngine || !GetWorld())
     {
         return;
@@ -444,6 +435,7 @@ void AGvTThiefCharacter::UpdateDebugHUD()
 
 void AGvTThiefCharacter::TestNoise()
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (!NoiseEmitter) return;
 
     NoiseEmitter->EmitNoise(
@@ -451,6 +443,7 @@ void AGvTThiefCharacter::TestNoise()
         600.f,
         1.0f
     );
+#endif
 }
 
 void AGvTThiefCharacter::OnInteractPressed()
@@ -848,17 +841,23 @@ void AGvTThiefCharacter::OnRep_IsDead()
 
 void AGvTThiefCharacter::Debug_RequestGhostScare(FGameplayTag GhostScareTag)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     RequestGhostScare(GhostScareTag);
+#endif
 }
 
 void AGvTThiefCharacter::Debug_RequestGhostEvent(FGameplayTag GhostEventTag)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     RequestGhostEvent(GhostEventTag);
+#endif
 }
 
 void AGvTThiefCharacter::Debug_RequestGhostHaunt(FGameplayTag GhostHauntTag)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     RequestGhostHaunt(GhostHauntTag);
+#endif
 }
 
 void AGvTThiefCharacter::RequestGhostScare(FGameplayTag GhostScareTag)

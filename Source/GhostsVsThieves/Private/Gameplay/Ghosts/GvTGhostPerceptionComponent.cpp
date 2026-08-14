@@ -165,6 +165,7 @@ void UGvTGhostPerceptionComponent::DrawPerceptionDebug(
 	const FVector& TraceEnd,
 	const FVector& HitLocation) const
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!bDrawPerceptionDebug || !GetWorld())
 	{
 		return;
@@ -217,6 +218,7 @@ void UGvTGhostPerceptionComponent::DrawPerceptionDebug(
 			0,
 			2.f);
 	}
+#endif
 }
 
 void UGvTGhostPerceptionComponent::TickComponent(
@@ -226,14 +228,17 @@ void UGvTGhostPerceptionComponent::TickComponent(
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (bDrawDetectionRangesConstantly)
 	{
 		DrawDetectionRangesDebug();
 	}
+#endif
 }
 
 void UGvTGhostPerceptionComponent::DrawDetectionRangesDebug() const
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!bDrawPerceptionDebug || !GetWorld())
 	{
 		return;
@@ -272,4 +277,5 @@ void UGvTGhostPerceptionComponent::DrawDetectionRangesDebug() const
 		DebugDrawDuration,
 		0,
 		1.f);
+#endif
 }

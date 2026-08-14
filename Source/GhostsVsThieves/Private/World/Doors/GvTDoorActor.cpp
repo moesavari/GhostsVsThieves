@@ -458,10 +458,12 @@ void AGvTDoorActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLif
 
 void AGvTDoorActor::Debug_ToggleLock()
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!HasAuthority())
 		return;
 
 	SetLocked(!bIsLocked);
+#endif
 }
 
 float AGvTDoorActor::GetCurrentOpenAlpha() const

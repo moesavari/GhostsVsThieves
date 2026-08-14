@@ -23,6 +23,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|House Voice")
 	TArray<TObjectPtr<USoundBase>> FirstEntrySounds;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "GvT|House Voice", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	float FirstEntrySoundChance = 0.30f;
+
+	UPROPERTY(Transient)
+	bool bHasEvaluatedFirstEntryVoice = false;
+
 	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "GvT|House Voice")
 	bool bHasPlayedFirstEntryVoice = false;
 

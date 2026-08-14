@@ -13,6 +13,7 @@ class AGvTThiefCharacter;
 class USoundBase;
 class UPrimitiveComponent;
 class UTexture2D;
+class UMaterialInterface;
 
 UENUM(BlueprintType)
 enum class EGvTItemTier : uint8
@@ -247,6 +248,23 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Item|Appearance")
 	TArray<TObjectPtr<UStaticMesh>> MeshVariants;
 
+	/** Opt-in held-item surprise. Intended for TV screen material slots. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare")
+	bool bEnableHeldScreenScare = false;
+
+	/** Rolled once per item instance when it is first actively equipped. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare", ClampMin = "0.0", ClampMax = "1.0"))
+	float HeldScreenScareChance = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare", ClampMin = "0"))
+	int32 HeldScreenMaterialIndex = 0;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare"))
+	TObjectPtr<UMaterialInterface> NormalHeldScreenMaterial = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare"))
+	TObjectPtr<UMaterialInterface> ScaryHeldScreenMaterial = nullptr;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement")
 	bool bSnapToSurfaceOnBeginPlay = true;
 
@@ -369,11 +387,19 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_CarryState)
 	bool bIsEquipped = false;
 
+	UPROPERTY(ReplicatedUsing = OnRep_HeldScreenScare)
+	bool bShowHeldScreenScare = false;
+
+	bool bHasRolledHeldScreenScare = false;
+
 	UPROPERTY(Replicated)
 	bool bHasTriggeredTheftReaction = false;
 
 	UFUNCTION()
 	void OnRep_CarryState();
+
+	UFUNCTION()
+	void OnRep_HeldScreenScare();
 
 	UFUNCTION()
 	void HandleMeshHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent, FVector NormalImpulse, const FHitResult& Hit);
@@ -382,6 +408,7 @@ protected:
 	void Multicast_PlayDropImpactSound(USoundBase* Sound, FVector Location, float ImpactSpeed);
 
 	virtual void ApplyCarryState();
+	void ApplyHeldScreenMaterial();
 	float LastImpactSoundTime = -1000.f;
 	bool bImpactArmed = false;
 

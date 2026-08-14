@@ -198,6 +198,8 @@ protected:
 	void UpdateUniversalDoorHandling(float DeltaSeconds);
 	void TryOpenNearbyDoorsUniversal();
 	void TrySlamPassedDoors();
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Ghost|Perception")
 	TObjectPtr<UGvTGhostPerceptionComponent> GhostPerceptionComponent;
 
 	// MVP/Normal: one kill ends the hunt. Later hard mode can enable this to keep hunting.

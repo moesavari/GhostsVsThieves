@@ -495,7 +495,7 @@ void UGvTScareComponent::BeginLocalLightChaseSequence(const FGvTScareEvent& Even
 	{
 		const FVector SnappedLoc = ResolveLightChaseStepLocation(RawLoc);
 
-#if !(UE_BUILD_SHIPPING)
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 		DrawDebugSphere(GetWorld(), RawLoc, 18.f, 8, FColor::Cyan, false, 2.0f, 0, 1.5f);
 		DrawDebugSphere(GetWorld(), SnappedLoc, 24.f, 10, FColor::Yellow, false, 2.0f, 0, 2.0f);
 		DrawDebugLine(GetWorld(), RawLoc, SnappedLoc, FColor::Green, false, 2.0f, 0, 1.0f);
@@ -540,6 +540,7 @@ void UGvTScareComponent::AdvanceLocalLightChaseSequence()
 	const bool bIsFinalStep = (ActiveLightChaseStepIndex == ActiveLightChaseStepLocations.Num() - 1);
 	const FVector StepLocation = ActiveLightChaseStepLocations[ActiveLightChaseStepIndex];
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	DrawDebugSphere(
 		GetWorld(),
 		StepLocation,
@@ -550,6 +551,7 @@ void UGvTScareComponent::AdvanceLocalLightChaseSequence()
 		1.0f,
 		0,
 		2.0f);
+#endif
 
 	PlayLightChaseStepEffects(StepLocation, bIsFinalStep);
 
@@ -685,6 +687,13 @@ void UGvTScareComponent::PlayLightChaseStepEffects(const FVector& StepLocation, 
 
 void UGvTScareComponent::Debug_RequestGroupHouseLightFlicker(float Intensity01, float Duration)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
+	RequestGroupHouseLightFlicker(Intensity01, Duration);
+#endif
+}
+
+void UGvTScareComponent::RequestGroupHouseLightFlicker(float Intensity01, float Duration)
+{
 	if (!IsServer())
 	{
 		return;
@@ -712,6 +721,13 @@ void UGvTScareComponent::Debug_RequestGroupHouseLightFlicker(float Intensity01, 
 
 void UGvTScareComponent::Debug_RequestLocalHouseLightFlicker(float Intensity01, float Duration)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
+	RequestLocalHouseLightFlicker(Intensity01, Duration);
+#endif
+}
+
+void UGvTScareComponent::RequestLocalHouseLightFlicker(float Intensity01, float Duration)
+{
 	if (!IsServer())
 	{
 		return;
@@ -725,6 +741,7 @@ void UGvTScareComponent::Debug_RequestLocalHouseLightFlicker(float Intensity01, 
 
 void UGvTScareComponent::Debug_RequestLightChase(float Intensity01)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	APawn* Pawn = Cast<APawn>(GetOwner());
 	if (!Pawn || !Pawn->IsLocallyControlled())
 	{
@@ -749,6 +766,7 @@ void UGvTScareComponent::Debug_RequestLightChase(float Intensity01)
 	Event.LocalSeed = MakeLocalSeed(GetNowServerSeconds());
 
 	PlayLocalLightChase(Event);
+#endif
 }
 
 void UGvTScareComponent::Client_PlayMirrorScare_Implementation(float Intensity01, float LifeSeconds)

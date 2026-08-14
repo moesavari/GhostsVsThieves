@@ -17,7 +17,11 @@ static TAutoConsoleVariable<int32> CVarGvTScareDebugTopN(
 
 static bool IsGvTScareDebugEnabled()
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	return CVarGvTScareDebug.GetValueOnGameThread() != 0;
+#else
+	return false;
+#endif
 }
 
 void UGvTScareSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -347,7 +351,11 @@ float UGvTScareSubsystem::ComputeFinalWeight(
 
 static bool GvTScareDebugEnabled()
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	return CVarGvTScareDebug.GetValueOnGameThread() != 0;
+#else
+	return false;
+#endif
 }
 
 bool UGvTScareSubsystem::IsScareDebugEnabled()

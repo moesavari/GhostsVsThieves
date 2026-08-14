@@ -394,6 +394,13 @@ void AGvTInteractableItem::SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNe
 
 	Carrier = NewCarrier;
 	bIsEquipped = NewCarrier && bNewEquipped;
+	if (bEnableHeldScreenScare && bIsEquipped && !bHasRolledHeldScreenScare)
+	{
+		bHasRolledHeldScreenScare = true;
+		bShowHeldScreenScare = NormalHeldScreenMaterial
+			&& ScaryHeldScreenMaterial
+			&& FMath::FRand() <= FMath::Clamp(HeldScreenScareChance, 0.0f, 1.0f);
+	}
 	SetOwner(NewCarrier);
 	ApplyCarryState();
 	ForceNetUpdate();
@@ -410,6 +417,7 @@ void AGvTInteractableItem::DropFromInventory(const FVector& WorldLocation, const
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	Carrier = nullptr;
 	bIsEquipped = false;
+	bShowHeldScreenScare = false;
 	SetOwner(nullptr);
 	SetActorLocationAndRotation(WorldLocation, WorldRotation, false, nullptr, ETeleportType::TeleportPhysics);
 	ApplyCarryState();
@@ -474,6 +482,30 @@ void AGvTInteractableItem::ApplyCarryState()
 		Mesh->SetUseCCD(bUseContinuousCollisionDetectionWhenDropped);
 		Mesh->SetSimulatePhysics(true);
 		Mesh->WakeAllRigidBodies();
+	}
+
+	ApplyHeldScreenMaterial();
+}
+
+void AGvTInteractableItem::ApplyHeldScreenMaterial()
+{
+	if (!bEnableHeldScreenScare
+		|| !Mesh
+		|| !NormalHeldScreenMaterial
+		|| !ScaryHeldScreenMaterial
+		|| HeldScreenMaterialIndex < 0
+		|| HeldScreenMaterialIndex >= Mesh->GetNumMaterials())
+	{
+		return;
+	}
+
+	UMaterialInterface* Material = Carrier && bIsEquipped && bShowHeldScreenScare
+		? ScaryHeldScreenMaterial.Get()
+		: NormalHeldScreenMaterial.Get();
+
+	if (Material)
+	{
+		Mesh->SetMaterial(HeldScreenMaterialIndex, Material);
 	}
 }
 
@@ -553,6 +585,11 @@ void AGvTInteractableItem::OnRep_CarryState()
 	ApplyCarryState();
 }
 
+void AGvTInteractableItem::OnRep_HeldScreenScare()
+{
+	ApplyHeldScreenMaterial();
+}
+
 void AGvTInteractableItem::ApplyConsumedState(bool bConsumed)
 {
 	SetActorEnableCollision(!bConsumed);
@@ -579,6 +616,7 @@ void AGvTInteractableItem::OnRep_SelectedMesh()
 	if (SelectedMesh)
 	{
 		Mesh->SetStaticMesh(SelectedMesh);
+		ApplyHeldScreenMaterial();
 	}
 }
 
@@ -587,6 +625,7 @@ void AGvTInteractableItem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 	DOREPLIFETIME(AGvTInteractableItem, Carrier);
 	DOREPLIFETIME(AGvTInteractableItem, bIsEquipped);
+	DOREPLIFETIME(AGvTInteractableItem, bShowHeldScreenScare);
 	DOREPLIFETIME(AGvTInteractableItem, bHasTriggeredTheftReaction);
 	DOREPLIFETIME(AGvTInteractableItem, bIsConsumed);
 	DOREPLIFETIME(AGvTInteractableItem, bHasBeenPhotographed);

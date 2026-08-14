@@ -7,9 +7,14 @@
 #include "Engine/World.h"
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Gameplay/Inventory/GvTInventoryComponent.h"
 #include "World/Items/GvTInteractableItem.h"
+#include "World/Items/GvTMedicineItem.h"
+#include "World/Extraction/GvTReconDepositActor.h"
 #include "World/Extraction/GvTVanInventoryActor.h"
 #include "InputCoreTypes.h"
+#include "Kismet/GameplayStatics.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 void AGvTPlayerController::BeginPlay()
 {
@@ -125,7 +130,6 @@ void AGvTPlayerController::BindHUDToPlayerState()
 	PS->OnHauntPressureChanged.RemoveDynamic(this, &AGvTPlayerController::HandleHauntPressureChanged);
 	PS->OnHauntPressureChanged.AddDynamic(this, &AGvTPlayerController::HandleHauntPressureChanged);
 
-	// Push current value immediately so HUD is correct right away.
 	HandlePanicChanged(PS->GetPanic01());
 }
 
@@ -161,15 +165,62 @@ void AGvTPlayerController::Client_ShowHUDMessage_Implementation(const FText& Mes
 	}
 }
 
+void AGvTPlayerController::Client_ShowOnboardingPrompt_Implementation(EGvTOnboardingPrompt Prompt)
+{
+	ShowOnboardingPromptLocal(Prompt);
+}
+
+void AGvTPlayerController::ShowOnboardingPromptLocal(EGvTOnboardingPrompt Prompt)
+{
+	if (!IsLocalController() || ShownOnboardingPrompts.Contains(Prompt))
+	{
+		return;
+	}
+
+	FText Message;
+	bool bSuccess = false;
+	switch (Prompt)
+	{
+		case EGvTOnboardingPrompt::FirstItemCollected:
+			Message = NSLOCTEXT("GvTOnboarding", "FirstItem", "Mouse Wheel: Cycle Inventory  |  G: Drop Item");
+			break;
+		case EGvTOnboardingPrompt::ReturnToVan:
+			Message = NSLOCTEXT("GvTOnboarding", "ReturnToVan", "Deposit carried valuables on the van's right side. Review stored items at the back.");
+			break;
+		case EGvTOnboardingPrompt::MainObjectiveWarning:
+			Message = NSLOCTEXT("GvTOnboarding", "ObjectiveWarning", "WARNING: Taking the objective will trigger a haunt");
+			break;
+		case EGvTOnboardingPrompt::ObjectiveSecured:
+			Message = NSLOCTEXT("GvTOnboarding", "ObjectiveSecured", "Return to the van and prepare for extraction");
+			bSuccess = true;
+			break;
+		case EGvTOnboardingPrompt::MedicinePanic:
+			Message = NSLOCTEXT("GvTOnboarding", "MedicinePanic", "Medicine lowers Panic and reduces its recovery floor");
+			break;
+		default:
+			return;
+	}
+
+	ShownOnboardingPrompts.Add(Prompt);
+	Client_ShowHUDMessage_Implementation(Message, bSuccess);
+}
+
 void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLocked)
 {
+	bMissionInputLocked = bLocked;
+
 	if (bLocked && bVanInventoryOpen)
 	{
 		CloseVanInventory();
 	}
 
-	SetIgnoreMoveInput(bLocked);
-	SetIgnoreLookInput(bLocked);
+	if (bLocked && bPauseMenuOpen)
+	{
+		SetPauseMenuOpen(false);
+	}
+
+	SetIgnoreMoveInput(bLocked || bVanInventoryOpen || bPauseMenuOpen);
+	SetIgnoreLookInput(bLocked || bVanInventoryOpen || bPauseMenuOpen);
 }
 
 void AGvTPlayerController::Client_ShowMissionResults_Implementation(const FGvTMissionResults& Results)
@@ -246,6 +297,133 @@ void AGvTPlayerController::CloseVanInventory()
 	SetVanInventoryOpen(false);
 }
 
+void AGvTPlayerController::TogglePauseMenu()
+{
+	if (!IsLocalController() || bMissionInputLocked || !Cast<AGvTThiefCharacter>(GetPawn()))
+	{
+		return;
+	}
+
+	// Pause input closes the van inventory first instead of stacking two menus.
+	if (bVanInventoryOpen)
+	{
+		CloseVanInventory();
+		return;
+	}
+
+	SetPauseMenuOpen(!bPauseMenuOpen);
+}
+
+void AGvTPlayerController::ResumeFromPauseMenu()
+{
+	SetPauseMenuOpen(false);
+}
+
+void AGvTPlayerController::SetPauseMenuOpen(bool bOpen)
+{
+	if (!IsLocalController() || bPauseMenuOpen == bOpen)
+	{
+		return;
+	}
+
+	if (bOpen)
+	{
+		if (bMissionInputLocked || (MissionResultsWidget && MissionResultsWidget->IsInViewport()))
+		{
+			return;
+		}
+
+		if (bVanInventoryOpen)
+		{
+			CloseVanInventory();
+		}
+
+		if (!PauseMenuWidgetClass)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GvTPlayerController: PauseMenuWidgetClass is not set."));
+			return;
+		}
+
+		if (!PauseMenuWidget)
+		{
+			PauseMenuWidget = CreateWidget<UUserWidget>(this, PauseMenuWidgetClass);
+		}
+
+		if (!PauseMenuWidget)
+		{
+			UE_LOG(LogTemp, Error, TEXT("GvTPlayerController: Failed to create pause menu widget."));
+			return;
+		}
+
+		bPauseMenuOpen = true;
+		PauseMenuWidget->SetVisibility(ESlateVisibility::Visible);
+		if (!PauseMenuWidget->IsInViewport())
+		{
+			PauseMenuWidget->AddToViewport(10000);
+		}
+
+		SetIgnoreMoveInput(true);
+		SetIgnoreLookInput(true);
+		bShowMouseCursor = true;
+
+		FInputModeGameAndUI InputMode;
+		InputMode.SetWidgetToFocus(PauseMenuWidget->TakeWidget());
+		InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::DoNotLock);
+		InputMode.SetHideCursorDuringCapture(false);
+		SetInputMode(InputMode);
+
+		// A networked player must not freeze the shared server for everyone.
+		if (GetNetMode() == NM_Standalone)
+		{
+			UGameplayStatics::SetGamePaused(this, true);
+		}
+
+		return;
+	}
+
+	if (GetNetMode() == NM_Standalone)
+	{
+		UGameplayStatics::SetGamePaused(this, false);
+	}
+
+	bPauseMenuOpen = false;
+	if (PauseMenuWidget)
+	{
+		PauseMenuWidget->SetVisibility(ESlateVisibility::Collapsed);
+	}
+
+	SetIgnoreMoveInput(bMissionInputLocked || bVanInventoryOpen);
+	SetIgnoreLookInput(bMissionInputLocked || bVanInventoryOpen);
+	bShowMouseCursor = bVanInventoryOpen;
+
+	if (!bMissionInputLocked && !bVanInventoryOpen)
+	{
+		SetInputMode(FInputModeGameOnly());
+	}
+}
+
+void AGvTPlayerController::ReturnToMainMenuFromPauseMenu()
+{
+	if (!IsLocalController() || MainMenuMapName.IsNone())
+	{
+		return;
+	}
+
+	SetPauseMenuOpen(false);
+	UGameplayStatics::OpenLevel(this, MainMenuMapName, true);
+}
+
+void AGvTPlayerController::QuitGameFromPauseMenu()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	SetPauseMenuOpen(false);
+	UKismetSystemLibrary::QuitGame(this, this, EQuitPreference::Quit, false);
+}
+
 void AGvTPlayerController::RequestTakeVanItem(AGvTVanInventoryActor* VanInventory, int32 StackIndex)
 {
 	if (IsLocalController() && IsValid(VanInventory) && StackIndex >= 0)
@@ -256,6 +434,10 @@ void AGvTPlayerController::RequestTakeVanItem(AGvTVanInventoryActor* VanInventor
 
 void AGvTPlayerController::Server_RequestTakeVanItem_Implementation(AGvTVanInventoryActor* VanInventory, int32 StackIndex)
 {
+	const FGvTVanItemHoverInfo RequestedItem = IsValid(VanInventory)
+		? VanInventory->GetItemHoverInfo(StackIndex)
+		: FGvTVanItemHoverInfo{};
+
 	FText FailureMessage;
 	AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(GetPawn());
 	if (!IsValid(VanInventory) || !VanInventory->TryTakeItem(Thief, StackIndex, FailureMessage))
@@ -264,7 +446,21 @@ void AGvTPlayerController::Server_RequestTakeVanItem_Implementation(AGvTVanInven
 		return;
 	}
 
-	Client_ShowHUDMessage(NSLOCTEXT("GvTVanInventory", "ItemTaken", "Item added to inventory."), true);
+	const FGvTVanItemHoverInfo UpdatedItem = VanInventory->GetItemHoverInfo(StackIndex);
+	const FText ItemName = RequestedItem.bIsValid && !RequestedItem.DisplayName.IsEmpty()
+		? RequestedItem.DisplayName
+		: NSLOCTEXT("GvTVanInventory", "FallbackItemName", "Item");
+
+	const FText SuccessMessage = UpdatedItem.bIsValid && UpdatedItem.Quantity > 0
+		? FText::Format(
+			NSLOCTEXT("GvTVanInventory", "ItemTakenRemaining", "{0} added. {1} remaining in the van. Mouse Wheel: equip | G: drop"),
+			ItemName,
+			FText::AsNumber(UpdatedItem.Quantity))
+		: FText::Format(
+			NSLOCTEXT("GvTVanInventory", "ItemTakenEmpty", "{0} added. That stack is now empty. Mouse Wheel: equip | G: drop"),
+			ItemName);
+
+	Client_ShowHUDMessage(SuccessMessage, true);
 }
 
 void AGvTPlayerController::SetVanInventoryOpen(bool bOpen)
@@ -275,9 +471,9 @@ void AGvTPlayerController::SetVanInventoryOpen(bool bOpen)
 	}
 
 	bVanInventoryOpen = bOpen;
-	SetIgnoreMoveInput(bOpen);
-	SetIgnoreLookInput(bOpen);
-	bShowMouseCursor = bOpen;
+	SetIgnoreMoveInput(bOpen || bPauseMenuOpen || bMissionInputLocked);
+	SetIgnoreLookInput(bOpen || bPauseMenuOpen || bMissionInputLocked);
+	bShowMouseCursor = bOpen || bPauseMenuOpen;
 
 	if (bOpen)
 	{
@@ -286,12 +482,13 @@ void AGvTPlayerController::SetVanInventoryOpen(bool bOpen)
 		InputMode.SetHideCursorDuringCapture(false);
 		SetInputMode(InputMode);
 	}
-	else
+	else if (!bPauseMenuOpen && !bMissionInputLocked)
 	{
 		SetInputMode(FInputModeGameOnly());
 	}
 }
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
 {
 	if (!PC || !PC->GetWorld()) return nullptr;
@@ -310,41 +507,50 @@ static AGvTDoorActor* FindDoorLookAt(APlayerController* PC, float MaxDistance)
 
 	return Cast<AGvTDoorActor>(Hit.GetActor());
 }
+#endif
 
 void AGvTPlayerController::DoorLock(float MaxDistance)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!HasAuthority()) return;
 	if (AGvTDoorActor* Door = FindDoorLookAt(this, MaxDistance))
 	{
 		Door->SetLocked(true);
 	}
+#endif
 }
 
 void AGvTPlayerController::DoorUnlock(float MaxDistance)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!HasAuthority()) return;
 	if (AGvTDoorActor* Door = FindDoorLookAt(this, MaxDistance))
 	{
 		Door->SetLocked(false);
 	}
+#endif
 }
 
 void AGvTPlayerController::DoorToggleLock(float MaxDistance)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!HasAuthority()) return;
 	if (AGvTDoorActor* Door = FindDoorLookAt(this, MaxDistance))
 	{
 		Door->SetLocked(!Door->IsLocked());
 	}
+#endif
 }
 
 void AGvTPlayerController::DoorForceUnlock(float MaxDistance)
 {
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	if (!HasAuthority()) return;
 	if (AGvTDoorActor* Door = FindDoorLookAt(this, MaxDistance))
 	{
 		Door->TryUnlock(GetPawn(), EDoorUnlockMethod::Force, true);
 	}
+#endif
 }
 
 void AGvTPlayerController::UpdateHighlight()
@@ -383,7 +589,32 @@ void AGvTPlayerController::UpdateHighlight()
 	if (Prev != HitActor)
 	{
 		if (Prev) SetActorHighlighted(Prev, false);
-		if (HitActor) SetActorHighlighted(HitActor, true);
+		if (HitActor)
+		{
+			SetActorHighlighted(HitActor, true);
+
+			if (const AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(HitActor))
+			{
+				if (Item->IsMainObjective())
+				{
+					ShowOnboardingPromptLocal(EGvTOnboardingPrompt::MainObjectiveWarning);
+				}
+				else if (Item->IsA<AGvTMedicineItem>())
+				{
+					ShowOnboardingPromptLocal(EGvTOnboardingPrompt::MedicinePanic);
+				}
+			}
+
+			if (HitActor->IsA<AGvTReconDepositActor>() || HitActor->IsA<AGvTVanInventoryActor>())
+			{
+				const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(GetPawn());
+				const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
+				if (Inventory && Inventory->ContainsStolenLoot())
+				{
+					ShowOnboardingPromptLocal(EGvTOnboardingPrompt::ReturnToVan);
+				}
+			}
+		}
 		CurrentHighlightedActor = HitActor;
 	}
 }
@@ -411,6 +642,12 @@ void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
 
 void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 {
+	if (NewPanic01 >= MedicinePanicHintThreshold01)
+	{
+		ShowOnboardingPromptLocal(EGvTOnboardingPrompt::MedicinePanic);
+	}
+
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
 	const int32 DisplayedPercent = FMath::RoundToInt(FMath::Clamp(NewPanic01, 0.f, 1.f) * 100.f);
 	if (DisplayedPercent == LastDisplayedPanicPercent)
 	{
@@ -424,6 +661,7 @@ void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 	}
 
 	UE_LOG(LogTemp, Verbose, TEXT("[HUD] Panic display updated: %d%%"), DisplayedPercent);
+#endif
 }
 
 void AGvTPlayerController::HandleHauntPressureChanged(float NewPressure01)

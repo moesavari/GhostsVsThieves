@@ -46,6 +46,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Director")
 	void RequestLightChaseFromEvent(const FGvTScareEvent& Event);
 
+	void RequestGroupHouseLightFlicker(float Intensity01, float Duration);
+	void RequestLocalHouseLightFlicker(float Intensity01, float Duration);
+
 	UFUNCTION(BlueprintCallable, Category = "GvT|Scare|Test")
 	void Debug_RequestGroupHouseLightFlicker(float Intensity01 = 1.f, float Duration = 2.f);
 

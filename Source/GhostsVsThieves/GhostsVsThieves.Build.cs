@@ -8,6 +8,10 @@ public class GhostsVsThieves : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+        // Run-mode master switch. Set to 1 when development resumes to restore
+        // debug input bindings, on-screen diagnostics, and visualization draws.
+        PublicDefinitions.Add("GVT_ENABLE_DEBUG_TOOLS=0");
+
         PublicDependencyModuleNames.AddRange(new string[]
         {
             "Core",

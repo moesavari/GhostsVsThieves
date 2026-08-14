@@ -13,6 +13,7 @@
 #include "World/Doors/GvTDoorActor.h"
 #include "Camera/PlayerCameraManager.h"
 #include "EngineUtils.h"
+#include "UObject/UObjectGlobals.h"
 #include "Systems/World/GvTHouseBoundsLibrary.h"
 #include "NavigationSystem.h"
 #include "Systems/GvTPowerBoxActor.h"
@@ -119,6 +120,12 @@ void UGvTDirectorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
 
+	PostLoadMapHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
+		this,
+		&UGvTDirectorSubsystem::HandlePostLoadMap);
+
+	ResetTransientMatchState(GetWorld());
+
 	UE_LOG(LogTemp, Log, TEXT("GvT Director Subsystem Initialized"));
 
 	if (bEnableAutoHaunts)
@@ -129,6 +136,12 @@ void UGvTDirectorSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UGvTDirectorSubsystem::Deinitialize()
 {
+	if (PostLoadMapHandle.IsValid())
+	{
+		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapHandle);
+		PostLoadMapHandle.Reset();
+	}
+
 	StopDirector();
 	if (UWorld* World = GetWorld())
 	{
@@ -137,6 +150,61 @@ void UGvTDirectorSubsystem::Deinitialize()
 
 	Super::Deinitialize();
 	UE_LOG(LogTemp, Log, TEXT("GvT Director Subsystem Deinitialized"));
+}
+
+void UGvTDirectorSubsystem::HandlePostLoadMap(UWorld* LoadedWorld)
+{
+	if (!LoadedWorld || LoadedWorld->GetGameInstance() != GetGameInstance())
+	{
+		return;
+	}
+
+	ResetTransientMatchState(LoadedWorld);
+
+	if (bEnableAutoHaunts)
+	{
+		StartDirector();
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[DirectorLifecycle] Reset transient Director state for map=%s"), *GetNameSafe(LoadedWorld));
+}
+
+void UGvTDirectorSubsystem::ResetTransientMatchState(UWorld* LoadedWorld)
+{
+	if (LoadedWorld)
+	{
+		LoadedWorld->GetTimerManager().ClearTimer(TimerHandle_DirectorTick);
+		LoadedWorld->GetTimerManager().ClearTimer(TimerHandle_TheftReaction);
+	}
+
+	TimerHandle_DirectorTick.Invalidate();
+	TimerHandle_TheftReaction.Invalidate();
+
+	Heat = 0.f;
+	HouseActivity01 = 0.f;
+	TheftActivity01 = 0.f;
+	TimeActivity01 = 0.f;
+	HouseTension01 = 0.f;
+	bHouseActivityStarted = false;
+
+	LastGlobalHauntTime = -1000.f;
+	LastHauntEndTime = -1000.f;
+	LastLightingResponseTime = -1000.f;
+	bHauntSpawnInProgress = false;
+	bWasHauntActiveLastTick = false;
+
+	LastTargetedTimeSeconds.Reset();
+	LastScareDispatchTimes.Reset();
+	ActiveHauntGhostByTarget.Reset();
+	LastManualHauntRequestTimeByTarget.Reset();
+
+	PendingTheftPawn.Reset();
+	PendingTheftSource.Reset();
+	bPendingTheftElectrical = false;
+	bPendingTheftValuable = false;
+	bPendingTheftNoisy = false;
+	PendingTheftValue01 = 0.f;
+	PendingTheftCount = 0;
 }
 
 void UGvTDirectorSubsystem::StartDirector()
@@ -663,6 +731,9 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 
 	const bool bIsMirrorEvent = Event.ScareTag.MatchesTagExact(GvTScareTags::Mirror()) || Event.ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror());
 	const bool bIsCloseGhostScare = Event.ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Close());
+	const bool bIsHauntEvent =
+		Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
+		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase());
 
 	if (bIsCloseGhostScare && IsAnyHauntActive())
 	{
@@ -676,7 +747,8 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 		return false;
 	}
 
-	if (IsScareTagOnCooldown(Event.ScareTag))
+	const bool bForcedHaunt = bIsHauntEvent && Event.bIgnorePanicThreshold;
+	if (!bForcedHaunt && IsScareTagOnCooldown(Event.ScareTag))
 	{
 		UE_LOG(LogTemp, Log, TEXT("[DirectorCooldown] Per-scare cooldown blocked Tag=%s Target=%s"), *Event.ScareTag.ToString(), *GetNameSafe(Target));
 		return false;
@@ -752,10 +824,6 @@ bool UGvTDirectorSubsystem::DispatchScareEvent(const FGvTScareEvent& Event)
 			return false;
 		}
 	}
-
-	const bool bIsHauntEvent =
-		Event.ScareTag.MatchesTagExact(GvTScareTags::CrawlerChase()) ||
-		Event.ScareTag.MatchesTagExact(GvTScareTags::GhostHaunt_Chase());
 
 	if (bIsHauntEvent && IsInPostHauntRecovery() && !Event.bIgnorePanicThreshold)
 	{
@@ -1051,28 +1119,58 @@ bool UGvTDirectorSubsystem::ChooseHauntSpawnTransform(APawn* TargetPawn, FGamepl
 	}
 
 	const FVector TargetLoc = TargetPawn->GetActorLocation();
-	AGvTGhostSpawnPoint* SpawnPoint = nullptr;
+
+	TArray<AGvTGhostSpawnPoint*> EligibleSpawnPoints;
+	int32 DiscoveredSpawnPointCount = 0;
 
 	if (UWorld* World = GetWorld())
 	{
 		for (TActorIterator<AGvTGhostSpawnPoint> It(World); It; ++It)
 		{
 			AGvTGhostSpawnPoint* Point = *It;
-			if (!Point || !Point->SupportsHauntTag(HauntTag))
+			++DiscoveredSpawnPointCount;
+			if (!IsValid(Point) || !Point->SupportsHauntTag(HauntTag))
 			{
 				continue;
 			}
 
-			SpawnPoint = Point;
-			break;
+			const FVector PointLocation = Point->GetActorLocation();
+			if (PointLocation.IsNearlyZero(10.f))
+			{
+				UE_LOG(LogTemp, Error,
+					TEXT("[GhostSpawn] Rejecting spawn point at world origin. Point=%s Location=%s Tag=%s"),
+					*GetNameSafe(Point),
+					*PointLocation.ToString(),
+					*HauntTag.ToString());
+				continue;
+			}
+
+			EligibleSpawnPoints.Add(Point);
 		}
 	}
 
-	if (!SpawnPoint)
+	UE_LOG(LogTemp, Warning,
+		TEXT("[GhostSpawn] Discovered=%d Eligible=%d Target=%s TargetLocation=%s Tag=%s"),
+		DiscoveredSpawnPointCount,
+		EligibleSpawnPoints.Num(),
+		*GetNameSafe(TargetPawn),
+		*TargetLoc.ToString(),
+		*HauntTag.ToString());
+
+	AGvTGhostSpawnPoint* SpawnPoint = nullptr;
+
+	if (!EligibleSpawnPoints.IsEmpty())
+	{
+		SpawnPoint = EligibleSpawnPoints[FMath::RandRange(0, EligibleSpawnPoints.Num() - 1)];
+	}
+
+	if (!IsValid(SpawnPoint))
 	{
 		UE_LOG(LogTemp, Error,
-			TEXT("[GhostSpawn] FAILED: No enabled GvTGhostSpawnPoint supports haunt tag=%s. Haunt cancelled; player-relative fallback is disabled."),
-			*HauntTag.ToString());
+			TEXT("[GhostSpawn] FAILED: No valid enabled GvTGhostSpawnPoint supports haunt tag=%s. Discovered=%d Eligible=%d. Haunt cancelled; world-origin fallback is forbidden."),
+			*HauntTag.ToString(),
+			DiscoveredSpawnPointCount,
+			EligibleSpawnPoints.Num());
 		return false;
 	}
 
@@ -1083,10 +1181,12 @@ bool UGvTDirectorSubsystem::ChooseHauntSpawnTransform(APawn* TargetPawn, FGamepl
 	OutSpawnTransform = FTransform(SpawnRot, SpawnLoc);
 
 	UE_LOG(LogTemp, Warning,
-		TEXT("[GhostSpawn] Using required spawn point=%s raw=%s final=%s tag=%s"),
+		TEXT("[GhostSpawn] Selected=%s Eligible=%d Raw=%s Final=%s Target=%s Tag=%s"),
 		*GetNameSafe(SpawnPoint),
+		EligibleSpawnPoints.Num(),
 		*SpawnPoint->GetActorLocation().ToString(),
 		*SpawnLoc.ToString(),
+		*TargetLoc.ToString(),
 		*HauntTag.ToString());
 
 	return true;
@@ -1188,15 +1288,43 @@ AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* T
 	}
 
 	UE_LOG(LogTemp, Warning,
-		TEXT("[GhostHaunt] Spawned single world haunt tag=%s Ghost=%s Target=%s Spawn=%s"),
+		TEXT("[GhostSpawn] Spawned=%s Class=%s Requested=%s Actual=%s Target=%s Tag=%s"),
+		*GetNameSafe(Ghost),
+		*GetNameSafe(SpawnClass),
+		*SpawnTransform.GetLocation().ToString(),
+		*Ghost->GetActorLocation().ToString(),
+		*GetNameSafe(TargetPawn),
+		*HauntTag.ToString());
+
+	if (!Ghost->GetActorLocation().Equals(SpawnTransform.GetLocation(), 5.f))
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[GhostSpawn] Spawn transform mismatch. Ghost=%s Requested=%s Actual=%s"),
+			*GetNameSafe(Ghost),
+			*SpawnTransform.GetLocation().ToString(),
+			*Ghost->GetActorLocation().ToString());
+	}
+
+	ActiveHauntGhostByTarget.Add(TargetKey, Ghost);
+
+	const FVector LocationBeforeBeginHaunt = Ghost->GetActorLocation();
+	Ghost->BeginGhostHaunt(TargetPawn, HauntTag);
+
+	if (!Ghost->GetActorLocation().Equals(LocationBeforeBeginHaunt, 5.f))
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[GhostSpawn] BeginGhostHaunt moved ghost unexpectedly. Ghost=%s Before=%s After=%s"),
+			*GetNameSafe(Ghost),
+			*LocationBeforeBeginHaunt.ToString(),
+			*Ghost->GetActorLocation().ToString());
+	}
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("[GhostHaunt] Started single world haunt tag=%s Ghost=%s Target=%s Location=%s"),
 		*HauntTag.ToString(),
 		*GetNameSafe(Ghost),
 		*GetNameSafe(TargetPawn),
 		*Ghost->GetActorLocation().ToString());
-
-	ActiveHauntGhostByTarget.Add(TargetKey, Ghost);
-
-	Ghost->BeginGhostHaunt(TargetPawn, HauntTag);
 
 	ApplyHauntStartPanicToAllPlayers(Ghost, TargetPawn);
 
@@ -1218,7 +1346,7 @@ bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event,
 	if (Event.bTriggerGroupFlicker)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Trigger GROUP flicker"));
-		TargetScareComp->Debug_RequestGroupHouseLightFlicker(
+		TargetScareComp->RequestGroupHouseLightFlicker(
 			FMath::Clamp(Event.Intensity01, 0.f, 1.f),
 			Event.Duration > 0.f ? Event.Duration : 1.5f
 		);
@@ -1228,7 +1356,7 @@ bool UGvTDirectorSubsystem::TriggerRequestedFlicker(const FGvTScareEvent& Event,
 	if (Event.bTriggerLocalFlicker)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[Director] Trigger LOCAL flicker"));
-		TargetScareComp->Debug_RequestLocalHouseLightFlicker(
+		TargetScareComp->RequestLocalHouseLightFlicker(
 			FMath::Clamp(Event.Intensity01, 0.f, 1.f),
 			Event.Duration > 0.f ? Event.Duration : 1.5f
 		);
@@ -2488,7 +2616,8 @@ bool UGvTDirectorSubsystem::IsInPostHauntRecovery() const
 		return false;
 	}
 
-	return (World->GetTimeSeconds() - LastHauntEndTime) < PostHauntRecoveryDuration;
+	const float Elapsed = World->GetTimeSeconds() - LastHauntEndTime;
+	return Elapsed >= 0.f && Elapsed < PostHauntRecoveryDuration;
 }
 
 float UGvTDirectorSubsystem::GetPostHauntRecoveryElapsed() const
@@ -2537,7 +2666,13 @@ bool UGvTDirectorSubsystem::IsScareTagOnCooldown(const FGameplayTag& ScareTag) c
 		(ScareTag.MatchesTagExact(GvTScareTags::GhostEvent_Mirror())) ? GvTScareTags::Mirror() :
 		(ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream())) ? GvTScareTags::GhostScream() : ScareTag;
 	const float* LastTime = LastScareDispatchTimes.Find(CanonicalTag);
-	return LastTime && (World->GetTimeSeconds() - *LastTime) < GetPerScareCooldown(CanonicalTag);
+	if (!LastTime)
+	{
+		return false;
+	}
+
+	const float Elapsed = World->GetTimeSeconds() - *LastTime;
+	return Elapsed >= 0.f && Elapsed < GetPerScareCooldown(CanonicalTag);
 }
 
 void UGvTDirectorSubsystem::RememberDispatchedScare(const FGameplayTag& ScareTag)

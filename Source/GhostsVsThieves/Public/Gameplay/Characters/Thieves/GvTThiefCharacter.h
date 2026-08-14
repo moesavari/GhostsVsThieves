@@ -136,8 +136,7 @@ protected:
     void StopSprint();
     void StartCrouch();
     void StopCrouch();
-    void OnJumpStarted();
-    void OnJumpStopped();
+    void OnPausePressed();
     void ToggleDebugHUD();
     void UpdateDebugHUD();
     void ApplyDebugDrawState(bool bEnabled);
@@ -281,7 +280,7 @@ protected:
     UInputAction* IA_Crouch;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
-    UInputAction* IA_Jump;
+    UInputAction* IA_Pause;
 
     UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Input")
     UInputAction* IA_ToggleDebugHUD;

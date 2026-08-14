@@ -469,6 +469,11 @@ protected:
 
 
 private:
+	void HandlePostLoadMap(UWorld* LoadedWorld);
+	void ResetTransientMatchState(UWorld* LoadedWorld);
+
+	FDelegateHandle PostLoadMapHandle;
+
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|Targeting")
 	float BaseTargetScore = 0.25f;
 

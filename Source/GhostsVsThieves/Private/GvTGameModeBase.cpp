@@ -124,6 +124,94 @@ EGvTExtractionRequestResult AGvTGameModeBase::RequestExtraction(APawn* Requestin
 	return EGvTExtractionRequestResult::WaitingForPlayers;
 }
 
+FText AGvTGameModeBase::BuildExtractionStatusMessage(EGvTExtractionRequestResult Result) const
+{
+	auto GetThiefName = [](const AGvTThiefCharacter* Thief)
+	{
+		if (const AGvTPlayerState* PS = Thief ? Thief->GetPlayerState<AGvTPlayerState>() : nullptr)
+		{
+			if (!PS->GetPlayerName().IsEmpty())
+			{
+				return PS->GetPlayerName();
+			}
+		}
+		return GetNameSafe(Thief);
+	};
+
+	auto JoinNames = [](const TArray<FString>& Names)
+	{
+		FString Joined;
+		for (int32 Index = 0; Index < Names.Num(); ++Index)
+		{
+			if (Index > 0)
+			{
+				Joined += Index == Names.Num() - 1 ? TEXT(" and ") : TEXT(", ");
+			}
+			Joined += Names[Index];
+		}
+		return Joined;
+	};
+
+	if (Result == EGvTExtractionRequestResult::CarryingStolenLoot)
+	{
+		TArray<FString> Carriers;
+		for (TActorIterator<AGvTThiefCharacter> It(GetWorld()); It; ++It)
+		{
+			const UGvTInventoryComponent* Inventory = It->GetInventoryComponent();
+			if (!It->IsDead() && Inventory && Inventory->ContainsStolenLoot())
+			{
+				Carriers.Add(GetThiefName(*It));
+			}
+		}
+		return FText::Format(
+			NSLOCTEXT("GvTExtraction", "LootCarriers", "Departure blocked: {0} must deposit carried valuables."),
+			FText::FromString(JoinNames(Carriers)));
+	}
+
+	if (Result == EGvTExtractionRequestResult::MainObjectiveMissing)
+	{
+		return NSLOCTEXT("GvTExtraction", "ObjectiveMissing", "Departure blocked: secure and deposit the main objective first.");
+	}
+
+	if (Result == EGvTExtractionRequestResult::WaitingForPlayers)
+	{
+		TArray<FString> UnreadyPlayers;
+		for (TActorIterator<AGvTThiefCharacter> It(GetWorld()); It; ++It)
+		{
+			if (It->IsDead())
+			{
+				continue;
+			}
+			const AGvTPlayerState* PS = It->GetPlayerState<AGvTPlayerState>();
+			bool bPlayerReady = false;
+			for (const TWeakObjectPtr<AGvTPlayerState>& ReadyPlayer : ReadyPlayers)
+			{
+				if (ReadyPlayer.Get() == PS)
+				{
+					bPlayerReady = true;
+					break;
+				}
+			}
+			if (!PS || !bPlayerReady)
+			{
+				UnreadyPlayers.Add(GetThiefName(*It));
+			}
+		}
+		return FText::Format(
+			NSLOCTEXT("GvTExtraction", "WaitingForPlayers", "Ready ({0}/{1}). Waiting for: {2}."),
+			FText::AsNumber(ReadyPlayers.Num()),
+			FText::AsNumber(GetLivingThiefCount()),
+			FText::FromString(JoinNames(UnreadyPlayers)));
+	}
+
+	if (Result == EGvTExtractionRequestResult::DepartureStarted)
+	{
+		return NSLOCTEXT("GvTExtraction", "DepartureStarted", "Everyone is ready. Leaving now.");
+	}
+
+	return NSLOCTEXT("GvTExtraction", "Unavailable", "Departure is unavailable right now.");
+}
+
 void AGvTGameModeBase::FinishMission(bool bSuccess)
 {
 	if (bMissionFinished) return;

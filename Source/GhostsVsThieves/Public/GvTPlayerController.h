@@ -8,6 +8,17 @@
 
 class AGvTVanInventoryActor;
 class UGvTMissionResultsWidget;
+class UUserWidget;
+
+UENUM(BlueprintType)
+enum class EGvTOnboardingPrompt : uint8
+{
+    FirstItemCollected,
+    ReturnToVan,
+    MainObjectiveWarning,
+    ObjectiveSecured,
+    MedicinePanic
+};
 
 UCLASS()
 class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
@@ -31,6 +42,10 @@ public:
     UFUNCTION(Client, Reliable, BlueprintCallable, Category="GvT|UI")
     void Client_ShowHUDMessage(const FText& Message, bool bSuccess = false);
 
+    /** Displays each contextual onboarding hint at most once for this player per mission. */
+    UFUNCTION(Client, Reliable)
+    void Client_ShowOnboardingPrompt(EGvTOnboardingPrompt Prompt);
+
     UFUNCTION(Client, Reliable)
     void Client_SetMissionInputLocked(bool bLocked);
 
@@ -50,6 +65,22 @@ public:
 
     UFUNCTION(BlueprintCallable, Category="GvT|Van Inventory")
     void CloseVanInventory();
+
+    /** Opens or closes the owner-only in-mission pause menu. */
+    UFUNCTION(BlueprintCallable, Category="GvT|Pause Menu")
+    void TogglePauseMenu();
+
+    UFUNCTION(BlueprintCallable, Category="GvT|Pause Menu")
+    void ResumeFromPauseMenu();
+
+    UFUNCTION(BlueprintCallable, Category="GvT|Pause Menu")
+    void ReturnToMainMenuFromPauseMenu();
+
+    UFUNCTION(BlueprintCallable, Category="GvT|Pause Menu")
+    void QuitGameFromPauseMenu();
+
+    UFUNCTION(BlueprintPure, Category="GvT|Pause Menu")
+    bool IsPauseMenuOpen() const { return bPauseMenuOpen; }
 
     UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
     void OnExtractionMessage(const FText& Message, bool bSuccess);
@@ -95,8 +126,19 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "UI")
     TSubclassOf<UGvTHUDWidget> HUDWidgetClass;
 
+    /** Panic level that teaches the player about medicine if they have not found it yet. */
+    UPROPERTY(EditDefaultsOnly, Category = "UI|Onboarding", meta=(ClampMin="0.0", ClampMax="1.0"))
+    float MedicinePanicHintThreshold01 = 0.60f;
+
 	UPROPERTY(EditDefaultsOnly, Category = "UI")
 	TSubclassOf<UGvTMissionResultsWidget> MissionResultsWidgetClass;
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI|Pause Menu")
+    TSubclassOf<UUserWidget> PauseMenuWidgetClass;
+
+    /** Short name or package path for the main menu map. */
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "UI|Pause Menu")
+    FName MainMenuMapName = TEXT("L_MainMenu");
 
 private:
 	UFUNCTION(Server, Reliable)
@@ -106,12 +148,21 @@ private:
     void SetActorHighlighted(AActor* Actor, bool bHighlighted);
     void BindHUDToPlayerState();
     void BindHUDToGameState();
+    void SetPauseMenuOpen(bool bOpen);
+    void ShowOnboardingPromptLocal(EGvTOnboardingPrompt Prompt);
 
     TWeakObjectPtr<AActor> CurrentHighlightedActor;
     TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;
 	TObjectPtr<UGvTMissionResultsWidget> MissionResultsWidget = nullptr;
+
+    UPROPERTY(Transient)
+    TObjectPtr<UUserWidget> PauseMenuWidget = nullptr;
+
     FTimerHandle TimerHandle_BindHUDRetry;
     FTimerHandle TimerHandle_BindGameStateRetry;
     bool bVanInventoryOpen = false;
+    bool bPauseMenuOpen = false;
+    bool bMissionInputLocked = false;
     int32 LastDisplayedPanicPercent = INDEX_NONE;
+    TSet<EGvTOnboardingPrompt> ShownOnboardingPrompts;
 };

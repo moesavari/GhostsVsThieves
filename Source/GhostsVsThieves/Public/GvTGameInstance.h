@@ -8,6 +8,8 @@
 
 class UUserWidget;
 class UWorld;
+class USoundClass;
+class USoundMix;
 
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTGameInstance : public UGameInstance
@@ -18,13 +20,58 @@ public:
 	virtual void Init() override;
 	virtual void Shutdown() override;
 
+	UFUNCTION(BlueprintCallable, Category="GvT|Audio Settings")
+	void SetMasterVolume(float NewVolume);
+
+	UFUNCTION(BlueprintCallable, Category="GvT|Audio Settings")
+	void SetMusicVolume(float NewVolume);
+
+	UFUNCTION(BlueprintCallable, Category="GvT|Audio Settings")
+	void SetSFXVolume(float NewVolume);
+
+	UFUNCTION(BlueprintCallable, Category="GvT|Audio Settings")
+	void SaveAudioSettings();
+
+	UFUNCTION(BlueprintPure, Category="GvT|Audio Settings")
+	float GetMasterVolume() const { return MasterVolume; }
+
+	UFUNCTION(BlueprintPure, Category="GvT|Audio Settings")
+	float GetMusicVolume() const { return MusicVolume; }
+
+	UFUNCTION(BlueprintPure, Category="GvT|Audio Settings")
+	float GetSFXVolume() const { return SFXVolume; }
+
 	/** Full-screen widget shown during regular map travel. Use an indeterminate Progress Bar or Throbber; Open Level does not expose real progress. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Loading Screen")
 	TSubclassOf<UUserWidget> LoadingScreenWidgetClass;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Audio Settings")
+	TObjectPtr<USoundMix> VolumeSoundMix;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Audio Settings")
+	TObjectPtr<USoundClass> MasterSoundClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Audio Settings")
+	TObjectPtr<USoundClass> MusicSoundClass;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Audio Settings")
+	TObjectPtr<USoundClass> SFXSoundClass;
+
 private:
 	void HandlePreLoadMap(const FString& MapName);
 	void HandlePostLoadMap(UWorld* LoadedWorld);
+	void LoadAudioSettings();
+	void ApplyAudioSettings();
+	void StoreAudioSettings(bool bFlush);
+
+	UPROPERTY(Transient)
+	float MasterVolume = 0.70f;
+
+	UPROPERTY(Transient)
+	float MusicVolume = 0.45f;
+
+	UPROPERTY(Transient)
+	float SFXVolume = 0.65f;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> LoadingScreenWidget;

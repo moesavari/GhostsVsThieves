@@ -14,7 +14,7 @@ AGvTHouseVoiceDirector::AGvTHouseVoiceDirector()
 void AGvTHouseVoiceDirector::TryPlayFirstEntryVoice(AActor* EnteringActor)
 {
 	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(EnteringActor);
-	if (!HasAuthority() || bHasPlayedFirstEntryVoice || !Thief || Thief->IsDead())
+	if (!HasAuthority() || bHasEvaluatedFirstEntryVoice || !Thief || Thief->IsDead())
 	{
 		return;
 	}
@@ -29,6 +29,14 @@ void AGvTHouseVoiceDirector::TryPlayFirstEntryVoice(AActor* EnteringActor)
 	}
 
 	if (ValidSounds.IsEmpty())
+	{
+		return;
+	}
+
+	bHasEvaluatedFirstEntryVoice = true;
+
+	const float ClampedChance = FMath::Clamp(FirstEntrySoundChance, 0.0f, 1.0f);
+	if (FMath::FRand() >= ClampedChance)
 	{
 		return;
 	}

@@ -64,20 +64,19 @@ void AGvTExtractionDepartureActor::CompleteInteract_Implementation(APawn* Instig
 			switch (Result)
 			{
 				case EGvTExtractionRequestResult::CarryingStolenLoot:
-					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("All stolen loot must be deposited before leaving.")), false);
-					break;
 				case EGvTExtractionRequestResult::MainObjectiveMissing:
-					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("The main objective has not been secured.")), false);
+				case EGvTExtractionRequestResult::Invalid:
+					PC->Client_ShowExtractionMessage(GM->BuildExtractionStatusMessage(Result), false);
 					break;
 				case EGvTExtractionRequestResult::WaitingForPlayers:
-					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("Ready. Waiting for the remaining thieves.")), true);
+					PC->Client_ShowExtractionMessage(GM->BuildExtractionStatusMessage(Result), true);
 					break;
 				case EGvTExtractionRequestResult::DepartureStarted:
 					if (EngineStartSounds.Num() > 0)
 					{
 						Multicast_PlayEngineStart(EngineStartSounds[FMath::RandRange(0, EngineStartSounds.Num() - 1)]);
 					}
-					PC->Client_ShowExtractionMessage(FText::FromString(TEXT("Everyone is ready. Leaving now.")), true);
+					PC->Client_ShowExtractionMessage(GM->BuildExtractionStatusMessage(Result), true);
 					break;
 				default:
 					break;

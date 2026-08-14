@@ -46,9 +46,11 @@ void UGvTNoiseEmitterComponent::EmitNoise_Internal(FGameplayTag NoiseTag, float 
 
     NoiseSubsystem->EmitNoise(Evt);
 
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
     if (bDrawDebug)
     {
         DrawDebugSphere(GetWorld(), Evt.Location, Evt.Radius, 16, FColor::Green, false, DebugDrawTime);
         DrawDebugString(GetWorld(), Evt.Location + FVector(0, 0, 50), Evt.NoiseTag.ToString(), nullptr, FColor::White, DebugDrawTime);
     }
+#endif
 }

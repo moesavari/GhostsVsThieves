@@ -35,6 +35,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Mission")
 	EGvTExtractionRequestResult RequestExtraction(APawn* RequestingPawn);
 
+	/** Describes exactly what is blocking departure or which living players are not ready. */
+	FText BuildExtractionStatusMessage(EGvTExtractionRequestResult Result) const;
+
 	UFUNCTION(BlueprintCallable, Category="GvT|Mission")
 	void RestartMission();
 

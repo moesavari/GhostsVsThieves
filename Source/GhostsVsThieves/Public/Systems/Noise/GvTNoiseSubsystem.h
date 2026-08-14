@@ -63,7 +63,7 @@ public:
 		int64& OutEventId) const;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise|Debug")
-	bool bDebugGhostHearingOnScreen = true;
+	bool bDebugGhostHearingOnScreen = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Noise|Debug")
 	float DebugGhostHearingMessageTime = 2.0f;

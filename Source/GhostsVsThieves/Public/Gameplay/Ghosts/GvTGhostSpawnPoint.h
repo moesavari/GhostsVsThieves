@@ -12,6 +12,7 @@ class GHOSTSVSTHIEVES_API AGvTGhostSpawnPoint : public AActor
 
 public:
 	AGvTGhostSpawnPoint();
+	virtual void BeginPlay() override;
 
 	UFUNCTION(BlueprintPure, Category = "GvT|Ghost|Spawn")
 	bool IsEnabled() const { return bEnabled; }

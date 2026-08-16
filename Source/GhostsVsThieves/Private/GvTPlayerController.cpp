@@ -5,6 +5,7 @@
 #include "Systems/GvTMissionResultsWidget.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Engine/World.h"
+#include "Engine/GameInstance.h"
 #include "Gameplay/Interaction/GvTInteractable.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
@@ -12,6 +13,7 @@
 #include "World/Items/GvTMedicineItem.h"
 #include "World/Extraction/GvTReconDepositActor.h"
 #include "World/Extraction/GvTVanInventoryActor.h"
+#include "Systems/Session/GvTSessionSubsystem.h"
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -407,10 +409,19 @@ void AGvTPlayerController::ReturnToMainMenuFromPauseMenu()
 	if (!IsLocalController() || MainMenuMapName.IsNone())
 	{
 		return;
-	}
+    }
 
-	SetPauseMenuOpen(false);
-	UGameplayStatics::OpenLevel(this, MainMenuMapName, true);
+    SetPauseMenuOpen(false);
+    if (UGameInstance* GameInstance = GetGameInstance())
+    {
+        if (UGvTSessionSubsystem* Sessions = GameInstance->GetSubsystem<UGvTSessionSubsystem>())
+        {
+            Sessions->LeaveSessionAndReturnToMenu(MainMenuMapName);
+            return;
+        }
+    }
+
+    UGameplayStatics::OpenLevel(this, MainMenuMapName, true);
 }
 
 void AGvTPlayerController::QuitGameFromPauseMenu()

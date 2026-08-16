@@ -28,6 +28,7 @@ public class GhostsVsThieves : ModuleRules
             "AIModule",
             "OnlineSubsystem",
             "OnlineSubsystemUtils",
+            "MoviePlayer",
         });
         PrivateDependencyModuleNames.AddRange(new string[] {  });
 

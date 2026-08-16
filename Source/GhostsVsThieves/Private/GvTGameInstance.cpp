@@ -6,6 +6,7 @@
 #include "Misc/ConfigCacheIni.h"
 #include "Sound/SoundClass.h"
 #include "Sound/SoundMix.h"
+#include "MoviePlayer.h"
 #include "UObject/UObjectGlobals.h"
 
 namespace GvTAudioSettings
@@ -34,30 +35,42 @@ void UGvTGameInstance::Shutdown()
 
 void UGvTGameInstance::HandlePreLoadMap(const FString& MapName)
 {
-	if (!LoadingScreenWidgetClass || LoadingScreenWidget)
+	if (IsRunningDedicatedServer() || !LoadingScreenWidgetClass || !GetMoviePlayer())
 	{
 		return;
 	}
 
-	if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+	LoadingScreenWidget = CreateWidget<UUserWidget>(this, LoadingScreenWidgetClass);
+	if (!LoadingScreenWidget)
 	{
-		LoadingScreenWidget = CreateWidget<UUserWidget>(PC, LoadingScreenWidgetClass);
-		if (LoadingScreenWidget)
-		{
-			LoadingScreenWidget->AddToViewport(10000);
-		}
+		UE_LOG(LogTemp, Error, TEXT("[LoadingScreen] Failed to create loading screen widget."));
+		return;
 	}
+
+	FLoadingScreenAttributes LoadingAttributes;
+	LoadingAttributes.bAutoCompleteWhenLoadingCompletes = false;
+	LoadingAttributes.bWaitForManualStop = true;
+	LoadingAttributes.bAllowInEarlyStartup = false;
+	LoadingAttributes.MinimumLoadingScreenDisplayTime = 0.5f;
+	LoadingAttributes.WidgetLoadingScreen = LoadingScreenWidget->TakeWidget();
+
+	GetMoviePlayer()->SetupLoadingScreen(LoadingAttributes);
+	GetMoviePlayer()->PlayMovie();
+
+	UE_LOG(LogTemp, Log, TEXT("[LoadingScreen] Started for map: %s"), *MapName);
 }
 
 void UGvTGameInstance::HandlePostLoadMap(UWorld* LoadedWorld)
 {
-	if (LoadingScreenWidget)
+	if (GetMoviePlayer() && GetMoviePlayer()->IsMovieCurrentlyPlaying())
 	{
-		LoadingScreenWidget->RemoveFromParent();
-		LoadingScreenWidget = nullptr;
+		GetMoviePlayer()->StopMovie();
 	}
 
+	LoadingScreenWidget = nullptr;
 	ApplyAudioSettings();
+
+	UE_LOG(LogTemp, Log, TEXT("[LoadingScreen] Finished loading map: %s"), *GetNameSafe(LoadedWorld));
 }
 
 void UGvTGameInstance::SetMasterVolume(float NewVolume)

@@ -7,10 +7,15 @@
 #include "OnlineSubsystem.h"
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSessionSettings.h"
+#include "Interfaces/OnlineIdentityInterface.h"
+#include "Kismet/GameplayStatics.h"
+#include "Misc/NetworkVersion.h"
 
 namespace GvTSessionKeys
 {
     static const FName ServerName(TEXT("GvTServerName"));
+    static const FName BucketIdKey(TEXT("BucketId"));
+    static const FString BucketId(TEXT("HauntedHeistsWAN"));
 }
 
 void UGvTSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -20,6 +25,11 @@ void UGvTSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UGvTSessionSubsystem::Deinitialize()
 {
+    if (IOnlineIdentityPtr Identity = GetIdentityInterface())
+    {
+        Identity->ClearOnLoginCompleteDelegate_Handle(0, LoginDelegateHandle);
+    }
+
     if (IOnlineSessionPtr Sessions = GetSessionInterface())
     {
         Sessions->ClearOnCreateSessionCompleteDelegate_Handle(CreateDelegateHandle);
@@ -36,6 +46,90 @@ IOnlineSessionPtr UGvTSessionSubsystem::GetSessionInterface() const
     const UWorld* World = GetWorld();
     IOnlineSubsystem* OnlineSubsystem = World ? Online::GetSubsystem(World) : nullptr;
     return OnlineSubsystem ? OnlineSubsystem->GetSessionInterface() : nullptr;
+}
+
+IOnlineIdentityPtr UGvTSessionSubsystem::GetIdentityInterface() const
+{
+    const UWorld* World = GetWorld();
+    IOnlineSubsystem* OnlineSubsystem = World ? Online::GetSubsystem(World) : nullptr;
+    return OnlineSubsystem ? OnlineSubsystem->GetIdentityInterface() : nullptr;
+}
+
+bool UGvTSessionSubsystem::IsLocalUserLoggedIn() const
+{
+    const IOnlineIdentityPtr Identity = GetIdentityInterface();
+    return Identity.IsValid() && Identity->GetLoginStatus(0) == ELoginStatus::LoggedIn;
+}
+
+bool UGvTSessionSubsystem::BeginLoginForPendingOperation()
+{
+    IOnlineIdentityPtr Identity = GetIdentityInterface();
+    if (!Identity.IsValid())
+    {
+        bOperationInProgress = false;
+        PendingOperation = EPendingOperation::None;
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "NoIdentityProvider", "The online identity provider is unavailable."), false);
+        return false;
+    }
+
+    LoginDelegateHandle = Identity->AddOnLoginCompleteDelegate_Handle(0, FOnLoginCompleteDelegate::CreateUObject(this, &ThisClass::HandleLoginComplete));
+
+    FOnlineAccountCredentials Credentials;
+    Credentials.Type = TEXT("AccountPortal");
+    Credentials.Id.Reset();
+    Credentials.Token.Reset();
+
+    BroadcastStatus(NSLOCTEXT("GvTSessions", "SigningIn", "Opening Epic sign-in..."), true);
+    if (!Identity->Login(0, Credentials))
+    {
+        Identity->ClearOnLoginCompleteDelegate_Handle(0, LoginDelegateHandle);
+        bOperationInProgress = false;
+        PendingOperation = EPendingOperation::None;
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "LoginStartFailed", "Could not start Epic sign-in."), false);
+        return false;
+    }
+
+    return true;
+}
+
+void UGvTSessionSubsystem::HandleLoginComplete(int32 LocalUserNum, bool bSuccess, const FUniqueNetId& UserId, const FString& Error)
+{
+    if (IOnlineIdentityPtr Identity = GetIdentityInterface())
+    {
+        Identity->ClearOnLoginCompleteDelegate_Handle(LocalUserNum, LoginDelegateHandle);
+    }
+
+    if (!bSuccess)
+    {
+        UE_LOG(LogTemp, Error, TEXT("[Sessions] EOS login failed: %s"), *Error);
+        bOperationInProgress = false;
+        PendingOperation = EPendingOperation::None;
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "LoginFailed", "Epic sign-in failed or was canceled."), false);
+        return;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[Sessions] EOS login succeeded. User=%s"), *UserId.ToDebugString());
+    BroadcastStatus(NSLOCTEXT("GvTSessions", "LoginReady", "Online sign-in complete."), true);
+    ResumePendingOperation();
+}
+
+void UGvTSessionSubsystem::ResumePendingOperation()
+{
+    const EPendingOperation Operation = PendingOperation;
+    PendingOperation = EPendingOperation::None;
+
+    if (Operation == EPendingOperation::Host)
+    {
+        PrepareHostSessionNow();
+    }
+    else if (Operation == EPendingOperation::Find)
+    {
+        FindSessionsNow();
+    }
+    else
+    {
+        bOperationInProgress = false;
+    }
 }
 
 void UGvTSessionSubsystem::BroadcastStatus(const FText& Message, bool bSuccess)
@@ -63,6 +157,26 @@ void UGvTSessionSubsystem::HostSession(const FString& ServerName, int32 PublicCo
     PendingPublicConnections = FMath::Clamp(PublicConnections, 1, 6);
     bPendingLAN = bLAN;
     bOperationInProgress = true;
+
+    if (!bPendingLAN && !IsLocalUserLoggedIn())
+    {
+        PendingOperation = EPendingOperation::Host;
+        BeginLoginForPendingOperation();
+        return;
+    }
+
+    PrepareHostSessionNow();
+}
+
+void UGvTSessionSubsystem::PrepareHostSessionNow()
+{
+    IOnlineSessionPtr Sessions = GetSessionInterface();
+    if (!Sessions.IsValid())
+    {
+        bOperationInProgress = false;
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "ProviderLostHost", "Multiplayer provider became unavailable."), false);
+        return;
+    }
 
     if (Sessions->GetNamedSession(NAME_GameSession))
     {
@@ -101,6 +215,8 @@ void UGvTSessionSubsystem::CreateSessionNow()
     PendingSessionSettings->bAllowJoinViaPresence = true;
     PendingSessionSettings->bUsesPresence = true;
     PendingSessionSettings->bUseLobbiesIfAvailable = true;
+    PendingSessionSettings->BuildUniqueId = static_cast<int32>(FNetworkVersion::GetLocalNetworkVersion());
+    PendingSessionSettings->Set(GvTSessionKeys::BucketIdKey, GvTSessionKeys::BucketId, EOnlineDataAdvertisementType::ViaOnlineService);
     PendingSessionSettings->Set(GvTSessionKeys::ServerName, PendingServerName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
     PendingSessionSettings->Set(SETTING_MAPNAME, LobbyMap.GetLongPackageName(), EOnlineDataAdvertisementType::ViaOnlineService);
 
@@ -145,22 +261,45 @@ void UGvTSessionSubsystem::FindSessions(int32 MaxResults, bool bLAN)
         return;
     }
 
+    PendingMaxSearchResults = FMath::Clamp(MaxResults, 1, 200);
+    bPendingLAN = bLAN;
+    bOperationInProgress = true;
+
+    if (!bPendingLAN && !IsLocalUserLoggedIn())
+    {
+        PendingOperation = EPendingOperation::Find;
+        BeginLoginForPendingOperation();
+        return;
+    }
+
+    FindSessionsNow();
+}
+
+void UGvTSessionSubsystem::FindSessionsNow()
+{
     IOnlineSessionPtr Sessions = GetSessionInterface();
     if (!Sessions.IsValid())
     {
+        bOperationInProgress = false;
         BroadcastStatus(NSLOCTEXT("GvTSessions", "NoProviderFind", "Multiplayer provider is unavailable."), false);
         return;
     }
 
     SessionSearch = MakeShared<FOnlineSessionSearch>();
-    SessionSearch->MaxSearchResults = FMath::Clamp(MaxResults, 1, 200);
-    SessionSearch->bIsLanQuery = bLAN;
+    SessionSearch->MaxSearchResults = PendingMaxSearchResults;
+    SessionSearch->bIsLanQuery = bPendingLAN;
     SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
-    bOperationInProgress = true;
+    if (!bPendingLAN)
+    {
+        SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+        SessionSearch->QuerySettings.Set(GvTSessionKeys::BucketIdKey, GvTSessionKeys::BucketId, EOnlineComparisonOp::Equals);
+    }
 
     FindDelegateHandle = Sessions->AddOnFindSessionsCompleteDelegate_Handle(
         FOnFindSessionsCompleteDelegate::CreateUObject(this, &ThisClass::HandleFindSessionsComplete));
-    BroadcastStatus(NSLOCTEXT("GvTSessions", "Searching", "Searching for LAN games..."), true);
+    BroadcastStatus(bPendingLAN
+        ? NSLOCTEXT("GvTSessions", "SearchingLAN", "Searching for LAN games...")
+        : NSLOCTEXT("GvTSessions", "SearchingWAN", "Searching for online games..."), true);
 
     if (!Sessions->FindSessions(0, SessionSearch.ToSharedRef()))
     {
@@ -200,8 +339,8 @@ void UGvTSessionSubsystem::HandleFindSessionsComplete(bool bSuccess)
 
     OnSessionSearchCompleted.Broadcast(Results);
     const FText Message = bSuccess
-        ? FText::Format(NSLOCTEXT("GvTSessions", "SearchComplete", "Found {0} LAN game(s)."), FText::AsNumber(Results.Num()))
-        : NSLOCTEXT("GvTSessions", "SearchFailed", "LAN search failed.");
+        ? FText::Format(NSLOCTEXT("GvTSessions", "SearchComplete", "Found {0} game(s)."), FText::AsNumber(Results.Num()))
+        : NSLOCTEXT("GvTSessions", "SearchFailed", "Session search failed.");
     BroadcastStatus(Message, bSuccess);
 }
 
@@ -260,6 +399,28 @@ void UGvTSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoinS
     PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
 }
 
+void UGvTSessionSubsystem::JoinDirect(const FString& Address)
+{
+    FString SanitizedAddress = Address;
+    SanitizedAddress.TrimStartAndEndInline();
+
+    if (bOperationInProgress || SanitizedAddress.IsEmpty() || SanitizedAddress.Contains(TEXT(" ")))
+    {
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "InvalidDirectAddress", "Enter a valid IP address or hostname, optionally followed by :7777."), false);
+        return;
+    }
+
+    APlayerController* PlayerController = GetGameInstance() ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
+    if (!PlayerController)
+    {
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "NoDirectController", "No local player is available to connect."), false);
+        return;
+    }
+
+    BroadcastStatus(NSLOCTEXT("GvTSessions", "DirectConnecting", "Connecting directly..."), true);
+    PlayerController->ClientTravel(SanitizedAddress, TRAVEL_Absolute);
+}
+
 void UGvTSessionSubsystem::LeaveSession()
 {
     if (bOperationInProgress)
@@ -272,6 +433,7 @@ void UGvTSessionSubsystem::LeaveSession()
     if (!Sessions.IsValid() || !Sessions->GetNamedSession(NAME_GameSession))
     {
         BroadcastStatus(NSLOCTEXT("GvTSessions", "NoSession", "There is no active multiplayer session."), false);
+        TravelToPendingReturnMap();
         return;
     }
 
@@ -285,6 +447,18 @@ void UGvTSessionSubsystem::LeaveSession()
         bOperationInProgress = false;
         BroadcastStatus(NSLOCTEXT("GvTSessions", "LeaveStartFailed", "Could not leave the session."), false);
     }
+}
+
+void UGvTSessionSubsystem::LeaveSessionAndReturnToMenu(FName MainMenuMapName)
+{
+    if (MainMenuMapName.IsNone())
+    {
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "NoReturnMap", "The main menu map is not configured."), false);
+        return;
+    }
+
+    PendingReturnMapName = MainMenuMapName;
+    LeaveSession();
 }
 
 void UGvTSessionSubsystem::HandleDestroySessionComplete(FName SessionName, bool bSuccess)
@@ -313,4 +487,17 @@ void UGvTSessionSubsystem::HandleDestroySessionComplete(FName SessionName, bool 
     BroadcastStatus(bSuccess
         ? NSLOCTEXT("GvTSessions", "Left", "Session closed.")
         : NSLOCTEXT("GvTSessions", "LeaveFailed", "Failed to close the session."), bSuccess);
+    TravelToPendingReturnMap();
+}
+
+void UGvTSessionSubsystem::TravelToPendingReturnMap()
+{
+    if (PendingReturnMapName.IsNone())
+    {
+        return;
+    }
+
+    const FName ReturnMap = PendingReturnMapName;
+    PendingReturnMapName = NAME_None;
+    UGameplayStatics::OpenLevel(this, ReturnMap, true);
 }

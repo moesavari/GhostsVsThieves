@@ -254,7 +254,7 @@ protected:
 
 	/** Rolled once per item instance when it is first actively equipped. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare", ClampMin = "0.0", ClampMax = "1.0"))
-	float HeldScreenScareChance = 0.15f;
+	float HeldScreenScareChance = 0.30f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare", ClampMin = "0"))
 	int32 HeldScreenMaterialIndex = 0;
@@ -264,6 +264,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare"))
 	TObjectPtr<UMaterialInterface> ScaryHeldScreenMaterial = nullptr;
+
+	/** Owner-only sting played when the frightening screen material is selected. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Appearance|Held Screen Scare", meta = (EditCondition = "bEnableHeldScreenScare"))
+	TObjectPtr<USoundBase> HeldScreenScareSound = nullptr;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Placement")
 	bool bSnapToSurfaceOnBeginPlay = true;
@@ -400,6 +404,9 @@ protected:
 
 	UFUNCTION()
 	void OnRep_HeldScreenScare();
+
+	UFUNCTION(Client, Reliable)
+	void Client_PlayHeldScreenScareSound();
 
 	UFUNCTION()
 	void HandleMeshHit(UPrimitiveComponent* HitComponent, AActor* OtherActor, UPrimitiveComponent* OtherComponent, FVector NormalImpulse, const FHitResult& Hit);

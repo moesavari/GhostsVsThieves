@@ -52,6 +52,10 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_ShowMissionResults(const FGvTMissionResults& Results);
 
+	/** Immediately leaves the gameplay world after the shared results delay. */
+	UFUNCTION(Client, Reliable)
+	void Client_ReturnToMainMenuAfterMission(FName ReturnMapName);
+
     UFUNCTION(Client, Reliable)
     void Client_OpenVanInventory(AGvTVanInventoryActor* VanInventory);
 

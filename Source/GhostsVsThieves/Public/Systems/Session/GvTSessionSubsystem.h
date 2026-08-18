@@ -59,6 +59,10 @@ public:
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void LeaveSessionAndReturnToMenu(FName MainMenuMapName);
 
+	/** Starts session cleanup but travels immediately instead of waiting on the online callback. */
+	UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
+	void LeaveSessionAndReturnToMenuImmediately(FName MainMenuMapName);
+
     UFUNCTION(BlueprintPure, Category="GvT|Sessions")
     bool IsBusy() const { return bOperationInProgress; }
 

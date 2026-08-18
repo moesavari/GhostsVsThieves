@@ -40,6 +40,12 @@ void UGvTGameInstance::HandlePreLoadMap(const FString& MapName)
 		return;
 	}
 
+	if (LoadingScreenWidget || GetMoviePlayer()->IsMovieCurrentlyPlaying())
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("[LoadingScreen] Ignoring duplicate preload request for map: %s"), *MapName);
+		return;
+	}
+
 	LoadingScreenWidget = CreateWidget<UUserWidget>(this, LoadingScreenWidgetClass);
 	if (!LoadingScreenWidget)
 	{

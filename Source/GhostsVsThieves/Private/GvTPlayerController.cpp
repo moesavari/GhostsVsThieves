@@ -227,7 +227,7 @@ void AGvTPlayerController::Client_SetMissionInputLocked_Implementation(bool bLoc
 
 void AGvTPlayerController::Client_ShowMissionResults_Implementation(const FGvTMissionResults& Results)
 {
-	if (!IsLocalController()) return;
+	if (!IsLocalController() || !GetWorld() || GetWorld()->bIsTearingDown) return;
 
 	if (bVanInventoryOpen)
 	{
@@ -260,6 +260,25 @@ void AGvTPlayerController::Client_ShowMissionResults_Implementation(const FGvTMi
 
 	bShowMouseCursor = false;
 	SetInputMode(FInputModeUIOnly());
+}
+
+void AGvTPlayerController::Client_ReturnToMainMenuAfterMission_Implementation(FName ReturnMapName)
+{
+	if (!IsLocalController() || ReturnMapName.IsNone())
+	{
+		return;
+	}
+
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (UGvTSessionSubsystem* Sessions = GameInstance->GetSubsystem<UGvTSessionSubsystem>())
+		{
+			Sessions->LeaveSessionAndReturnToMenuImmediately(ReturnMapName);
+			return;
+		}
+	}
+
+	UGameplayStatics::OpenLevel(this, ReturnMapName, true);
 }
 
 void AGvTPlayerController::Client_OpenVanInventory_Implementation(AGvTVanInventoryActor* VanInventory)

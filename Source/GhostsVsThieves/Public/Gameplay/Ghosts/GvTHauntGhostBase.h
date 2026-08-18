@@ -193,7 +193,15 @@ protected:
 	float DoorSlamBehindDistance = 240.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
-	float DoorSlamMinimumDelay = 0.45f;
+	float DoorSlamMinimumDelay = 1.25f;
+
+	/** Chance to slam a door after passing through it. Failed rolls simply leave it open. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DoorSlamAfterPassingChance = 0.35f;
+
+	/** Prevents the same ghost from repeatedly slamming the same door. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Doors", meta = (ClampMin = "0.0"))
+	float DoorSlamRepeatCooldown = 12.f;
 
 	void UpdateUniversalDoorHandling(float DeltaSeconds);
 	void TryOpenNearbyDoorsUniversal();

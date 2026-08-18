@@ -1500,9 +1500,10 @@ void AGvTHauntGhostBase::TrySlamPassedDoors()
 		}
 
 		const float* LastSlamTime = RecentDoorSlamTimes.Find(Door);
-		const bool bOnCooldown = LastSlamTime && (Now - *LastSlamTime) < 4.f;
+		const bool bOnCooldown = LastSlamTime && (Now - *LastSlamTime) < DoorSlamRepeatCooldown;
+		const bool bShouldSlam = FMath::FRand() <= FMath::Clamp(DoorSlamAfterPassingChance, 0.f, 1.f);
 
-		if (!bOnCooldown)
+		if (!bOnCooldown && bShouldSlam)
 		{
 			const bool bSlammed =
 				Door->TriggerScareSlam();

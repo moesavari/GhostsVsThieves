@@ -546,6 +546,14 @@ private:
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareCooldowns", meta = (ClampMin = "0.0"))
 	float DefaultScareRepeatCooldown = 10.0f;
 
+	/** Door scares receive a longer cooldown so entrances do not repeatedly slam during early exploration. */
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareCooldowns", meta = (ClampMin = "0.0"))
+	float DoorScareRepeatCooldown = 22.0f;
+
+	/** Exit doors remain eligible, but ordinary interior doors are strongly preferred. */
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|ScareTuning|DoorSlamBehind", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ExitDoorScareScoreMultiplier = 0.20f;
+
 	UPROPERTY(EditAnywhere, Category = "GvT|Director|TheftReaction", meta = (ClampMin = "0.0"))
 	float TheftReactionDelayMin = 2.0f;
 

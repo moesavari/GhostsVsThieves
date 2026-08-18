@@ -394,14 +394,18 @@ void AGvTInteractableItem::SetCarriedBy(AGvTThiefCharacter* NewCarrier, bool bNe
 
 	Carrier = NewCarrier;
 	bIsEquipped = NewCarrier && bNewEquipped;
+	SetOwner(NewCarrier);
 	if (bEnableHeldScreenScare && bIsEquipped && !bHasRolledHeldScreenScare)
 	{
 		bHasRolledHeldScreenScare = true;
 		bShowHeldScreenScare = NormalHeldScreenMaterial
 			&& ScaryHeldScreenMaterial
 			&& FMath::FRand() <= FMath::Clamp(HeldScreenScareChance, 0.0f, 1.0f);
+		if (bShowHeldScreenScare && HeldScreenScareSound)
+		{
+			Client_PlayHeldScreenScareSound();
+		}
 	}
-	SetOwner(NewCarrier);
 	ApplyCarryState();
 	ForceNetUpdate();
 }
@@ -461,6 +465,7 @@ void AGvTInteractableItem::ApplyCarryState()
 			AttachToComponent(Anchor, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 			SetActorRelativeLocation(HeldRelativeLocation);
 			SetActorRelativeRotation(HeldRelativeRotation);
+
 			SetActorRelativeScale3D(HeldRelativeScale);
 		}
 
@@ -588,6 +593,14 @@ void AGvTInteractableItem::OnRep_CarryState()
 void AGvTInteractableItem::OnRep_HeldScreenScare()
 {
 	ApplyHeldScreenMaterial();
+}
+
+void AGvTInteractableItem::Client_PlayHeldScreenScareSound_Implementation()
+{
+	if (HeldScreenScareSound)
+	{
+		UGameplayStatics::PlaySound2D(this, HeldScreenScareSound);
+	}
 }
 
 void AGvTInteractableItem::ApplyConsumedState(bool bConsumed)

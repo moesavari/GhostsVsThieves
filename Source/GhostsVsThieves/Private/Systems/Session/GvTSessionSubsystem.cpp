@@ -461,6 +461,36 @@ void UGvTSessionSubsystem::LeaveSessionAndReturnToMenu(FName MainMenuMapName)
     LeaveSession();
 }
 
+void UGvTSessionSubsystem::LeaveSessionAndReturnToMenuImmediately(FName MainMenuMapName)
+{
+	if (MainMenuMapName.IsNone())
+	{
+		return;
+	}
+
+	// Clear the return target so the asynchronous destroy callback cannot cause
+	// a second travel after the menu is already open.
+	PendingReturnMapName = NAME_None;
+
+	if (!bOperationInProgress)
+	{
+		if (IOnlineSessionPtr Sessions = GetSessionInterface(); Sessions.IsValid() && Sessions->GetNamedSession(NAME_GameSession))
+		{
+			bOperationInProgress = true;
+			bCreateAfterDestroy = false;
+			DestroyDelegateHandle = Sessions->AddOnDestroySessionCompleteDelegate_Handle(
+				FOnDestroySessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleDestroySessionComplete));
+			if (!Sessions->DestroySession(NAME_GameSession))
+			{
+				Sessions->ClearOnDestroySessionCompleteDelegate_Handle(DestroyDelegateHandle);
+				bOperationInProgress = false;
+			}
+		}
+	}
+
+	UGameplayStatics::OpenLevel(this, MainMenuMapName, true);
+}
+
 void UGvTSessionSubsystem::HandleDestroySessionComplete(FName SessionName, bool bSuccess)
 {
     if (IOnlineSessionPtr Sessions = GetSessionInterface())

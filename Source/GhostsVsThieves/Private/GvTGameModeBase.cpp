@@ -288,7 +288,40 @@ void AGvTGameModeBase::RestartMission()
 void AGvTGameModeBase::ReturnAllPlayersToMainMenu()
 {
 	if (!HasAuthority() || MainMenuMapPath.IsEmpty() || !GetWorld()) return;
-	GetWorld()->ServerTravel(MainMenuMapPath, true);
+
+	const FName ReturnMapName(*MainMenuMapPath);
+	AGvTPlayerController* LocalHostController = nullptr;
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (AGvTPlayerController* PC = Cast<AGvTPlayerController>(It->Get()))
+		{
+			if (PC->IsLocalController())
+			{
+				LocalHostController = PC;
+			}
+			else
+			{
+				PC->Client_ReturnToMainMenuAfterMission(ReturnMapName);
+			}
+		}
+	}
+
+	if (LocalHostController)
+	{
+		TWeakObjectPtr<AGvTPlayerController> WeakHostController = LocalHostController;
+		FTimerHandle HostReturnTimer;
+		GetWorldTimerManager().SetTimer(
+			HostReturnTimer,
+			FTimerDelegate::CreateWeakLambda(this, [WeakHostController, ReturnMapName]()
+			{
+				if (AGvTPlayerController* HostController = WeakHostController.Get())
+				{
+					HostController->Client_ReturnToMainMenuAfterMission(ReturnMapName);
+				}
+			}),
+			0.25f,
+			false);
+	}
 }
 
 bool AGvTGameModeBase::HasLivingThief() const

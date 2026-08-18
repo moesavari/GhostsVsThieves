@@ -2053,7 +2053,11 @@ float UGvTDirectorSubsystem::ScoreDoorForSlam(const APawn* TargetPawn, const AGv
 
 	const float DistanceScore = 1.f - DistanceAlpha;
 
-	return DistanceScore * DoorSlamDistanceWeight;
+	const float ExitDoorMultiplier = Door->IsExitDoor()
+		? FMath::Clamp(ExitDoorScareScoreMultiplier, 0.f, 1.f)
+		: 1.f;
+
+	return DistanceScore * DoorSlamDistanceWeight * ExitDoorMultiplier;
 }
 
 AGvTDoorActor* UGvTDirectorSubsystem::ChooseBestDoorSlamTarget(APawn* TargetPawn) const
@@ -2649,6 +2653,11 @@ float UGvTDirectorSubsystem::GetPerScareCooldown(const FGameplayTag& ScareTag) c
 	if (ScareTag.MatchesTagExact(GvTScareTags::GhostScream()) || ScareTag.MatchesTagExact(GvTScareTags::GhostScare_Scream()))
 	{
 		return GhostScreamRepeatCooldown;
+	}
+
+	if (ScareTag.MatchesTagExact(GvTScareTags::DoorSlamBehind()))
+	{
+		return DoorScareRepeatCooldown;
 	}
 
 	return DefaultScareRepeatCooldown;

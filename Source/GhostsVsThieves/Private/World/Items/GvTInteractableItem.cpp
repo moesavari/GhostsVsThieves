@@ -463,8 +463,11 @@ void AGvTInteractableItem::ApplyCarryState()
 		if (USceneComponent* Anchor = Carrier->GetHeldItemAnchor())
 		{
 			AttachToComponent(Anchor, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
-			SetActorRelativeLocation(HeldRelativeLocation);
-			SetActorRelativeRotation(HeldRelativeRotation);
+			const bool bUseLargeHeldOffset = ItemTier == EGvTItemTier::Large;
+			const FVector EquippedLocation = HeldRelativeLocation + (bUseLargeHeldOffset ? LargeHeldLocationOffset : FVector::ZeroVector);
+			const FRotator EquippedRotation = HeldRelativeRotation + (bUseLargeHeldOffset ? LargeHeldRotationOffset : FRotator::ZeroRotator);
+			SetActorRelativeLocation(EquippedLocation);
+			SetActorRelativeRotation(EquippedRotation);
 
 			SetActorRelativeScale3D(HeldRelativeScale);
 		}

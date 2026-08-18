@@ -6,6 +6,7 @@
 #include "GvTInteractionComponent.generated.h"
 
 class AGvTThiefCharacter;
+struct FCollisionQueryParams;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGvTInteractionStarted, EGvTInteractionVerb, Verb, AActor*, Target);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FGvTInteractionCanceled, EGvTInteractionVerb, Verb, AActor*, Target, EGvTInteractionCancelReason, Reason);
@@ -86,6 +87,14 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category="GvT|Interaction")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
+	/**
+	 * Radius of the fallback sweep used when the precise interaction trace does
+	 * not hit an interactable item. This makes small loot less pixel-perfect to
+	 * target without increasing interaction distance or permitting wall grabs.
+	 */
+	UPROPERTY(EditDefaultsOnly, Category="GvT|Interaction|Item Assist", meta=(ClampMin="0.0", UIMin="0.0", UIMax="50.0"))
+	float ItemInteractionAssistRadius = 22.f;
+
 	UPROPERTY(EditDefaultsOnly, Category="GvT|Interaction")
 	bool bDebugDraw = false;
 
@@ -139,6 +148,7 @@ protected:
 private:
 	// Server helpers
 	void PerformServerTraceAndTryStart(EGvTInteractionVerb Verb, bool bEquipmentUse = false);
+	AActor* FindAssistedItemTarget(const FVector& Start, const FVector& End, const FCollisionQueryParams& Params) const;
 	bool TryStartSelectedMedicine();
 	bool GetViewTrace(FVector& OutStart, FVector& OutEnd) const;
 

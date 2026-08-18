@@ -169,6 +169,67 @@ bool UGvTInteractionComponent::GetViewTrace(FVector& OutStart, FVector& OutEnd) 
 	return true;
 }
 
+AActor* UGvTInteractionComponent::FindAssistedItemTarget(const FVector& Start, const FVector& End, const FCollisionQueryParams& Params) const
+{
+	if (!GetWorld() || ItemInteractionAssistRadius <= KINDA_SMALL_NUMBER)
+	{
+		return nullptr;
+	}
+
+	TArray<FHitResult> AssistHits;
+	const FCollisionShape AssistShape = FCollisionShape::MakeSphere(ItemInteractionAssistRadius);
+	GetWorld()->SweepMultiByChannel(AssistHits, Start, End, FQuat::Identity, TraceChannel, AssistShape, Params);
+
+	AActor* BestItem = nullptr;
+	float BestDistanceAlongTrace = TNumericLimits<float>::Max();
+	const FVector TraceDirection = (End - Start).GetSafeNormal();
+
+	for (const FHitResult& AssistHit : AssistHits)
+	{
+		AGvTInteractableItem* Item = Cast<AGvTInteractableItem>(AssistHit.GetActor());
+		if (!Item)
+		{
+			continue;
+		}
+
+		// The sweep supplies aim forgiveness; this precise trace ensures a wall or
+		// other obstruction still prevents the assisted pickup.
+		const FVector ItemCenter = Item->GetComponentsBoundingBox(true).GetCenter();
+		FHitResult VisibilityHit;
+		if (!GetWorld()->LineTraceSingleByChannel(VisibilityHit, Start, ItemCenter, TraceChannel, Params)
+			|| VisibilityHit.GetActor() != Item)
+		{
+			continue;
+		}
+
+		const float DistanceAlongTrace = FVector::DotProduct(ItemCenter - Start, TraceDirection);
+		if (DistanceAlongTrace >= 0.f && DistanceAlongTrace < BestDistanceAlongTrace)
+		{
+			BestDistanceAlongTrace = DistanceAlongTrace;
+			BestItem = Item;
+		}
+	}
+
+#if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
+	if (bDebugDraw)
+	{
+		DrawDebugCapsule(
+			GetWorld(),
+			(Start + End) * 0.5f,
+			FVector::Distance(Start, End) * 0.5f,
+			ItemInteractionAssistRadius,
+			FQuat::FindBetweenNormals(FVector::UpVector, (End - Start).GetSafeNormal()),
+			BestItem ? FColor::Cyan : FColor::Silver,
+			false,
+			1.0f,
+			0,
+			1.0f);
+	}
+#endif
+
+	return BestItem;
+}
+
 void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb Verb, bool bEquipmentUse)
 {
 	APawn* OwnerPawn = Cast<APawn>(GetOwner());
@@ -210,6 +271,11 @@ void UGvTInteractionComponent::PerformServerTraceAndTryStart(EGvTInteractionVerb
 #endif
 
 	AActor* HitActor = bHit ? Hit.GetActor() : nullptr;
+	const bool bPreciseInteractableHit = HitActor && HitActor->GetClass()->ImplementsInterface(UGvTInteractable::StaticClass());
+	if (Verb == EGvTInteractionVerb::Interact && !bEquipmentUse && !bPreciseInteractableHit)
+	{
+		HitActor = FindAssistedItemTarget(Start, End, Params);
+	}
 	const AGvTThiefCharacter* Thief = Cast<AGvTThiefCharacter>(OwnerPawn);
 	const UGvTInventoryComponent* Inventory = Thief ? Thief->GetInventoryComponent() : nullptr;
 	const bool bHoldingLockpick = Inventory && Inventory->GetSelectedItem() && Inventory->GetSelectedItem()->IsA<AGvTLockpickItem>();

@@ -191,6 +191,14 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory")
 	FVector HeldRelativeScale = FVector::OneVector;
 
+	/** Added to HeldRelativeLocation only for Large-tier items while equipped. Never changes world or dropped scale. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory|Large Held Offset")
+	FVector LargeHeldLocationOffset = FVector(15.f, 25.f, -15.f);
+
+	/** Added to HeldRelativeRotation only for Large-tier items while equipped. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Item|Inventory|Large Held Offset")
+	FRotator LargeHeldRotationOffset = FRotator::ZeroRotator;
+
 	// -------------------------------------------------------------------------
 	// Physical drop presentation
 	// -------------------------------------------------------------------------

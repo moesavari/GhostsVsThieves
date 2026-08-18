@@ -15,6 +15,7 @@ namespace GvTAudioSettings
 	static const TCHAR* MasterKey = TEXT("MasterVolume");
 	static const TCHAR* MusicKey = TEXT("MusicVolume");
 	static const TCHAR* SFXKey = TEXT("SFXVolume");
+	static const TCHAR* MouseSensitivityKey = TEXT("MouseSensitivity");
 }
 
 void UGvTGameInstance::Init()
@@ -105,6 +106,12 @@ void UGvTGameInstance::SaveAudioSettings()
 	StoreAudioSettings(true);
 }
 
+void UGvTGameInstance::SetMouseSensitivity(float NewSensitivity)
+{
+	MouseSensitivity = FMath::Clamp(NewSensitivity, 0.10f, 3.0f);
+	StoreAudioSettings(false);
+}
+
 void UGvTGameInstance::LoadAudioSettings()
 {
 	if (!GConfig)
@@ -115,10 +122,12 @@ void UGvTGameInstance::LoadAudioSettings()
 	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::MasterKey, MasterVolume, GGameUserSettingsIni);
 	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::MusicKey, MusicVolume, GGameUserSettingsIni);
 	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::SFXKey, SFXVolume, GGameUserSettingsIni);
+	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::MouseSensitivityKey, MouseSensitivity, GGameUserSettingsIni);
 
 	MasterVolume = FMath::Clamp(MasterVolume, 0.0f, 1.0f);
 	MusicVolume = FMath::Clamp(MusicVolume, 0.0f, 1.0f);
 	SFXVolume = FMath::Clamp(SFXVolume, 0.0f, 1.0f);
+	MouseSensitivity = FMath::Clamp(MouseSensitivity, 0.10f, 3.0f);
 }
 
 void UGvTGameInstance::ApplyAudioSettings()
@@ -156,6 +165,7 @@ void UGvTGameInstance::StoreAudioSettings(bool bFlush)
 	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::MasterKey, MasterVolume, GGameUserSettingsIni);
 	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::MusicKey, MusicVolume, GGameUserSettingsIni);
 	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::SFXKey, SFXVolume, GGameUserSettingsIni);
+	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::MouseSensitivityKey, MouseSensitivity, GGameUserSettingsIni);
 
 	if (bFlush)
 	{

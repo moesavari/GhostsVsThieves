@@ -32,6 +32,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Audio Settings")
 	void SaveAudioSettings();
 
+	UFUNCTION(BlueprintCallable, Category="GvT|Input Settings")
+	void SetMouseSensitivity(float NewSensitivity);
+
 	UFUNCTION(BlueprintPure, Category="GvT|Audio Settings")
 	float GetMasterVolume() const { return MasterVolume; }
 
@@ -40,6 +43,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="GvT|Audio Settings")
 	float GetSFXVolume() const { return SFXVolume; }
+
+	UFUNCTION(BlueprintPure, Category="GvT|Input Settings")
+	float GetMouseSensitivity() const { return MouseSensitivity; }
 
 	/** Full-screen widget shown during regular map travel. Use an indeterminate Progress Bar or Throbber; Open Level does not expose real progress. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Loading Screen")
@@ -72,6 +78,9 @@ private:
 
 	UPROPERTY(Transient)
 	float SFXVolume = 0.65f;
+
+	UPROPERTY(Transient)
+	float MouseSensitivity = 1.0f;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> LoadingScreenWidget;

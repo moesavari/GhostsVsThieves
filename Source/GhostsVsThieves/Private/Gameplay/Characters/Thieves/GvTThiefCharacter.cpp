@@ -32,6 +32,7 @@
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "GvTGameModeBase.h"
+#include "GvTGameInstance.h"
 #include "GvTPlayerController.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundAttenuation.h"
@@ -284,8 +285,10 @@ void AGvTThiefCharacter::OnLook(const FInputActionValue& Value)
     if (bInteractionLockLook || IsScareStunned()) { return; }
 
     const FVector2D Look = Value.Get<FVector2D>();
-    AddControllerYawInput(Look.X);
-    AddControllerPitchInput(Look.Y);
+    const UGvTGameInstance* GvTGameInstance = GetGameInstance<UGvTGameInstance>();
+    const float Sensitivity = GvTGameInstance ? GvTGameInstance->GetMouseSensitivity() : 1.0f;
+    AddControllerYawInput(Look.X * Sensitivity);
+    AddControllerPitchInput(Look.Y * Sensitivity);
 }
 
 void AGvTThiefCharacter::StartSprint()

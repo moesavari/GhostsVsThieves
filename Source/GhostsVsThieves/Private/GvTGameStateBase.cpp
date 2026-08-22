@@ -6,6 +6,23 @@ AGvTGameStateBase::AGvTGameStateBase()
 	bReplicates = true;
 }
 
+void AGvTGameStateBase::SetLobbySelectedMapAuthority(EGvTPlayableMap NewMap)
+{
+	if (!HasAuthority() || LobbySelectedMap == NewMap)
+	{
+		return;
+	}
+
+	LobbySelectedMap = NewMap;
+	OnRep_LobbySelectedMap();
+	ForceNetUpdate();
+}
+
+void AGvTGameStateBase::OnRep_LobbySelectedMap()
+{
+	OnLobbyMapChanged.Broadcast(LobbySelectedMap);
+}
+
 void AGvTGameStateBase::SetMissionPhaseAuthority(EGvTMissionPhase NewPhase)
 {
 	if (!HasAuthority() || MissionPhase == NewPhase) return;
@@ -70,4 +87,5 @@ void AGvTGameStateBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(AGvTGameStateBase, LivingPlayerCount);
 	DOREPLIFETIME(AGvTGameStateBase, ReadyPlayerCount);
 	DOREPLIFETIME(AGvTGameStateBase, MissionResults);
+	DOREPLIFETIME(AGvTGameStateBase, LobbySelectedMap);
 }

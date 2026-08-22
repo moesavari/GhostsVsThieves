@@ -415,7 +415,7 @@ void AGvTThiefCharacter::UpdateDebugHUD()
     else if (GetVelocity().Size2D() < 15.f) MovementState = TEXT("Idle");
 
     const FString Text = FString::Printf(
-        TEXT("HAUNTED HEISTS DEBUG\n")
+        TEXT("HAUNTED ROBBERIES DEBUG\n")
         TEXT("Director: Activity %.0f%% | Tension %.0f%% | Haunt %s\n")
         TEXT("Activity Parts: Theft %.0f%% | Time %.0f%%\n")
         TEXT("Player: Panic %.0f%% | Pressure %.0f%% | %s\n")

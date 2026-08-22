@@ -4,6 +4,7 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Systems/Session/GvTLobbyTypes.h"
 #include "GvTSessionSubsystem.generated.h"
 
 USTRUCT(BlueprintType)
@@ -52,6 +53,39 @@ public:
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void JoinSessionByIndex(int32 ResultIndex);
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	bool IsInLobbySession() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	bool IsListenServerHost() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	int32 GetConnectedPlayerCount() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	TArray<FGvTLobbyPlayerInfo> GetLobbyPlayers() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Sessions|Lobby")
+	bool SetLocalLobbyReady(bool bReady);
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	bool IsLocalLobbyReady() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Sessions|Lobby")
+	bool SetHostedLobbyMap(EGvTPlayableMap SelectedMap);
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	EGvTPlayableMap GetLobbySelectedMap() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	bool AreAllLobbyPlayersReady() const;
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Sessions|Lobby")
+	bool CanHostStartMatch() const;
+
+	UFUNCTION(BlueprintCallable, Category = "GvT|Sessions|Lobby")
+	bool StartHostedMatch();
+
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void LeaveSession();
 
@@ -74,7 +108,17 @@ public:
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category="GvT|Sessions")
-    FSoftObjectPath LobbyMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_MVP"));
+	FSoftObjectPath MainMenuMap = FSoftObjectPath(TEXT("/Game/Maps/L_MainMenu"));
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions|Maps")
+	FSoftObjectPath MVPHouseMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_MVP"));
+
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions|Maps")
+	FSoftObjectPath ModernVillaMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_ModernVilla"));
+
+	/** Kept at one so the host can test alone. Set to two in the subsystem defaults for public builds. */
+	UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions|Lobby", meta = (ClampMin = "1", ClampMax = "6"))
+	int32 MinimumPlayersToStart = 1;
 
 private:
     enum class EPendingOperation : uint8

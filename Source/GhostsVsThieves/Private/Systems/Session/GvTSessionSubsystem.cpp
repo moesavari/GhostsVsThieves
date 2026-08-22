@@ -153,7 +153,7 @@ void UGvTSessionSubsystem::HostSession(const FString& ServerName, int32 PublicCo
         return;
     }
 
-    PendingServerName = ServerName.IsEmpty() ? TEXT("Haunted Heists Lobby") : ServerName;
+    PendingServerName = ServerName.IsEmpty() ? TEXT("Haunted Robberies Lobby") : ServerName;
     PendingPublicConnections = FMath::Clamp(PublicConnections, 1, 6);
     bPendingLAN = bLAN;
     bOperationInProgress = true;

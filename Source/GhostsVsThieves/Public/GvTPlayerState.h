@@ -8,6 +8,7 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLootValueChanged, int32, NewLootValue);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPanicChanged, float, NewPanic01);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnHauntPressureChanged, float, NewPressure01);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnLobbyReadyChanged, bool, bNowReady);
 
 UENUM(BlueprintType)
 enum class EGvTPanicSource : uint8
@@ -147,6 +148,15 @@ public:
 
 	void SetDeadForPanicAuthority(bool bNewDead);
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Lobby")
+	bool IsLobbyReady() const { return bLobbyReady; }
+
+	UFUNCTION(Server, Reliable, BlueprintCallable, Category = "GvT|Lobby")
+	void ServerSetLobbyReady(bool bNewReady);
+
+	UPROPERTY(BlueprintAssignable, Category = "GvT|Lobby")
+	FOnLobbyReadyChanged OnLobbyReadyChanged;
+
 protected:
 	UPROPERTY(ReplicatedUsing = OnRep_LootValue, BlueprintReadOnly, Category = "GvT|Loot")
 	int32 LootValue = 0;
@@ -198,6 +208,12 @@ protected:
 
 	UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Death")
 	bool bDeadForPanic = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_LobbyReady, BlueprintReadOnly, Category = "GvT|Lobby")
+	bool bLobbyReady = false;
+
+	UFUNCTION()
+	void OnRep_LobbyReady();
 
 	// Pressure decay
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Haunt|Decay", meta = (ClampMin = "0.0"))

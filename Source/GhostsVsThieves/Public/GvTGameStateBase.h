@@ -2,9 +2,11 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
+#include "Systems/Session/GvTLobbyTypes.h"
 #include "GvTGameStateBase.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGvTTeamSecuredLootChanged, int32, NewTeamSecuredLoot);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FGvTLobbyMapChanged, EGvTPlayableMap, SelectedMap);
 
 UENUM(BlueprintType)
 enum class EGvTMissionPhase : uint8
@@ -82,6 +84,14 @@ public:
 	UPROPERTY(BlueprintAssignable, Category="GvT|Mission")
 	FGvTTeamSecuredLootChanged OnTeamSecuredLootChanged;
 
+	UFUNCTION(BlueprintPure, Category = "GvT|Lobby")
+	EGvTPlayableMap GetLobbySelectedMap() const { return LobbySelectedMap; }
+
+	void SetLobbySelectedMapAuthority(EGvTPlayableMap NewMap);
+
+	UPROPERTY(BlueprintAssignable, Category = "GvT|Lobby")
+	FGvTLobbyMapChanged OnLobbyMapChanged;
+
 	UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
 	void OnMissionResultsReady(EGvTMissionOutcome Outcome, int32 FinalSecuredLoot);
 
@@ -117,6 +127,12 @@ protected:
 	UPROPERTY(ReplicatedUsing=OnRep_MissionData, BlueprintReadOnly, Category="GvT|Mission")
 	FGvTMissionResults MissionResults;
 
+	UPROPERTY(ReplicatedUsing = OnRep_LobbySelectedMap, BlueprintReadOnly, Category = "GvT|Lobby")
+	EGvTPlayableMap LobbySelectedMap = EGvTPlayableMap::MVPHouse;
+
 	UFUNCTION()
 	void OnRep_MissionData();
+
+	UFUNCTION()
+	void OnRep_LobbySelectedMap();
 };

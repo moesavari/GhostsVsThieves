@@ -18,6 +18,25 @@
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
 
+void AGvTPlayerController::OnPossess(APawn* InPawn)
+{
+    Super::OnPossess(InPawn);
+
+    // AcknowledgePossession restores input for remote clients. The local
+    // listen-server host enters through OnPossess instead, so it needs the
+    // same cleanup after lobby-to-game seamless travel.
+    if (IsLocalController())
+    {
+        RestoreGameplayInput();
+    }
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[InputRestore] OnPossess Pawn=%s Local=%d Authority=%d"),
+        *GetNameSafe(InPawn),
+        IsLocalController() ? 1 : 0,
+        HasAuthority() ? 1 : 0);
+}
+
 void AGvTPlayerController::BeginPlay()
 {
     Super::BeginPlay();
@@ -26,6 +45,8 @@ void AGvTPlayerController::BeginPlay()
     {
         return;
     }
+
+	RestoreGameplayInput();
 
     if (!HUDWidgetClass)
     {
@@ -697,4 +718,35 @@ void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 void AGvTPlayerController::HandleHauntPressureChanged(float NewPressure01)
 {
 	// Optional later for pressure on the HUD.
+}
+
+void AGvTPlayerController::PostSeamlessTravel()
+{
+	Super::PostSeamlessTravel();
+	RestoreGameplayInput();
+}
+
+void AGvTPlayerController::RestoreGameplayInput()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	bPauseMenuOpen = false;
+	bMissionInputLocked = false;
+
+	if (PauseMenuWidget && PauseMenuWidget->IsInViewport())
+	{
+		PauseMenuWidget->RemoveFromParent();
+	}
+
+	CloseVanInventory();
+
+	ResetIgnoreMoveInput();
+	ResetIgnoreLookInput();
+
+	bShowMouseCursor = false;
+	SetInputMode(FInputModeGameOnly());
+	SetPause(false);
 }

@@ -39,6 +39,8 @@ class GHOSTSVSTHIEVES_API AGvTThiefCharacter : public ACharacter
 public:
     AGvTThiefCharacter();
 
+    virtual void PawnClientRestart() override;
+
     UFUNCTION(BlueprintPure, Category = "GvT|Inventory")
     UGvTInventoryComponent* GetInventoryComponent() const { return InventoryComponent; }
 

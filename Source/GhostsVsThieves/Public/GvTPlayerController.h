@@ -27,10 +27,12 @@ class GHOSTSVSTHIEVES_API AGvTPlayerController : public APlayerController
 
 public:
     virtual void BeginPlay() override;
+    virtual void OnPossess(APawn* InPawn) override;
     virtual void Tick(float DeltaSeconds) override;
     virtual bool InputKey(FKey Key, EInputEvent EventType, float AmountDepressed, bool bGamepad) override;
 
     virtual void OnRep_PlayerState() override;
+    virtual void PostSeamlessTravel() override;
 
     UFUNCTION(Client, Reliable)
     void Client_ShowScanResult(AActor* Item, const FText& ItemDisplayName, int32 ScannedValue);
@@ -154,6 +156,7 @@ private:
     void BindHUDToGameState();
     void SetPauseMenuOpen(bool bOpen);
     void ShowOnboardingPromptLocal(EGvTOnboardingPrompt Prompt);
+    void RestoreGameplayInput();
 
     TWeakObjectPtr<AActor> CurrentHighlightedActor;
     TObjectPtr<UGvTHUDWidget> HUDWidget = nullptr;

@@ -1,14 +1,14 @@
-# Haunted Heists
+# Paranormal Estates: Haunted Robberies
 
 > **Steal. Survive. Get out.**
 
-**Haunted Heists** is a first-person cooperative horror-heist game built in Unreal Engine 5. Break into haunted properties, steal everything worth carrying, survive the entities protecting the house, and secure the haul before attempting extraction.
+**Paranormal Estates: Haunted Robberies** is a first-person cooperative horror-heist game built in Unreal Engine 5. Break into haunted properties, steal everything worth carrying, survive the entities protecting the house, and secure the haul before attempting extraction.
 
 The more players disturb the property, the more hostile it becomes. Every stolen object, slammed door, careless sprint, and badly timed flashlight can turn a profitable robbery into a supernatural disaster.
 
 ## Development Status
 
-Haunted Heists is currently in **pre-alpha active development**. The present build is an MVP playtest focused on validating the core mission loop, ghost behavior, multiplayer systems, player guidance, and overall horror pacing.
+Paranormal Estates: Haunted Robberies is currently in **pre-alpha active development**. The present build is an MVP playtest focused on validating the core mission loop, ghost behavior, multiplayer systems, player guidance, and overall horror pacing.
 
 - **Engine:** Unreal Engine 5.5
 - **Platform:** Windows PC
@@ -131,7 +131,7 @@ Gameplay screenshots, development footage, and an official trailer will be added
 
 **Created and developed by Moe Savari.**
 
-Haunted Heists uses selected third-party assets, audio, animations, and development tools. Ownership remains with their respective creators. Full attribution is maintained in the in-game Credits screen.
+Paranormal Estates: Haunted Robberies uses selected third-party assets, audio, animations, and development tools. Ownership remains with their respective creators. Full attribution is maintained in the in-game Credits screen.
 
 ## Feedback and Bug Reports
 

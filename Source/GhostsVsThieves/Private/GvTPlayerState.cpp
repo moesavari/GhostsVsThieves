@@ -81,6 +81,23 @@ void AGvTPlayerState::Server_ReducePanic_Implementation(float Delta01)
 	ReducePanicAuthority(Delta01);
 }
 
+void AGvTPlayerState::ServerSetLobbyReady_Implementation(bool bNewReady)
+{
+	if (bLobbyReady == bNewReady)
+	{
+		return;
+	}
+
+	bLobbyReady = bNewReady;
+	OnRep_LobbyReady();
+	ForceNetUpdate();
+}
+
+void AGvTPlayerState::OnRep_LobbyReady()
+{
+	OnLobbyReadyChanged.Broadcast(bLobbyReady);
+}
+
 void AGvTPlayerState::OnRep_Panic()
 {
 	UE_LOG(LogTemp, Verbose, TEXT("[Panic] %s Panic01=%.2f"), *GetNameSafe(this), Panic01);
@@ -460,6 +477,7 @@ void AGvTPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
 	DOREPLIFETIME(AGvTPlayerState, RecentHauntPressure01);
 	DOREPLIFETIME(AGvTPlayerState, PanicFloor01);
 	DOREPLIFETIME(AGvTPlayerState, bDeadForPanic);
+	DOREPLIFETIME(AGvTPlayerState, bLobbyReady);
 }
 
 void AGvTPlayerState::TryPlayFearReactionForAcceptedEvent(const FGvTPanicEvent& Event, float AcceptedPanicIncrease01)

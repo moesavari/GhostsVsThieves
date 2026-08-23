@@ -116,6 +116,11 @@ void AGvTThiefCharacter::Tick(float DeltaSeconds)
 #endif
 }
 
+void AGvTThiefCharacter::PawnClientRestart()
+{
+    Super::PawnClientRestart();
+}
+
 void AGvTThiefCharacter::UpdateFootsteps(float DeltaSeconds)
 {
     if (bIsDead || !GetCharacterMovement() || !GetCharacterMovement()->IsMovingOnGround())

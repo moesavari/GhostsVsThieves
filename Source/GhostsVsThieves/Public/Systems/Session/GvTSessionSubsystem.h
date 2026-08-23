@@ -5,6 +5,8 @@
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Systems/Session/GvTLobbyTypes.h"
+#include "GvTGameStateBase.h"
+#include "GvTPlayerState.h"
 #include "GvTSessionSubsystem.generated.h"
 
 USTRUCT(BlueprintType)
@@ -109,6 +111,9 @@ public:
 protected:
     UPROPERTY(EditDefaultsOnly, Category="GvT|Sessions")
 	FSoftObjectPath MainMenuMap = FSoftObjectPath(TEXT("/Game/Maps/L_MainMenu"));
+
+    UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions")
+    FSoftObjectPath LobbyMap = FSoftObjectPath(TEXT("/Game/Maps/L_MainMenu"));
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions|Maps")
 	FSoftObjectPath MVPHouseMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_MVP"));

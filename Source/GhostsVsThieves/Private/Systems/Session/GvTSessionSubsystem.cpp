@@ -1,5 +1,5 @@
 #include "Systems/Session/GvTSessionSubsystem.h"
-
+#include "Kismet/GameplayStatics.h"
 #include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
 #include "GameFramework/PlayerController.h"
@@ -8,7 +8,6 @@
 #include "OnlineSubsystemUtils.h"
 #include "OnlineSessionSettings.h"
 #include "Interfaces/OnlineIdentityInterface.h"
-#include "Kismet/GameplayStatics.h"
 #include "Misc/NetworkVersion.h"
 
 namespace GvTSessionKeys
@@ -247,10 +246,16 @@ void UGvTSessionSubsystem::HandleCreateSessionComplete(FName SessionName, bool b
     }
 
     BroadcastStatus(NSLOCTEXT("GvTSessions", "HostReady", "Lobby created. Opening lobby..."), true);
-    if (UWorld* World = GetWorld())
+
+    UWorld* World = GetWorld();
+    const FString LobbyMapPackageName = LobbyMap.GetLongPackageName();
+    if (!World || LobbyMapPackageName.IsEmpty())
     {
-        World->ServerTravel(LobbyMap.GetLongPackageName() + TEXT("?listen"));
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "HostTravelFailed", "Could not open the lobby map."), false);
+        return;
     }
+
+    UGameplayStatics::OpenLevel(World, FName(*LobbyMapPackageName), true, TEXT("listen"));
 }
 
 void UGvTSessionSubsystem::FindSessions(int32 MaxResults, bool bLAN)
@@ -419,6 +424,166 @@ void UGvTSessionSubsystem::JoinDirect(const FString& Address)
 
     BroadcastStatus(NSLOCTEXT("GvTSessions", "DirectConnecting", "Connecting directly..."), true);
     PlayerController->ClientTravel(SanitizedAddress, TRAVEL_Absolute);
+}
+
+bool UGvTSessionSubsystem::IsInLobbySession() const
+{
+    const IOnlineSessionPtr Sessions = GetSessionInterface();
+    return Sessions.IsValid() && Sessions->GetNamedSession(NAME_GameSession) != nullptr;
+}
+
+bool UGvTSessionSubsystem::IsListenServerHost() const
+{
+    const UWorld* World = GetWorld();
+    if (!World)
+    {
+        return false;
+    }
+
+    const ENetMode NetMode = World->GetNetMode();
+    return NetMode == NM_ListenServer || NetMode == NM_Standalone;
+}
+
+int32 UGvTSessionSubsystem::GetConnectedPlayerCount() const
+{
+    const UWorld* World = GetWorld();
+    const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+    return GameState ? GameState->PlayerArray.Num() : 0;
+}
+
+TArray<FGvTLobbyPlayerInfo> UGvTSessionSubsystem::GetLobbyPlayers() const
+{
+    TArray<FGvTLobbyPlayerInfo> LobbyPlayers;
+    const UWorld* World = GetWorld();
+    const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+    if (!GameState)
+    {
+        return LobbyPlayers;
+    }
+
+    for (APlayerState* PlayerState : GameState->PlayerArray)
+    {
+        const AGvTPlayerState* GvTPlayerState = Cast<AGvTPlayerState>(PlayerState);
+        if (!GvTPlayerState)
+        {
+            continue;
+        }
+
+        FGvTLobbyPlayerInfo PlayerInfo;
+        PlayerInfo.PlayerName = GvTPlayerState->GetPlayerName();
+        if (PlayerInfo.PlayerName.IsEmpty())
+        {
+            PlayerInfo.PlayerName = GetNameSafe(GvTPlayerState);
+        }
+        PlayerInfo.bReady = GvTPlayerState->IsLobbyReady();
+        LobbyPlayers.Add(MoveTemp(PlayerInfo));
+    }
+
+    return LobbyPlayers;
+}
+
+bool UGvTSessionSubsystem::SetLocalLobbyReady(bool bReady)
+{
+    APlayerController* PlayerController = GetGameInstance() ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
+    AGvTPlayerState* PlayerState = PlayerController ? PlayerController->GetPlayerState<AGvTPlayerState>() : nullptr;
+    if (!PlayerState)
+    {
+        return false;
+    }
+
+    PlayerState->ServerSetLobbyReady(bReady);
+    return true;
+}
+
+bool UGvTSessionSubsystem::IsLocalLobbyReady() const
+{
+    const APlayerController* PlayerController = GetGameInstance() ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
+    const AGvTPlayerState* PlayerState = PlayerController ? PlayerController->GetPlayerState<AGvTPlayerState>() : nullptr;
+    return PlayerState && PlayerState->IsLobbyReady();
+}
+
+bool UGvTSessionSubsystem::SetHostedLobbyMap(EGvTPlayableMap SelectedMap)
+{
+    UWorld* World = GetWorld();
+    AGvTGameStateBase* GameState = World ? World->GetGameState<AGvTGameStateBase>() : nullptr;
+    if (!IsListenServerHost() || !GameState || !GameState->HasAuthority())
+    {
+        return false;
+    }
+
+    GameState->SetLobbySelectedMapAuthority(SelectedMap);
+
+    if (IOnlineSessionPtr Sessions = GetSessionInterface(); Sessions.IsValid())
+    {
+        if (FNamedOnlineSession* NamedSession = Sessions->GetNamedSession(NAME_GameSession))
+        {
+            const FSoftObjectPath& SelectedMapPath = SelectedMap == EGvTPlayableMap::ModernVilla ? ModernVillaMap : MVPHouseMap;
+            NamedSession->SessionSettings.Set(SETTING_MAPNAME, SelectedMapPath.GetLongPackageName(), EOnlineDataAdvertisementType::ViaOnlineService);
+            Sessions->UpdateSession(NAME_GameSession, NamedSession->SessionSettings, true);
+        }
+    }
+
+    return true;
+}
+
+EGvTPlayableMap UGvTSessionSubsystem::GetLobbySelectedMap() const
+{
+    const UWorld* World = GetWorld();
+    const AGvTGameStateBase* GameState = World ? World->GetGameState<AGvTGameStateBase>() : nullptr;
+    return GameState ? GameState->GetLobbySelectedMap() : EGvTPlayableMap::MVPHouse;
+}
+
+bool UGvTSessionSubsystem::AreAllLobbyPlayersReady() const
+{
+    const UWorld* World = GetWorld();
+    const AGameStateBase* GameState = World ? World->GetGameState() : nullptr;
+    if (!GameState || GameState->PlayerArray.IsEmpty())
+    {
+        return false;
+    }
+
+    int32 LobbyPlayerCount = 0;
+    for (APlayerState* PlayerState : GameState->PlayerArray)
+    {
+        const AGvTPlayerState* GvTPlayerState = Cast<AGvTPlayerState>(PlayerState);
+        if (!GvTPlayerState)
+        {
+            continue;
+        }
+
+        ++LobbyPlayerCount;
+        if (!GvTPlayerState->IsLobbyReady())
+        {
+            return false;
+        }
+    }
+
+    return LobbyPlayerCount > 0;
+}
+
+bool UGvTSessionSubsystem::CanHostStartMatch() const
+{
+    return IsListenServerHost() && GetConnectedPlayerCount() >= MinimumPlayersToStart && AreAllLobbyPlayersReady();
+}
+
+bool UGvTSessionSubsystem::StartHostedMatch()
+{
+    UWorld* World = GetWorld();
+    if (!World || !CanHostStartMatch())
+    {
+        return false;
+    }
+
+    const EGvTPlayableMap SelectedMap = GetLobbySelectedMap();
+    const FSoftObjectPath& SelectedMapPath = SelectedMap == EGvTPlayableMap::ModernVilla ? ModernVillaMap : MVPHouseMap;
+    const FString MapPackageName = SelectedMapPath.GetLongPackageName();
+    if (MapPackageName.IsEmpty())
+    {
+        return false;
+    }
+
+    World->ServerTravel(MapPackageName + TEXT("?listen"));
+    return true;
 }
 
 void UGvTSessionSubsystem::LeaveSession()

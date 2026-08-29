@@ -7,6 +7,7 @@
 
 class ULightComponent;
 class UGvTLightFlickerSubsystem;
+class AActor;
 
 USTRUCT()
 struct FGvTLightDefaultState
@@ -56,6 +57,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GvT|LightFlicker")
 	bool IsHousePowerEnabled() const { return bHousePowerEnabled; }
 
+	/** Replaces the external light-actor list used by modular houses. */
+	UFUNCTION(BlueprintCallable, Category = "GvT|LightFlicker")
+	void SetExplicitLightActors(const TArray<AActor*>& InLightActors);
+
+	/** Rebuilds cached defaults after the configured light list changes. */
+	UFUNCTION(BlueprintCallable, Category = "GvT|LightFlicker")
+	void RefreshLightCache();
+
+	UFUNCTION(BlueprintPure, Category = "GvT|LightFlicker")
+	int32 GetExplicitLightActorCount() const { return ExplicitLightActors.Num(); }
+
 	FName ResolveZoneFromTags(const TArray<FName>& Tags) const;
 	bool HasTag(const TArray<FName>& Tags, FName TagName) const;
 
@@ -67,6 +79,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|LightFlicker")
 	TArray<TObjectPtr<ULightComponent>> ExplicitLights;
+
+	/** Lights may live on separate level actors; a modular house does not need one combined mesh actor. */
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "GvT|LightFlicker")
+	TArray<TObjectPtr<AActor>> ExplicitLightActors;
 
 	UPROPERTY(Transient)
 	TArray<FGvTLightDefaultState> CachedLights;

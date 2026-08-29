@@ -146,6 +146,7 @@ void UGvTDirectorSubsystem::Deinitialize()
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(TimerHandle_TheftReaction);
+		World->GetTimerManager().ClearTimer(TimerHandle_ObjectiveCursedHaunt);
 	}
 
 	Super::Deinitialize();
@@ -175,10 +176,12 @@ void UGvTDirectorSubsystem::ResetTransientMatchState(UWorld* LoadedWorld)
 	{
 		LoadedWorld->GetTimerManager().ClearTimer(TimerHandle_DirectorTick);
 		LoadedWorld->GetTimerManager().ClearTimer(TimerHandle_TheftReaction);
+		LoadedWorld->GetTimerManager().ClearTimer(TimerHandle_ObjectiveCursedHaunt);
 	}
 
 	TimerHandle_DirectorTick.Invalidate();
 	TimerHandle_TheftReaction.Invalidate();
+	TimerHandle_ObjectiveCursedHaunt.Invalidate();
 
 	Heat = 0.f;
 	HouseActivity01 = 0.f;
@@ -205,6 +208,9 @@ void UGvTDirectorSubsystem::ResetTransientMatchState(UWorld* LoadedWorld)
 	bPendingTheftNoisy = false;
 	PendingTheftValue01 = 0.f;
 	PendingTheftCount = 0;
+	PendingObjectiveCarrier.Reset();
+	PendingObjectiveItem.Reset();
+	bObjectiveHasTriggeredCursedHaunt = false;
 }
 
 void UGvTDirectorSubsystem::StartDirector()
@@ -1309,6 +1315,13 @@ AGvTGhostCharacterBase* UGvTDirectorSubsystem::SpawnHauntGhostForTarget(APawn* T
 
 	const FVector LocationBeforeBeginHaunt = Ghost->GetActorLocation();
 	Ghost->BeginGhostHaunt(TargetPawn, HauntTag);
+	if (const AGvTGameStateBase* GS = World->GetGameState<AGvTGameStateBase>(); GS && GS->IsMainObjectiveSecured())
+	{
+		if (AGvTHauntGhostBase* HauntGhost = Cast<AGvTHauntGhostBase>(Ghost))
+		{
+			HauntGhost->ActivateCursedHaunt(nullptr, false);
+		}
+	}
 
 	if (!Ghost->GetActorLocation().Equals(LocationBeforeBeginHaunt, 5.f))
 	{
@@ -2622,6 +2635,69 @@ bool UGvTDirectorSubsystem::IsInPostHauntRecovery() const
 
 	const float Elapsed = World->GetTimeSeconds() - LastHauntEndTime;
 	return Elapsed >= 0.f && Elapsed < PostHauntRecoveryDuration;
+}
+
+void UGvTDirectorSubsystem::NotifyMainObjectivePickedUp(APawn* CarrierPawn, AGvTInteractableItem* ObjectiveItem)
+{
+	UWorld* World = GetWorld();
+	if (!World || !IsPawnEligibleForDirector(CarrierPawn) || !IsValid(ObjectiveItem) || !ObjectiveItem->IsMainObjective()) return;
+
+	World->GetTimerManager().ClearTimer(TimerHandle_ObjectiveCursedHaunt);
+	PendingObjectiveCarrier.Reset();
+	PendingObjectiveItem.Reset();
+
+	if (AGvTHauntGhostBase* ExistingHaunt = FindActiveHauntGhost())
+	{
+		if (ExistingHaunt->IsCursedHaunt()) ExistingHaunt->SetCursedFocusTarget(CarrierPawn);
+		else ExistingHaunt->ActivateCursedHaunt(CarrierPawn, true);
+		bObjectiveHasTriggeredCursedHaunt = true;
+		return;
+	}
+
+	PendingObjectiveCarrier = CarrierPawn;
+	PendingObjectiveItem = ObjectiveItem;
+	const float Delay = bObjectiveHasTriggeredCursedHaunt
+		? FMath::FRandRange(FMath::Max(0.f, RepeatObjectivePickupDelayMin), FMath::Max(RepeatObjectivePickupDelayMin, RepeatObjectivePickupDelayMax))
+		: 0.f;
+	if (Delay <= 0.f) ExecutePendingObjectiveCursedHaunt();
+	else World->GetTimerManager().SetTimer(TimerHandle_ObjectiveCursedHaunt, this, &ThisClass::ExecutePendingObjectiveCursedHaunt, Delay, false);
+}
+
+void UGvTDirectorSubsystem::ExecutePendingObjectiveCursedHaunt()
+{
+	APawn* CarrierPawn = PendingObjectiveCarrier.Get();
+	AGvTInteractableItem* ObjectiveItem = PendingObjectiveItem.Get();
+	PendingObjectiveCarrier.Reset();
+	PendingObjectiveItem.Reset();
+	if (!IsPawnEligibleForDirector(CarrierPawn) || !IsValid(ObjectiveItem) || ObjectiveItem->GetCarrier() != CarrierPawn) return;
+
+	if (AGvTHauntGhostBase* ExistingHaunt = FindActiveHauntGhost())
+	{
+		if (ExistingHaunt->IsCursedHaunt()) ExistingHaunt->SetCursedFocusTarget(CarrierPawn);
+		else ExistingHaunt->ActivateCursedHaunt(CarrierPawn, true);
+	}
+	else if (DispatchScareEventSimple(GvTScareTags::GhostHaunt_Chase(), CarrierPawn, ObjectiveItem, true))
+	{
+		if (AGvTHauntGhostBase* SpawnedHaunt = FindActiveHauntGhost()) SpawnedHaunt->ActivateCursedHaunt(CarrierPawn, true);
+	}
+	bObjectiveHasTriggeredCursedHaunt = true;
+}
+
+void UGvTDirectorSubsystem::NotifyMainObjectiveDropped(APawn* PreviousCarrier, AGvTInteractableItem* ObjectiveItem)
+{
+	if (!IsValid(ObjectiveItem) || !ObjectiveItem->IsMainObjective()) return;
+	if (UWorld* World = GetWorld()) World->GetTimerManager().ClearTimer(TimerHandle_ObjectiveCursedHaunt);
+	PendingObjectiveCarrier.Reset();
+	PendingObjectiveItem.Reset();
+	if (AGvTHauntGhostBase* ExistingHaunt = FindActiveHauntGhost()) ExistingHaunt->ClearCursedFocusTarget(PreviousCarrier);
+}
+
+void UGvTDirectorSubsystem::NotifyMainObjectiveDeposited()
+{
+	if (UWorld* World = GetWorld()) World->GetTimerManager().ClearTimer(TimerHandle_ObjectiveCursedHaunt);
+	PendingObjectiveCarrier.Reset();
+	PendingObjectiveItem.Reset();
+	if (AGvTHauntGhostBase* ExistingHaunt = FindActiveHauntGhost()) ExistingHaunt->ClearCursedFocusTarget();
 }
 
 float UGvTDirectorSubsystem::GetPostHauntRecoveryElapsed() const

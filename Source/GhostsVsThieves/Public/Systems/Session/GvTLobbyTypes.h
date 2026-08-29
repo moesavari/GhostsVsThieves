@@ -7,7 +7,14 @@ UENUM(BlueprintType)
 enum class EGvTPlayableMap : uint8
 {
 	MVPHouse UMETA(DisplayName = "MVP House"),
-	ModernVilla UMETA(DisplayName = "Modern Villa")
+	ModernVilla UMETA(DisplayName = "Rich Neighbourhood")
+};
+
+UENUM(BlueprintType)
+enum class EGvTSessionPrivacy : uint8
+{
+	Public UMETA(DisplayName = "Public"),
+	Private UMETA(DisplayName = "Private")
 };
 
 USTRUCT(BlueprintType)

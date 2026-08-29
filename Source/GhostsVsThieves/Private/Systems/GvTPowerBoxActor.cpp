@@ -87,6 +87,7 @@ AGvTPowerBoxActor::AGvTPowerBoxActor()
 {
 	PrimaryActorTick.bCanEverTick = false;
 	bReplicates = true;
+	bAlwaysRelevant = true;
 
 	Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
 	SetRootComponent(Root);
@@ -117,6 +118,7 @@ AGvTPowerBoxActor::AGvTPowerBoxActor()
 void AGvTPowerBoxActor::BeginPlay()
 {
 	Super::BeginPlay();
+	ApplyActiveBreakerState();
 	ApplyPowerState();
 }
 
@@ -140,8 +142,62 @@ void AGvTPowerBoxActor::OnRep_PowerState()
 	ApplyPowerState();
 }
 
+void AGvTPowerBoxActor::SetHouseActor(AActor* InHouseActor)
+{
+	HouseActor = InHouseActor;
+	ApplyPowerState();
+}
+
+void AGvTPowerBoxActor::SetActiveBreaker(bool bNewActive)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	FlushNetDormancy();
+
+	bIsActiveBreaker = bNewActive;
+	ApplyActiveBreakerState();
+
+	if (bIsActiveBreaker)
+	{
+		ApplyPowerState();
+	}
+
+	ForceNetUpdate();
+}
+
+void AGvTPowerBoxActor::OnRep_IsActiveBreaker()
+{
+	ApplyActiveBreakerState();
+}
+
+void AGvTPowerBoxActor::ApplyActiveBreakerState()
+{
+	SetActorHiddenInGame(!bIsActiveBreaker);
+	SetActorEnableCollision(bIsActiveBreaker);
+	SetActorTickEnabled(false);
+
+	if (InteractionBounds)
+	{
+		InteractionBounds->SetCollisionEnabled(
+			bIsActiveBreaker ? ECollisionEnabled::QueryOnly : ECollisionEnabled::NoCollision);
+	}
+
+	if (!bIsActiveBreaker && GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(TimerHandle_RandomFailure);
+	}
+}
+
 void AGvTPowerBoxActor::ApplyPowerState()
 {
+	if (!bIsActiveBreaker)
+	{
+		return;
+	}
+
 	if (OnIndicatorLight)
 	{
 		OnIndicatorLight->SetVisibility(PowerState == EGvTHousePowerState::On);
@@ -376,6 +432,7 @@ void AGvTPowerBoxActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(AGvTPowerBoxActor, PowerState);
+	DOREPLIFETIME(AGvTPowerBoxActor, bIsActiveBreaker);
 }
 
 void AGvTPowerBoxActor::HandlePlayerInteract(APawn* InstigatorPawn)
@@ -427,7 +484,7 @@ void AGvTPowerBoxActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn,
 
 bool AGvTPowerBoxActor::CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const
 {
-	return Verb == EGvTInteractionVerb::Interact && PowerState != EGvTHousePowerState::Blown;
+	return bIsActiveBreaker && Verb == EGvTInteractionVerb::Interact && PowerState != EGvTHousePowerState::Blown;
 }
 
 void AGvTPowerBoxActor::BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb)

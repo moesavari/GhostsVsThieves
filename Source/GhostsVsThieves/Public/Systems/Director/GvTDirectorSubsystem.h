@@ -33,6 +33,9 @@ public:
 	bool DispatchScareEvent(const FGvTScareEvent& Event);
 
 	bool DispatchScareEventSimple(const FGameplayTag& ScareTag, APawn* TargetPawn, AActor* SourceActor, bool bIgnorePanicThreshold = false);
+	void NotifyMainObjectivePickedUp(APawn* CarrierPawn, AGvTInteractableItem* ObjectiveItem);
+	void NotifyMainObjectiveDropped(APawn* PreviousCarrier, AGvTInteractableItem* ObjectiveItem);
+	void NotifyMainObjectiveDeposited();
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Director|Ghosts")
 	AGvTGhostCharacterBase* SpawnHauntGhostForTarget(APawn* TargetPawn, FGameplayTag HauntTag, TSubclassOf<AGvTGhostCharacterBase> FallbackGhostClass = nullptr);
@@ -568,6 +571,16 @@ private:
 	bool bPendingTheftNoisy = false;
 	float PendingTheftValue01 = 0.f;
 	int32 PendingTheftCount = 0;
+
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Cursed Haunt", meta = (ClampMin = "0.0"))
+	float RepeatObjectivePickupDelayMin = 3.f;
+	UPROPERTY(EditAnywhere, Category = "GvT|Director|Cursed Haunt", meta = (ClampMin = "0.0"))
+	float RepeatObjectivePickupDelayMax = 8.f;
+	FTimerHandle TimerHandle_ObjectiveCursedHaunt;
+	TWeakObjectPtr<APawn> PendingObjectiveCarrier;
+	TWeakObjectPtr<AGvTInteractableItem> PendingObjectiveItem;
+	bool bObjectiveHasTriggeredCursedHaunt = false;
+	void ExecutePendingObjectiveCursedHaunt();
 
 	mutable TMap<TWeakObjectPtr<APawn>, TWeakObjectPtr<AGvTGhostCharacterBase>> ActiveHauntGhostByTarget;
 	mutable TMap<TWeakObjectPtr<APawn>, float> LastManualHauntRequestTimeByTarget;

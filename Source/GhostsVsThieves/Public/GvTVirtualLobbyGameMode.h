@@ -12,4 +12,9 @@ class GHOSTSVSTHIEVES_API AGvTVirtualLobbyGameMode : public AGameModeBase
 
 public:
 	AGvTVirtualLobbyGameMode();
+	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
+	virtual void InitGameState() override;
+
+private:
+	int32 PendingInitialMapValue = 0;
 };

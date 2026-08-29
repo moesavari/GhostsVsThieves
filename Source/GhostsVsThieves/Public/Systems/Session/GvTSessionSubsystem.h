@@ -45,6 +45,10 @@ public:
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void HostSession(const FString& ServerName, int32 PublicConnections = 6, bool bLAN = false);
 
+	/** Unified Create Game entry point used for both solo and multiplayer lobbies. */
+	UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
+	void CreateGame(const FString& ServerName, EGvTPlayableMap SelectedMap, EGvTSessionPrivacy Privacy = EGvTSessionPrivacy::Public, int32 MaxPlayers = 6, bool bLAN = false);
+
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void FindSessions(int32 MaxResults = 50, bool bLAN = false);
 
@@ -119,7 +123,7 @@ protected:
 	FSoftObjectPath MVPHouseMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_MVP"));
 
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions|Maps")
-	FSoftObjectPath ModernVillaMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_ModernVilla"));
+	FSoftObjectPath ModernVillaMap = FSoftObjectPath(TEXT("/Game/Maps/L_House_RichNeighbourhood"));
 
 	/** Kept at one so the host can test alone. Set to two in the subsystem defaults for public builds. */
 	UPROPERTY(EditDefaultsOnly, Category = "GvT|Sessions|Lobby", meta = (ClampMin = "1", ClampMax = "6"))
@@ -155,6 +159,8 @@ private:
     int32 PendingPublicConnections = 6;
     int32 PendingMaxSearchResults = 50;
     bool bPendingLAN = true;
+	bool bPendingAdvertise = true;
+	EGvTPlayableMap PendingHostedMap = EGvTPlayableMap::MVPHouse;
     bool bCreateAfterDestroy = false;
     bool bOperationInProgress = false;
     EPendingOperation PendingOperation = EPendingOperation::None;

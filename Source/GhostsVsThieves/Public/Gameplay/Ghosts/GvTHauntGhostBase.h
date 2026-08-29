@@ -11,6 +11,7 @@ class UCharacterMovementComponent;
 class UGvTGhostPerceptionComponent;
 class AGvTDoorActor;
 class ATargetPoint;
+class USoundBase;
 
 UENUM(BlueprintType)
 enum class EGvTHauntGhostState : uint8
@@ -44,6 +45,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt|Objective")
 	void ApplyObjectiveHauntTuning(float SpeedMultiplier = 1.35f, float DurationMultiplier = 1.75f);
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt|Cursed")
+	void ActivateCursedHaunt(AActor* ForcedTarget, bool bResetHauntTimer);
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt|Cursed")
+	void SetCursedFocusTarget(AActor* NewTarget);
+	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt|Cursed")
+	void ClearCursedFocusTarget(AActor* ExpectedTarget = nullptr);
+	UFUNCTION(BlueprintPure, Category = "GvT|Ghost|Haunt|Cursed")
+	bool IsCursedHaunt() const { return bCursedHaunt; }
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UFUNCTION(BlueprintCallable, Category = "GvT|Ghost|Haunt")
@@ -100,10 +109,12 @@ protected:
 	float PreDespawnDelaySeconds = 0.85f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Targeting")
-	float CatchDistance = 120.f;
+	float CatchDistance = 200.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Targeting")
-	float LoseSightGraceSeconds = 2.0f;
+	float LoseSightGraceSeconds = 3.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Targeting", meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float LastKnownVelocityPredictionSeconds = 1.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Targeting")
 	bool bRequireLineOfSightToCatch = true;
@@ -119,7 +130,22 @@ protected:
 	float SearchRetargetDelaySeconds = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
-	float SearchAfterLostSightSeconds = 6.0f;
+	float SearchAfterLostSightSeconds = 10.0f;
+
+	UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Ghost|Haunt|Cursed")
+	bool bCursedHaunt = false;
+	UPROPERTY(Replicated, Transient, BlueprintReadOnly, Category = "GvT|Ghost|Haunt|Cursed")
+	TObjectPtr<AActor> CursedFocusTarget = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt|Cursed", meta = (ClampMin = "0.0"))
+	float CursedKillExtensionSeconds = 6.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt|Cursed", meta = (ClampMin = "0", ClampMax = "10"))
+	int32 MaximumCursedKillExtensions = 3;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt|Cursed|Audio")
+	TArray<TObjectPtr<USoundBase>> CursedHauntAudio;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Haunt|Cursed|Audio", meta = (ClampMin = "0.0", ClampMax = "2.0"))
+	float CursedHauntAudioVolume = 0.7f;
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayCursedHauntAudio(USoundBase* ChosenSound);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Search", meta = (ClampMin = "0.0"))
 	float SearchRepathInterval = 1.25f;
@@ -330,6 +356,7 @@ protected:
 	float RoomSearchBestDistance = TNumericLimits<float>::Max();
 	float RoomSearchStuckElapsedSeconds = 0.f;
 	bool bHauntDurationGraceApplied = false;
+	int32 AppliedCursedKillExtensions = 0;
 
 	struct FPendingGhostDoor
 	{

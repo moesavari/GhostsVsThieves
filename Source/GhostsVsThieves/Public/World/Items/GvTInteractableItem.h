@@ -84,6 +84,7 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Item|Inventory")
 	bool IsCarried() const { return Carrier != nullptr; }
+	AGvTThiefCharacter* GetCarrier() const { return Carrier; }
 
 	UFUNCTION(BlueprintPure, Category = "Item|Scan")
 	bool HasBeenScanned() const { return bHasBeenScanned; }

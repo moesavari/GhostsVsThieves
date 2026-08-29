@@ -44,6 +44,8 @@ void AGvTHauntGhostBase::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 
 	DOREPLIFETIME(AGvTHauntGhostBase, HauntState);
 	DOREPLIFETIME(AGvTHauntGhostBase, AssignedChaseTarget);
+	DOREPLIFETIME(AGvTHauntGhostBase, bCursedHaunt);
+	DOREPLIFETIME(AGvTHauntGhostBase, CursedFocusTarget);
 }
 
 void AGvTHauntGhostBase::BeginPlay()
@@ -153,6 +155,69 @@ void AGvTHauntGhostBase::ApplyObjectiveHauntTuning(float SpeedMultiplier, float 
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("[ObjectiveHaunt] Aggressive tuning applied. Ghost=%s Chase=%.1f Search=%.1f Duration=%.1f"), *GetNameSafe(this), ChaseSpeed, SearchAfterLostSightSeconds, MaxHauntDurationSeconds);
+}
+
+void AGvTHauntGhostBase::ActivateCursedHaunt(AActor* ForcedTarget, bool bResetHauntTimer)
+{
+	if (!HasAuthority()) return;
+	const bool bWasCursed = bCursedHaunt;
+	bCursedHaunt = true;
+	bContinueHuntAfterKill = true;
+	if (!bWasCursed)
+	{
+		ApplyObjectiveHauntTuning();
+		if (CursedHauntAudio.Num() > 0)
+		{
+			const int32 Index = FMath::RandRange(0, CursedHauntAudio.Num() - 1);
+			if (USoundBase* Sound = CursedHauntAudio[Index]) Multicast_PlayCursedHauntAudio(Sound);
+		}
+	}
+	if (bResetHauntTimer)
+	{
+		HauntElapsedSeconds = 0.f;
+		AppliedCursedKillExtensions = 0;
+	}
+	if (IsValid(ForcedTarget)) SetCursedFocusTarget(ForcedTarget);
+	ForceNetUpdate();
+}
+
+void AGvTHauntGhostBase::SetCursedFocusTarget(AActor* NewTarget)
+{
+	if (!HasAuthority() || !bCursedHaunt || !IsValid(NewTarget)) return;
+	const float SavedElapsed = HauntElapsedSeconds;
+	const int32 SavedExtensions = AppliedCursedKillExtensions;
+	CursedFocusTarget = NewTarget;
+	StartGhostChase(NewTarget);
+	HauntElapsedSeconds = SavedElapsed;
+	AppliedCursedKillExtensions = SavedExtensions;
+	ForceNetUpdate();
+}
+
+void AGvTHauntGhostBase::ClearCursedFocusTarget(AActor* ExpectedTarget)
+{
+	if (!HasAuthority() || (ExpectedTarget && CursedFocusTarget != ExpectedTarget)) return;
+	if (IsValid(ExpectedTarget))
+	{
+		LastKnownTargetLocation = ExpectedTarget->GetActorLocation();
+		LastTimeTargetSeen = GetWorld() ? GetWorld()->GetTimeSeconds() : LastTimeTargetSeen;
+	}
+	CursedFocusTarget = nullptr;
+	SetAssignedChaseTarget(nullptr);
+	SetCurrentChaseTarget(nullptr);
+	if (bCursedHaunt && !LastKnownTargetLocation.IsNearlyZero())
+	{
+		StartSearchFromLastKnownLocation();
+	}
+	else
+	{
+		HandleSearchExpired();
+	}
+	ForceNetUpdate();
+}
+
+void AGvTHauntGhostBase::Multicast_PlayCursedHauntAudio_Implementation(USoundBase* ChosenSound)
+{
+	if (ChosenSound) UGameplayStatics::PlaySound2D(this, ChosenSound, CursedHauntAudioVolume);
 }
 
 void AGvTHauntGhostBase::BeginGhostHaunt(AActor* Target, FGameplayTag HauntTag)
@@ -433,9 +498,9 @@ FVector AGvTHauntGhostBase::GetNavigationSafeGhostLocation(const FVector& Desire
 		FNavLocation NavLocation;
 		if (NavSys->ProjectPointToNavigation(DesiredLocation, NavLocation))
 		{
-			ResultLocation.X = NavLocation.Location.X;
-			ResultLocation.Y = NavLocation.Location.Y;
-			ResultLocation.Z = GetActorLocation().Z;
+			// Preserve the projected floor height. Forcing this to the ghost's
+			// current Z prevents valid paths between upstairs and downstairs.
+			ResultLocation = NavLocation.Location;
 		}
 	}
 
@@ -491,10 +556,12 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 		return;
 	}
 
-	const bool bHasLOS = HasLineOfSightToTarget(Target);
+	const bool bHasForcedCursedTarget = bCursedHaunt && CursedFocusTarget == Target;
+	const bool bHasLOS = bHasForcedCursedTarget || HasLineOfSightToTarget(Target);
 	if (bHasLOS)
 	{
-		LastKnownTargetLocation = Target->GetActorLocation();
+		const FVector PredictedOffset = bHasForcedCursedTarget ? FVector::ZeroVector : Target->GetVelocity() * LastKnownVelocityPredictionSeconds;
+		LastKnownTargetLocation = Target->GetActorLocation() + PredictedOffset;
 		LastTimeTargetSeen = GetWorld() ? GetWorld()->GetTimeSeconds() : LastTimeTargetSeen;
 	}
 
@@ -506,11 +573,12 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 		return;
 	}
 
+	EPathFollowingRequestResult::Type MoveRequestResult = EPathFollowingRequestResult::AlreadyAtGoal;
 	if (AAIController* AI = Cast<AAIController>(GetController()))
 	{
 		if (bHasLOS)
 		{
-			AI->MoveToActor(
+			MoveRequestResult = AI->MoveToActor(
 				Target,
 				MovementAcceptanceRadius,
 				true,
@@ -521,7 +589,7 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 		{
 			const FVector SafeLastKnown = GetNavigationSafeGhostLocation(LastKnownTargetLocation);
 
-			AI->MoveToLocation(
+			MoveRequestResult = AI->MoveToLocation(
 				SafeLastKnown,
 				MovementAcceptanceRadius,
 				true,
@@ -533,7 +601,11 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 		}
 	}
 
-	if (bHasLOS)
+	// Do not drive CharacterMovement directly while path following is active.
+	// The two movement sources fight over direction on stairs and cause visible
+	// jitter. Direct chase remains an emergency fallback only when no nav path
+	// can be requested.
+	if (bHasLOS && MoveRequestResult == EPathFollowingRequestResult::Failed)
 	{
 		ApplyDirectChaseFallback(Target, DeltaSeconds);
 	}
@@ -542,7 +614,7 @@ void AGvTHauntGhostBase::UpdateChase(float DeltaSeconds)
 	{
 		if (UCharacterMovementComponent* MoveComp = GetCharacterMovement())
 		{
-			UE_LOG(LogTemp, Warning,
+			UE_LOG(LogTemp, VeryVerbose,
 				TEXT("[GhoulMoveDebug] Ghost=%s Target=%s Controller=%s Mode=%d Vel=%s Loc=%s TargetLoc=%s HasLOS=%d"),
 				*GetNameSafe(this),
 				*GetNameSafe(Target),
@@ -764,7 +836,23 @@ void AGvTHauntGhostBase::HandleCaughtTarget(AActor* Target)
 
 	if (bContinueHuntAfterKill)
 	{
+		if (bCursedHaunt && AppliedCursedKillExtensions < MaximumCursedKillExtensions)
+		{
+			HauntElapsedSeconds = FMath::Max(0.f, HauntElapsedSeconds - CursedKillExtensionSeconds);
+			++AppliedCursedKillExtensions;
+		}
+		CursedFocusTarget = nullptr;
+		SetAssignedChaseTarget(nullptr);
 		SetCurrentChaseTarget(nullptr);
+		if (APawn* NextVictim = FindBestVisibleVictim())
+		{
+			const float SavedElapsed = HauntElapsedSeconds;
+			const int32 SavedExtensions = AppliedCursedKillExtensions;
+			StartGhostChase(NextVictim);
+			HauntElapsedSeconds = SavedElapsed;
+			AppliedCursedKillExtensions = SavedExtensions;
+		}
+		else HandleSearchExpired();
 	}
 	else
 	{

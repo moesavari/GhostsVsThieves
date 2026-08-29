@@ -240,8 +240,18 @@ void AGvTInteractableItem::CompleteInteract_Implementation(APawn* InstigatorPawn
 	{
 		Noise->EmitNoise(InteractNoiseTag, InteractNoiseRadius, 1.f);
 	}
+	if (IsMainObjective())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Director->NotifyMainObjectivePickedUp(Thief, this);
+			}
+		}
+	}
 
-	if (!bHasTriggeredTheftReaction)
+	if (!IsMainObjective() && !bHasTriggeredTheftReaction)
 	{
 		bHasTriggeredTheftReaction = true;
 		if (IsStolenLoot())
@@ -418,6 +428,16 @@ void AGvTInteractableItem::DropFromInventory(const FVector& WorldLocation, const
 	}
 
 	AGvTThiefCharacter* PreviousCarrier = Carrier;
+	if (IsMainObjective() && PreviousCarrier)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (UGvTDirectorSubsystem* Director = World->GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+			{
+				Director->NotifyMainObjectiveDropped(PreviousCarrier, this);
+			}
+		}
+	}
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	Carrier = nullptr;
 	bIsEquipped = false;

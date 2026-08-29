@@ -76,6 +76,19 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GvT|Power")
 	bool IsPowerBlown() const { return PowerState == EGvTHousePowerState::Blown; }
 
+	UFUNCTION(BlueprintCallable, Category = "GvT|Power")
+	void SetHouseActor(AActor* InHouseActor);
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Power")
+	AActor* GetHouseActor() const { return HouseActor; }
+
+	/** Called by the HouseManager on the server. Inactive decoys are hidden and non-interactable. */
+	UFUNCTION(BlueprintCallable, BlueprintAuthorityOnly, Category = "GvT|Power")
+	void SetActiveBreaker(bool bNewActive);
+
+	UFUNCTION(BlueprintPure, Category = "GvT|Power")
+	bool IsActiveBreaker() const { return bIsActiveBreaker; }
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Power|Ghost Reaction", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float BreakerGhostReactionChance = 0.35f;
 
@@ -89,7 +102,11 @@ protected:
 	UFUNCTION()
 	void OnRep_PowerState();
 
+	UFUNCTION()
+	void OnRep_IsActiveBreaker();
+
 	void ApplyPowerState();
+	void ApplyActiveBreakerState();
 	void ScheduleRandomFailureCheck();
 	void RunRandomFailureCheck();
 	float GetRandomFailureChance() const;
@@ -113,6 +130,9 @@ protected:
 
 	UPROPERTY(EditInstanceOnly, BlueprintReadOnly, Category = "GvT|Power")
 	TObjectPtr<AActor> HouseActor = nullptr;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsActiveBreaker, VisibleInstanceOnly, BlueprintReadOnly, Category = "GvT|Power")
+	bool bIsActiveBreaker = true;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GvT|Power")
 	TObjectPtr<UPointLightComponent> OnIndicatorLight;

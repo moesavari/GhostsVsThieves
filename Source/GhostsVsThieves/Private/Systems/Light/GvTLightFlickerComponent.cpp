@@ -88,13 +88,72 @@ void UGvTLightFlickerComponent::CacheLights()
 		return;
 	}
 
-	TArray<UChildActorComponent*> ChildActorComps;
-	OwnerActor->GetComponents<UChildActorComponent>(ChildActorComps);
-
-	for (UChildActorComponent* ChildComp : ChildActorComps)
+	TArray<ULightComponent*> FoundLights;
+	if (bAutoCollectOwnerLightComponents)
 	{
-		GatherLightsFromChildActorComponent(ChildComp);
+		GatherLightsFromActor(OwnerActor, FoundLights);
 	}
+
+	for (ULightComponent* Light : ExplicitLights)
+	{
+		if (IsValid(Light))
+		{
+			FoundLights.AddUnique(Light);
+		}
+	}
+
+	for (AActor* LightActor : ExplicitLightActors)
+	{
+		GatherLightsFromActor(LightActor, FoundLights);
+	}
+
+	for (ULightComponent* Light : FoundLights)
+	{
+		if (!IsValid(Light))
+		{
+			continue;
+		}
+
+		FGvTLightDefaultState State;
+		State.Light = Light;
+		State.Intensity = Light->Intensity;
+		State.bVisible = Light->IsVisible();
+		State.ZoneName = ResolveZoneFromTags(Light->ComponentTags);
+		if (State.ZoneName == NAME_None && Light->GetOwner())
+		{
+			State.ZoneName = ResolveZoneFromTags(Light->GetOwner()->Tags);
+		}
+		State.bAffectedByHousePower =
+			!HasTag(Light->ComponentTags, FName(TEXT("Power.Ignore"))) &&
+			(!Light->GetOwner() || !HasTag(Light->GetOwner()->Tags, FName(TEXT("Power.Ignore"))));
+		CachedLights.Add(State);
+	}
+}
+
+void UGvTLightFlickerComponent::SetExplicitLightActors(const TArray<AActor*>& InLightActors)
+{
+	ExplicitLightActors.Reset();
+	for (AActor* Actor : InLightActors)
+	{
+		if (IsValid(Actor))
+		{
+			ExplicitLightActors.AddUnique(Actor);
+		}
+	}
+
+	RefreshLightCache();
+}
+
+void UGvTLightFlickerComponent::RefreshLightCache()
+{
+	const bool bWasFlickering = bIsFlickering;
+	if (bWasFlickering)
+	{
+		StopFlicker();
+	}
+
+	CacheLights();
+	ApplyCurrentPowerState();
 }
 
 void UGvTLightFlickerComponent::StartFlicker(const FGvTLightFlickerEvent& Event)

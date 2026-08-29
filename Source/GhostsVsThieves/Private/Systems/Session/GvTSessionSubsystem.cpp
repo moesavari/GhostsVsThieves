@@ -139,6 +139,11 @@ void UGvTSessionSubsystem::BroadcastStatus(const FText& Message, bool bSuccess)
 
 void UGvTSessionSubsystem::HostSession(const FString& ServerName, int32 PublicConnections, bool bLAN)
 {
+	CreateGame(ServerName, EGvTPlayableMap::MVPHouse, EGvTSessionPrivacy::Public, PublicConnections, bLAN);
+}
+
+void UGvTSessionSubsystem::CreateGame(const FString& ServerName, EGvTPlayableMap SelectedMap, EGvTSessionPrivacy Privacy, int32 MaxPlayers, bool bLAN)
+{
     if (bOperationInProgress)
     {
         BroadcastStatus(NSLOCTEXT("GvTSessions", "BusyHost", "A multiplayer operation is already running."), false);
@@ -153,7 +158,9 @@ void UGvTSessionSubsystem::HostSession(const FString& ServerName, int32 PublicCo
     }
 
     PendingServerName = ServerName.IsEmpty() ? TEXT("Haunted Robberies Lobby") : ServerName;
-    PendingPublicConnections = FMath::Clamp(PublicConnections, 1, 6);
+	PendingHostedMap = SelectedMap;
+	bPendingAdvertise = Privacy == EGvTSessionPrivacy::Public;
+    PendingPublicConnections = FMath::Clamp(MaxPlayers, 1, 6);
     bPendingLAN = bLAN;
     bOperationInProgress = true;
 
@@ -209,9 +216,10 @@ void UGvTSessionSubsystem::CreateSessionNow()
     PendingSessionSettings = MakeShared<FOnlineSessionSettings>();
     PendingSessionSettings->bIsLANMatch = bPendingLAN;
     PendingSessionSettings->NumPublicConnections = PendingPublicConnections;
-    PendingSessionSettings->bShouldAdvertise = true;
+	PendingSessionSettings->bShouldAdvertise = bPendingAdvertise;
     PendingSessionSettings->bAllowJoinInProgress = true;
-    PendingSessionSettings->bAllowJoinViaPresence = true;
+	PendingSessionSettings->bAllowJoinViaPresence = bPendingAdvertise;
+	PendingSessionSettings->bAllowInvites = true;
     PendingSessionSettings->bUsesPresence = true;
     PendingSessionSettings->bUseLobbiesIfAvailable = true;
     PendingSessionSettings->BuildUniqueId = static_cast<int32>(FNetworkVersion::GetLocalNetworkVersion());
@@ -255,7 +263,8 @@ void UGvTSessionSubsystem::HandleCreateSessionComplete(FName SessionName, bool b
         return;
     }
 
-    UGameplayStatics::OpenLevel(World, FName(*LobbyMapPackageName), true, TEXT("listen"));
+	const FString Options = FString::Printf(TEXT("listen?GvTSelectedMap=%d"), static_cast<int32>(PendingHostedMap));
+	UGameplayStatics::OpenLevel(World, FName(*LobbyMapPackageName), true, Options);
 }
 
 void UGvTSessionSubsystem::FindSessions(int32 MaxResults, bool bLAN)
@@ -369,7 +378,19 @@ void UGvTSessionSubsystem::JoinSessionByIndex(int32 ResultIndex)
         FOnJoinSessionCompleteDelegate::CreateUObject(this, &ThisClass::HandleJoinSessionComplete));
     BroadcastStatus(NSLOCTEXT("GvTSessions", "Joining", "Joining lobby..."), true);
 
-    if (!Sessions->JoinSession(0, NAME_GameSession, SessionSearch->SearchResults[ResultIndex]))
+    //if (!Sessions->JoinSession(0, NAME_GameSession, SessionSearch->SearchResults[ResultIndex]))
+    FOnlineSessionSearchResult& SearchResult = SessionSearch->SearchResults[ResultIndex];
+
+    SearchResult.Session.SessionSettings.bUsesPresence = true;
+    SearchResult.Session.SessionSettings.bUseLobbiesIfAvailable = true;
+
+    UE_LOG(LogTemp, Log,
+        TEXT("[Sessions] Joining result %d Presence=%d Lobbies=%d"),
+        ResultIndex,
+        SearchResult.Session.SessionSettings.bUsesPresence ? 1 : 0,
+        SearchResult.Session.SessionSettings.bUseLobbiesIfAvailable ? 1 : 0);
+
+    if (!Sessions->JoinSession(0, NAME_GameSession, SearchResult))
     {
         Sessions->ClearOnJoinSessionCompleteDelegate_Handle(JoinDelegateHandle);
         bOperationInProgress = false;

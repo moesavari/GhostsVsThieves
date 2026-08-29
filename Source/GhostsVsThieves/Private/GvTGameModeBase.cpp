@@ -73,6 +73,13 @@ void AGvTGameModeBase::NotifyLootDeposited(AGvTInteractableItem* DepositedItem, 
 		GS->AddSecuredLootAuthority(SecuredValue, DepositedItem->IsMainObjective());
 		++SecuredItemCount;
 	}
+	if (DepositedItem->IsMainObjective())
+	{
+		if (UGvTDirectorSubsystem* Director = GetGameInstance()->GetSubsystem<UGvTDirectorSubsystem>())
+		{
+			Director->NotifyMainObjectiveDeposited();
+		}
+	}
 }
 
 void AGvTGameModeBase::NotifyThiefDied(AGvTThiefCharacter* DeadThief)

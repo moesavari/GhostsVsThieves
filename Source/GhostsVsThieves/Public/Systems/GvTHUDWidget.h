@@ -4,6 +4,15 @@
 #include "Blueprint/UserWidget.h"
 #include "GvTHUDWidget.generated.h"
 
+UENUM(BlueprintType)
+enum class EGvTPanicCueTier : uint8
+{
+	Calm UMETA(DisplayName="Calm"),
+	Uneasy UMETA(DisplayName="Uneasy"),
+	Danger UMETA(DisplayName="Danger"),
+	Critical UMETA(DisplayName="Critical")
+};
+
 UCLASS()
 class GHOSTSVSTHIEVES_API UGvTHUDWidget : public UUserWidget
 {
@@ -25,6 +34,9 @@ public:
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|HUD")
 	void UpdatePanicDisplay(float NewPanic01);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|HUD|Panic")
+	void UpdatePanicCues(float NewPanic01, EGvTPanicCueTier Tier, bool bVisualEffectsEnabled, bool bAudioEffectsEnabled);
 
 	/** Displays short player-facing feedback such as interaction failures or mission status. */
 	UFUNCTION(BlueprintImplementableEvent, Category = "GvT|HUD")

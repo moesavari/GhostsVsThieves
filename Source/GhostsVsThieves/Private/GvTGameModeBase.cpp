@@ -3,6 +3,7 @@
 #include "GvTPlayerController.h"
 #include "GvTPlayerState.h"
 #include "Gameplay/Characters/Thieves/GvTThiefCharacter.h"
+#include "Gameplay/Characters/Thieves/GvTDeadSpectatorPawn.h"
 #include "Gameplay/Ghosts/GvTHauntGhostBase.h"
 #include "Gameplay/Inventory/GvTInventoryComponent.h"
 #include "Gameplay/Interaction/GvTInteractionComponent.h"
@@ -17,6 +18,7 @@
 AGvTGameModeBase::AGvTGameModeBase()
 {
 	GameStateClass = AGvTGameStateBase::StaticClass();
+	DeadSpectatorPawnClass = AGvTDeadSpectatorPawn::StaticClass();
 }
 
 void AGvTGameModeBase::StartPlay()
@@ -85,6 +87,7 @@ void AGvTGameModeBase::NotifyLootDeposited(AGvTInteractableItem* DepositedItem, 
 void AGvTGameModeBase::NotifyThiefDied(AGvTThiefCharacter* DeadThief)
 {
 	if (bMissionFinished) return;
+	SpawnDeadSpectatorFor(DeadThief);
 	RefreshReadyPlayerCount();
 	RefreshLivingPlayerCount();
 	if (!HasLivingThief())
@@ -329,6 +332,45 @@ void AGvTGameModeBase::ReturnAllPlayersToMainMenu()
 			0.25f,
 			false);
 	}
+}
+
+void AGvTGameModeBase::SpawnDeadSpectatorFor(AGvTThiefCharacter* DeadThief)
+{
+	if (!HasAuthority() || !IsValid(DeadThief) || !DeadSpectatorPawnClass)
+	{
+		return;
+	}
+
+	APlayerController* PlayerController = Cast<APlayerController>(DeadThief->GetController());
+	if (!PlayerController)
+	{
+		return;
+	}
+
+	FActorSpawnParameters SpawnParameters;
+	SpawnParameters.Owner = PlayerController;
+	SpawnParameters.Instigator = DeadThief;
+	SpawnParameters.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	const FVector SpawnLocation = DeadThief->GetActorLocation();
+	const FRotator SpawnRotation = PlayerController->GetControlRotation();
+	AGvTDeadSpectatorPawn* SpectatorPawn = GetWorld()->SpawnActor<AGvTDeadSpectatorPawn>(
+		DeadSpectatorPawnClass,
+		SpawnLocation,
+		FRotator(0.f, SpawnRotation.Yaw, 0.f),
+		SpawnParameters);
+
+	if (!SpectatorPawn)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[DeathSpectator] Failed to spawn for %s"), *GetNameSafe(DeadThief));
+		return;
+	}
+
+	PlayerController->Possess(SpectatorPawn);
+	PlayerController->SetControlRotation(SpawnRotation);
+
+	UE_LOG(LogTemp, Display, TEXT("[DeathSpectator] Player=%s Corpse=%s Spectator=%s"),
+		*GetNameSafe(PlayerController), *GetNameSafe(DeadThief), *GetNameSafe(SpectatorPawn));
 }
 
 bool AGvTGameModeBase::HasLivingThief() const

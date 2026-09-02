@@ -47,6 +47,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "GvT|Inventory")
     USceneComponent* GetHeldItemAnchor() const { return HeldItemAnchor; }
 
+    UFUNCTION(BlueprintPure, Category = "GvT|Animation")
+    bool HasSelectedItem() const;
+
     UFUNCTION(BlueprintCallable, Category = "GvT|Interaction")
     void SetInteractionLock(bool bLockMove, bool bLockLook);
 

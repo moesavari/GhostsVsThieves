@@ -6,6 +6,7 @@
 #include "GvTGameModeBase.h"
 #include "GvTPlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "Net/UnrealNetwork.h"
 #include "Sound/SoundBase.h"
 
 AGvTExtractionDepartureActor::AGvTExtractionDepartureActor()
@@ -27,6 +28,18 @@ AGvTExtractionDepartureActor::AGvTExtractionDepartureActor()
 	PlaceholderMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("PlaceholderMesh"));
 	PlaceholderMesh->SetupAttachment(InteractionBounds);
 	PlaceholderMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+void AGvTExtractionDepartureActor::BeginPlay()
+{
+	Super::BeginPlay();
+	OnRep_VanDoorsOpen();
+}
+
+void AGvTExtractionDepartureActor::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+	DOREPLIFETIME(AGvTExtractionDepartureActor, bVanDoorsOpen);
 }
 
 void AGvTExtractionDepartureActor::GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const
@@ -72,6 +85,7 @@ void AGvTExtractionDepartureActor::CompleteInteract_Implementation(APawn* Instig
 					PC->Client_ShowExtractionMessage(GM->BuildExtractionStatusMessage(Result), true);
 					break;
 				case EGvTExtractionRequestResult::DepartureStarted:
+					SetVanDoorsOpenAuthority(false);
 					if (EngineStartSounds.Num() > 0)
 					{
 						Multicast_PlayEngineStart(EngineStartSounds[FMath::RandRange(0, EngineStartSounds.Num() - 1)]);
@@ -83,6 +97,23 @@ void AGvTExtractionDepartureActor::CompleteInteract_Implementation(APawn* Instig
 			}
 		}
 	}
+}
+
+void AGvTExtractionDepartureActor::SetVanDoorsOpenAuthority(bool bOpen)
+{
+	if (!HasAuthority() || bVanDoorsOpen == bOpen)
+	{
+		return;
+	}
+
+	bVanDoorsOpen = bOpen;
+	OnRep_VanDoorsOpen();
+	ForceNetUpdate();
+}
+
+void AGvTExtractionDepartureActor::OnRep_VanDoorsOpen()
+{
+	BP_ApplyVanDoorState(bVanDoorsOpen);
 }
 
 void AGvTExtractionDepartureActor::Multicast_PlayEngineStart_Implementation(USoundBase* Sound)

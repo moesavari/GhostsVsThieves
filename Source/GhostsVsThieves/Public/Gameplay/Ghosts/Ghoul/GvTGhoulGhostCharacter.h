@@ -47,6 +47,9 @@ protected:
 	virtual void OnHauntSearchStarted() override;
 	virtual void OnHauntTargetCaught(AActor* Target) override;
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StopChaseAudioOnCaught();
+
 	void TryOpenNearbyDoors();
 	void BeginCloseScarePresentation(AActor* Target);
 	void EndCloseScarePresentation();

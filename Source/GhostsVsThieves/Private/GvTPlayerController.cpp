@@ -2,6 +2,7 @@
 #include "Blueprint/UserWidget.h"
 #include "GvTPlayerState.h"
 #include "GvTGameStateBase.h"
+#include "GvTGameInstance.h"
 #include "Systems/GvTMissionResultsWidget.h"
 #include "World/Doors/GvTDoorActor.h"
 #include "Engine/World.h"
@@ -17,6 +18,7 @@
 #include "InputCoreTypes.h"
 #include "Kismet/GameplayStatics.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "InputKeyEventArgs.h"
 
 void AGvTPlayerController::OnPossess(APawn* InPawn)
 {
@@ -315,15 +317,22 @@ void AGvTPlayerController::Client_OpenVanInventory_Implementation(AGvTVanInvento
 	OnOpenVanInventory(VanInventory);
 }
 
-bool AGvTPlayerController::InputKey(FKey Key, EInputEvent EventType, float AmountDepressed, bool bGamepad)
+bool AGvTPlayerController::InputKey(const FInputKeyEventArgs& Params)
 {
-	if (bVanInventoryOpen && Key == EKeys::Tab && EventType == IE_Pressed)
+	// Controller-owned so Escape remains available after death/possession changes.
+	if (Params.Key == EKeys::Escape && Params.Event == IE_Pressed)
+	{
+		TogglePauseMenu();
+		return true;
+	}
+
+	if (bVanInventoryOpen && Params.Key == EKeys::Tab && Params.Event == IE_Pressed)
 	{
 		CloseVanInventory();
 		return true;
 	}
 
-	return Super::InputKey(Key, EventType, AmountDepressed, bGamepad);
+	return Super::InputKey(Params);
 }
 
 void AGvTPlayerController::CloseVanInventory()
@@ -341,7 +350,7 @@ void AGvTPlayerController::CloseVanInventory()
 
 void AGvTPlayerController::TogglePauseMenu()
 {
-	if (!IsLocalController() || bMissionInputLocked || !Cast<AGvTThiefCharacter>(GetPawn()))
+	if (!IsLocalController() || bMissionInputLocked || !GetPawn())
 	{
 		return;
 	}
@@ -693,23 +702,48 @@ void AGvTPlayerController::SetActorHighlighted(AActor* Actor, bool bHighlighted)
 
 void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 {
+	const float ClampedPanic01 = FMath::Clamp(NewPanic01, 0.f, 1.f);
+	EGvTPanicCueTier PanicCueTier = EGvTPanicCueTier::Calm;
+
+	if (ClampedPanic01 >= 0.85f)
+	{
+		PanicCueTier = EGvTPanicCueTier::Critical;
+	}
+	else if (ClampedPanic01 >= 0.65f)
+	{
+		PanicCueTier = EGvTPanicCueTier::Danger;
+	}
+	else if (ClampedPanic01 >= 0.40f)
+	{
+		PanicCueTier = EGvTPanicCueTier::Uneasy;
+	}
+
+	bool bVisualEffectsEnabled = true;
+	bool bAudioEffectsEnabled = true;
+	if (const UGvTGameInstance* GvTGameInstance = Cast<UGvTGameInstance>(GetGameInstance()))
+	{
+		bVisualEffectsEnabled = GvTGameInstance->GetPanicVisualEffectsEnabled();
+		bAudioEffectsEnabled = GvTGameInstance->GetPanicAudioEffectsEnabled();
+	}
+
+	if (UGvTHUDWidget* GvTHUD = Cast<UGvTHUDWidget>(HUDWidget))
+	{
+		GvTHUD->UpdatePanicDisplay(ClampedPanic01);
+		GvTHUD->UpdatePanicCues(ClampedPanic01, PanicCueTier, bVisualEffectsEnabled, bAudioEffectsEnabled);
+	}
+
 	if (NewPanic01 >= MedicinePanicHintThreshold01)
 	{
 		ShowOnboardingPromptLocal(EGvTOnboardingPrompt::MedicinePanic);
 	}
 
 #if GVT_ENABLE_DEBUG_TOOLS && !UE_BUILD_SHIPPING
-	const int32 DisplayedPercent = FMath::RoundToInt(FMath::Clamp(NewPanic01, 0.f, 1.f) * 100.f);
+	const int32 DisplayedPercent = FMath::RoundToInt(ClampedPanic01 * 100.f);
 	if (DisplayedPercent == LastDisplayedPanicPercent)
 	{
 		return;
 	}
 	LastDisplayedPanicPercent = DisplayedPercent;
-
-	if (UGvTHUDWidget* GvTHUD = Cast<UGvTHUDWidget>(HUDWidget))
-	{
-		GvTHUD->UpdatePanicDisplay(NewPanic01);
-	}
 
 	UE_LOG(LogTemp, Verbose, TEXT("[HUD] Panic display updated: %d%%"), DisplayedPercent);
 #endif

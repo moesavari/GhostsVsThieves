@@ -35,6 +35,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category="GvT|Input Settings")
 	void SetMouseSensitivity(float NewSensitivity);
 
+	UFUNCTION(BlueprintCallable, Category="GvT|Accessibility")
+	void SetPanicVisualEffectsEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintCallable, Category="GvT|Accessibility")
+	void SetPanicAudioEffectsEnabled(bool bEnabled);
+
 	UFUNCTION(BlueprintPure, Category="GvT|Audio Settings")
 	float GetMasterVolume() const { return MasterVolume; }
 
@@ -46,6 +52,12 @@ public:
 
 	UFUNCTION(BlueprintPure, Category="GvT|Input Settings")
 	float GetMouseSensitivity() const { return MouseSensitivity; }
+
+	UFUNCTION(BlueprintPure, Category="GvT|Accessibility")
+	bool GetPanicVisualEffectsEnabled() const { return bPanicVisualEffectsEnabled; }
+
+	UFUNCTION(BlueprintPure, Category="GvT|Accessibility")
+	bool GetPanicAudioEffectsEnabled() const { return bPanicAudioEffectsEnabled; }
 
 	/** Full-screen widget shown during regular map travel. Use an indeterminate Progress Bar or Throbber; Open Level does not expose real progress. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Loading Screen")
@@ -81,6 +93,12 @@ private:
 
 	UPROPERTY(Transient)
 	float MouseSensitivity = 1.0f;
+
+	UPROPERTY(Transient)
+	bool bPanicVisualEffectsEnabled = true;
+
+	UPROPERTY(Transient)
+	bool bPanicAudioEffectsEnabled = true;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UUserWidget> LoadingScreenWidget;

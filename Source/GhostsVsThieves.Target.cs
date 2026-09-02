@@ -8,8 +8,8 @@ public class GhostsVsThievesTarget : TargetRules
 	public GhostsVsThievesTarget(TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Game;
-		DefaultBuildSettings = BuildSettingsVersion.V5;
-		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_4;
-		ExtraModuleNames.Add("GhostsVsThieves");
+        DefaultBuildSettings = BuildSettingsVersion.V6;
+        IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_7;
+        ExtraModuleNames.Add("GhostsVsThieves");
 	}
 }

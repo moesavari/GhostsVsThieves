@@ -16,6 +16,8 @@ namespace GvTAudioSettings
 	static const TCHAR* MusicKey = TEXT("MusicVolume");
 	static const TCHAR* SFXKey = TEXT("SFXVolume");
 	static const TCHAR* MouseSensitivityKey = TEXT("MouseSensitivity");
+	static const TCHAR* PanicVisualEffectsKey = TEXT("PanicVisualEffectsEnabled");
+	static const TCHAR* PanicAudioEffectsKey = TEXT("PanicAudioEffectsEnabled");
 }
 
 void UGvTGameInstance::Init()
@@ -112,6 +114,18 @@ void UGvTGameInstance::SetMouseSensitivity(float NewSensitivity)
 	StoreAudioSettings(false);
 }
 
+void UGvTGameInstance::SetPanicVisualEffectsEnabled(bool bEnabled)
+{
+	bPanicVisualEffectsEnabled = bEnabled;
+	StoreAudioSettings(false);
+}
+
+void UGvTGameInstance::SetPanicAudioEffectsEnabled(bool bEnabled)
+{
+	bPanicAudioEffectsEnabled = bEnabled;
+	StoreAudioSettings(false);
+}
+
 void UGvTGameInstance::LoadAudioSettings()
 {
 	if (!GConfig)
@@ -123,6 +137,8 @@ void UGvTGameInstance::LoadAudioSettings()
 	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::MusicKey, MusicVolume, GGameUserSettingsIni);
 	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::SFXKey, SFXVolume, GGameUserSettingsIni);
 	GConfig->GetFloat(GvTAudioSettings::Section, GvTAudioSettings::MouseSensitivityKey, MouseSensitivity, GGameUserSettingsIni);
+	GConfig->GetBool(GvTAudioSettings::Section, GvTAudioSettings::PanicVisualEffectsKey, bPanicVisualEffectsEnabled, GGameUserSettingsIni);
+	GConfig->GetBool(GvTAudioSettings::Section, GvTAudioSettings::PanicAudioEffectsKey, bPanicAudioEffectsEnabled, GGameUserSettingsIni);
 
 	MasterVolume = FMath::Clamp(MasterVolume, 0.0f, 1.0f);
 	MusicVolume = FMath::Clamp(MusicVolume, 0.0f, 1.0f);
@@ -166,6 +182,8 @@ void UGvTGameInstance::StoreAudioSettings(bool bFlush)
 	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::MusicKey, MusicVolume, GGameUserSettingsIni);
 	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::SFXKey, SFXVolume, GGameUserSettingsIni);
 	GConfig->SetFloat(GvTAudioSettings::Section, GvTAudioSettings::MouseSensitivityKey, MouseSensitivity, GGameUserSettingsIni);
+	GConfig->SetBool(GvTAudioSettings::Section, GvTAudioSettings::PanicVisualEffectsKey, bPanicVisualEffectsEnabled, GGameUserSettingsIni);
+	GConfig->SetBool(GvTAudioSettings::Section, GvTAudioSettings::PanicAudioEffectsKey, bPanicAudioEffectsEnabled, GGameUserSettingsIni);
 
 	if (bFlush)
 	{

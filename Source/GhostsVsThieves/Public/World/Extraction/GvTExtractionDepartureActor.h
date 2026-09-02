@@ -17,6 +17,7 @@ class GHOSTSVSTHIEVES_API AGvTExtractionDepartureActor : public AActor, public I
 
 public:
 	AGvTExtractionDepartureActor();
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void GetInteractionSpec_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, FGvTInteractionSpec& OutSpec) const override;
 	virtual bool CanInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) const override;
 	virtual void BeginInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb) override;
@@ -24,6 +25,8 @@ public:
 	virtual void CancelInteract_Implementation(APawn* InstigatorPawn, EGvTInteractionVerb Verb, EGvTInteractionCancelReason Reason) override;
 
 protected:
+	virtual void BeginPlay() override;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Extraction")
 	TObjectPtr<USceneComponent> SceneRoot;
 
@@ -51,4 +54,17 @@ protected:
 
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_PlayEngineStart(USoundBase* Sound);
+
+	/** Replicated presentation state for Blueprint-owned van door meshes/animations. */
+	UPROPERTY(ReplicatedUsing=OnRep_VanDoorsOpen, BlueprintReadOnly, Category="Extraction|Van Doors")
+	bool bVanDoorsOpen = true;
+
+	UFUNCTION()
+	void OnRep_VanDoorsOpen();
+
+	UFUNCTION(BlueprintImplementableEvent, Category="Extraction|Van Doors", meta=(DisplayName="Apply Van Door State"))
+	void BP_ApplyVanDoorState(bool bOpen);
+
+private:
+	void SetVanDoorsOpenAuthority(bool bOpen);
 };

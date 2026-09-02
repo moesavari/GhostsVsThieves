@@ -29,7 +29,7 @@ public:
     virtual void BeginPlay() override;
     virtual void OnPossess(APawn* InPawn) override;
     virtual void Tick(float DeltaSeconds) override;
-    virtual bool InputKey(FKey Key, EInputEvent EventType, float AmountDepressed, bool bGamepad) override;
+    virtual bool InputKey(const FInputKeyEventArgs& Params) override;
 
     virtual void OnRep_PlayerState() override;
     virtual void PostSeamlessTravel() override;

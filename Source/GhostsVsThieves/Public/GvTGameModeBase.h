@@ -7,6 +7,7 @@
 class AGvTInteractableItem;
 class AGvTPlayerState;
 class AGvTThiefCharacter;
+class AGvTDeadSpectatorPawn;
 
 UENUM(BlueprintType)
 enum class EGvTExtractionRequestResult : uint8
@@ -45,6 +46,10 @@ public:
 	void ReturnAllPlayersToMainMenu();
 
 protected:
+	/** Invisible roaming pawn possessed by a player after their thief dies. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Death")
+	TSubclassOf<AGvTDeadSpectatorPawn> DeadSpectatorPawnClass;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GvT|Mission")
 	bool bRequireMainObjectiveForSuccess = true;
 
@@ -56,6 +61,7 @@ protected:
 	FString MainMenuMapPath;
 
 private:
+	void SpawnDeadSpectatorFor(AGvTThiefCharacter* DeadThief);
 	void RefreshLivingPlayerCount();
 	void RefreshReadyPlayerCount();
 	void RemoveInvalidReadyPlayers();

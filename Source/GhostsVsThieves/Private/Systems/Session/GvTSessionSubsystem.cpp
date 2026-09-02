@@ -15,6 +15,12 @@ namespace GvTSessionKeys
     static const FName ServerName(TEXT("GvTServerName"));
     static const FName BucketIdKey(TEXT("BucketId"));
     static const FString BucketId(TEXT("HauntedHeistsWAN"));
+    static const FName Privacy(TEXT("GvTPrivacy"));
+    static const FName RoomCode(TEXT("GvTRoomCode"));
+    static constexpr int32 PublicPrivacyValue = static_cast<int32>(EGvTSessionPrivacy::Public);
+    static constexpr int32 PrivatePrivacyValue = static_cast<int32>(EGvTSessionPrivacy::Private);
+    static constexpr int32 RoomCodeLength = 6;
+    static const FString RoomCodeAlphabet(TEXT("ABCDEFGHJKLMNPQRSTUVWXYZ23456789"));
 }
 
 void UGvTSessionSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -125,6 +131,10 @@ void UGvTSessionSubsystem::ResumePendingOperation()
     {
         FindSessionsNow();
     }
+    else if (Operation == EPendingOperation::FindPrivate)
+    {
+        FindSessionsNow();
+    }
     else
     {
         bOperationInProgress = false;
@@ -159,7 +169,10 @@ void UGvTSessionSubsystem::CreateGame(const FString& ServerName, EGvTPlayableMap
 
     PendingServerName = ServerName.IsEmpty() ? TEXT("Haunted Robberies Lobby") : ServerName;
 	PendingHostedMap = SelectedMap;
-	bPendingAdvertise = Privacy == EGvTSessionPrivacy::Public;
+	PendingPrivacy = Privacy;
+	PendingRoomCode = Privacy == EGvTSessionPrivacy::Private ? GenerateRoomCode() : FString();
+	CurrentSessionPrivacy = Privacy;
+	CurrentRoomCode = PendingRoomCode;
     PendingPublicConnections = FMath::Clamp(MaxPlayers, 1, 6);
     bPendingLAN = bLAN;
     bOperationInProgress = true;
@@ -216,15 +229,22 @@ void UGvTSessionSubsystem::CreateSessionNow()
     PendingSessionSettings = MakeShared<FOnlineSessionSettings>();
     PendingSessionSettings->bIsLANMatch = bPendingLAN;
     PendingSessionSettings->NumPublicConnections = PendingPublicConnections;
-	PendingSessionSettings->bShouldAdvertise = bPendingAdvertise;
+	// Private lobbies must remain discoverable by exact room-code queries. Their
+	// privacy metadata keeps them out of the ordinary public browser.
+	PendingSessionSettings->bShouldAdvertise = true;
     PendingSessionSettings->bAllowJoinInProgress = true;
-	PendingSessionSettings->bAllowJoinViaPresence = bPendingAdvertise;
+	PendingSessionSettings->bAllowJoinViaPresence = PendingPrivacy == EGvTSessionPrivacy::Public;
 	PendingSessionSettings->bAllowInvites = true;
     PendingSessionSettings->bUsesPresence = true;
     PendingSessionSettings->bUseLobbiesIfAvailable = true;
     PendingSessionSettings->BuildUniqueId = static_cast<int32>(FNetworkVersion::GetLocalNetworkVersion());
     PendingSessionSettings->Set(GvTSessionKeys::BucketIdKey, GvTSessionKeys::BucketId, EOnlineDataAdvertisementType::ViaOnlineService);
     PendingSessionSettings->Set(GvTSessionKeys::ServerName, PendingServerName, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+    PendingSessionSettings->Set(GvTSessionKeys::Privacy, static_cast<int32>(PendingPrivacy), EOnlineDataAdvertisementType::ViaOnlineService);
+    if (!PendingRoomCode.IsEmpty())
+    {
+        PendingSessionSettings->Set(GvTSessionKeys::RoomCode, PendingRoomCode, EOnlineDataAdvertisementType::ViaOnlineService);
+    }
     PendingSessionSettings->Set(SETTING_MAPNAME, LobbyMap.GetLongPackageName(), EOnlineDataAdvertisementType::ViaOnlineService);
 
     CreateDelegateHandle = Sessions->AddOnCreateSessionCompleteDelegate_Handle(
@@ -249,6 +269,8 @@ void UGvTSessionSubsystem::HandleCreateSessionComplete(FName SessionName, bool b
     bOperationInProgress = false;
     if (!bSuccess)
     {
+        CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+        CurrentRoomCode.Reset();
         BroadcastStatus(NSLOCTEXT("GvTSessions", "HostFailed", "Failed to create the lobby."), false);
         return;
     }
@@ -277,11 +299,44 @@ void UGvTSessionSubsystem::FindSessions(int32 MaxResults, bool bLAN)
 
     PendingMaxSearchResults = FMath::Clamp(MaxResults, 1, 200);
     bPendingLAN = bLAN;
+    bPendingPrivateCodeSearch = false;
+    PendingRoomCode.Reset();
     bOperationInProgress = true;
 
     if (!bPendingLAN && !IsLocalUserLoggedIn())
     {
         PendingOperation = EPendingOperation::Find;
+        BeginLoginForPendingOperation();
+        return;
+    }
+
+    FindSessionsNow();
+}
+
+void UGvTSessionSubsystem::JoinPrivateSessionByCode(const FString& RoomCode, bool bLAN)
+{
+    if (bOperationInProgress)
+    {
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "BusyPrivateJoin", "A multiplayer operation is already running."), false);
+        return;
+    }
+
+    const FString NormalizedCode = NormalizeRoomCode(RoomCode);
+    if (!IsValidRoomCode(NormalizedCode))
+    {
+        BroadcastStatus(NSLOCTEXT("GvTSessions", "InvalidRoomCode", "Enter a valid six-character room code."), false);
+        return;
+    }
+
+    PendingRoomCode = NormalizedCode;
+    PendingMaxSearchResults = 20;
+    bPendingLAN = bLAN;
+    bPendingPrivateCodeSearch = true;
+    bOperationInProgress = true;
+
+    if (!bPendingLAN && !IsLocalUserLoggedIn())
+    {
+        PendingOperation = EPendingOperation::FindPrivate;
         BeginLoginForPendingOperation();
         return;
     }
@@ -302,16 +357,26 @@ void UGvTSessionSubsystem::FindSessionsNow()
     SessionSearch = MakeShared<FOnlineSessionSearch>();
     SessionSearch->MaxSearchResults = PendingMaxSearchResults;
     SessionSearch->bIsLanQuery = bPendingLAN;
-    SessionSearch->QuerySettings.Set(SEARCH_PRESENCE, true, EOnlineComparisonOp::Equals);
+
     if (!bPendingLAN)
     {
         SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
         SessionSearch->QuerySettings.Set(GvTSessionKeys::BucketIdKey, GvTSessionKeys::BucketId, EOnlineComparisonOp::Equals);
     }
+    SessionSearch->QuerySettings.Set(
+        GvTSessionKeys::Privacy,
+        bPendingPrivateCodeSearch ? GvTSessionKeys::PrivatePrivacyValue : GvTSessionKeys::PublicPrivacyValue,
+        EOnlineComparisonOp::Equals);
+    if (bPendingPrivateCodeSearch)
+    {
+        SessionSearch->QuerySettings.Set(GvTSessionKeys::RoomCode, PendingRoomCode, EOnlineComparisonOp::Equals);
+    }
 
     FindDelegateHandle = Sessions->AddOnFindSessionsCompleteDelegate_Handle(
         FOnFindSessionsCompleteDelegate::CreateUObject(this, &ThisClass::HandleFindSessionsComplete));
-    BroadcastStatus(bPendingLAN
+    BroadcastStatus(bPendingPrivateCodeSearch
+        ? NSLOCTEXT("GvTSessions", "SearchingRoomCode", "Searching for private lobby...")
+        : bPendingLAN
         ? NSLOCTEXT("GvTSessions", "SearchingLAN", "Searching for LAN games...")
         : NSLOCTEXT("GvTSessions", "SearchingWAN", "Searching for online games..."), true);
 
@@ -332,11 +397,34 @@ void UGvTSessionSubsystem::HandleFindSessionsComplete(bool bSuccess)
 
     bOperationInProgress = false;
     TArray<FGvTSessionSearchResult> Results;
+    int32 PrivateMatchIndex = INDEX_NONE;
     if (bSuccess && SessionSearch.IsValid())
     {
         for (int32 Index = 0; Index < SessionSearch->SearchResults.Num(); ++Index)
         {
             const FOnlineSessionSearchResult& SearchResult = SessionSearch->SearchResults[Index];
+            int32 PrivacyValue = GvTSessionKeys::PublicPrivacyValue;
+            FString FoundRoomCode;
+            SearchResult.Session.SessionSettings.Get(GvTSessionKeys::Privacy, PrivacyValue);
+            SearchResult.Session.SessionSettings.Get(GvTSessionKeys::RoomCode, FoundRoomCode);
+
+            if (bPendingPrivateCodeSearch)
+            {
+                if (PrivacyValue == GvTSessionKeys::PrivatePrivacyValue && NormalizeRoomCode(FoundRoomCode) == PendingRoomCode)
+                {
+                    PrivateMatchIndex = Index;
+                    break;
+                }
+                continue;
+            }
+
+            // Some providers may return more than the requested custom filter.
+            // Defend the public browser locally so private rooms never leak in.
+            if (PrivacyValue != GvTSessionKeys::PublicPrivacyValue)
+            {
+                continue;
+            }
+
             FGvTSessionSearchResult Result;
             Result.ResultIndex = Index;
             SearchResult.Session.SessionSettings.Get(GvTSessionKeys::ServerName, Result.ServerName);
@@ -349,6 +437,23 @@ void UGvTSessionSubsystem::HandleFindSessionsComplete(bool bSuccess)
             Result.PingMs = SearchResult.PingInMs;
             Results.Add(Result);
         }
+    }
+
+    if (bPendingPrivateCodeSearch)
+    {
+        bPendingPrivateCodeSearch = false;
+        if (PrivateMatchIndex != INDEX_NONE)
+        {
+            CurrentSessionPrivacy = EGvTSessionPrivacy::Private;
+            CurrentRoomCode = PendingRoomCode;
+            BroadcastStatus(NSLOCTEXT("GvTSessions", "PrivateLobbyFound", "Private lobby found. Joining..."), true);
+            JoinSessionByIndex(PrivateMatchIndex);
+        }
+        else
+        {
+            BroadcastStatus(NSLOCTEXT("GvTSessions", "RoomCodeNotFound", "No private lobby was found with that room code."), false);
+        }
+        return;
     }
 
     OnSessionSearchCompleted.Broadcast(Results);
@@ -381,6 +486,19 @@ void UGvTSessionSubsystem::JoinSessionByIndex(int32 ResultIndex)
     //if (!Sessions->JoinSession(0, NAME_GameSession, SessionSearch->SearchResults[ResultIndex]))
     FOnlineSessionSearchResult& SearchResult = SessionSearch->SearchResults[ResultIndex];
 
+    int32 PrivacyValue = GvTSessionKeys::PublicPrivacyValue;
+    SearchResult.Session.SessionSettings.Get(GvTSessionKeys::Privacy, PrivacyValue);
+    CurrentSessionPrivacy = PrivacyValue == GvTSessionKeys::PrivatePrivacyValue ? EGvTSessionPrivacy::Private : EGvTSessionPrivacy::Public;
+    if (CurrentSessionPrivacy == EGvTSessionPrivacy::Private)
+    {
+        SearchResult.Session.SessionSettings.Get(GvTSessionKeys::RoomCode, CurrentRoomCode);
+        CurrentRoomCode = NormalizeRoomCode(CurrentRoomCode);
+    }
+    else
+    {
+        CurrentRoomCode.Reset();
+    }
+
     SearchResult.Session.SessionSettings.bUsesPresence = true;
     SearchResult.Session.SessionSettings.bUseLobbiesIfAvailable = true;
 
@@ -394,6 +512,8 @@ void UGvTSessionSubsystem::JoinSessionByIndex(int32 ResultIndex)
     {
         Sessions->ClearOnJoinSessionCompleteDelegate_Handle(JoinDelegateHandle);
         bOperationInProgress = false;
+        CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+        CurrentRoomCode.Reset();
         BroadcastStatus(NSLOCTEXT("GvTSessions", "JoinStartFailed", "Could not start joining that lobby."), false);
     }
 }
@@ -409,6 +529,8 @@ void UGvTSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoinS
 
     if (Result != EOnJoinSessionCompleteResult::Success || !Sessions.IsValid())
     {
+        CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+        CurrentRoomCode.Reset();
         BroadcastStatus(NSLOCTEXT("GvTSessions", "JoinFailed", "Failed to join the lobby."), false);
         return;
     }
@@ -417,12 +539,51 @@ void UGvTSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOnJoinS
     APlayerController* PlayerController = GetGameInstance() ? GetGameInstance()->GetFirstLocalPlayerController() : nullptr;
     if (!Sessions->GetResolvedConnectString(SessionName, ConnectString) || ConnectString.IsEmpty() || !PlayerController)
     {
+        CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+        CurrentRoomCode.Reset();
         BroadcastStatus(NSLOCTEXT("GvTSessions", "AddressFailed", "The lobby address could not be resolved."), false);
         return;
     }
 
     BroadcastStatus(NSLOCTEXT("GvTSessions", "JoinReady", "Connected. Entering lobby..."), true);
     PlayerController->ClientTravel(ConnectString, TRAVEL_Absolute);
+}
+
+FString UGvTSessionSubsystem::GenerateRoomCode()
+{
+    FString RoomCode;
+    RoomCode.Reserve(GvTSessionKeys::RoomCodeLength);
+    for (int32 Index = 0; Index < GvTSessionKeys::RoomCodeLength; ++Index)
+    {
+        RoomCode.AppendChar(GvTSessionKeys::RoomCodeAlphabet[FMath::RandHelper(GvTSessionKeys::RoomCodeAlphabet.Len())]);
+    }
+    return RoomCode;
+}
+
+FString UGvTSessionSubsystem::NormalizeRoomCode(const FString& RoomCode)
+{
+    FString NormalizedCode = RoomCode.ToUpper();
+    NormalizedCode.TrimStartAndEndInline();
+    NormalizedCode.ReplaceInline(TEXT(" "), TEXT(""));
+    NormalizedCode.ReplaceInline(TEXT("-"), TEXT(""));
+    return NormalizedCode;
+}
+
+bool UGvTSessionSubsystem::IsValidRoomCode(const FString& RoomCode)
+{
+    if (RoomCode.Len() != GvTSessionKeys::RoomCodeLength)
+    {
+        return false;
+    }
+
+    for (const TCHAR Character : RoomCode)
+    {
+        if (!GvTSessionKeys::RoomCodeAlphabet.Contains(FString::Chr(Character)))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 void UGvTSessionSubsystem::JoinDirect(const FString& Address)
@@ -618,6 +779,8 @@ void UGvTSessionSubsystem::LeaveSession()
     IOnlineSessionPtr Sessions = GetSessionInterface();
     if (!Sessions.IsValid() || !Sessions->GetNamedSession(NAME_GameSession))
     {
+        CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+        CurrentRoomCode.Reset();
         BroadcastStatus(NSLOCTEXT("GvTSessions", "NoSession", "There is no active multiplayer session."), false);
         TravelToPendingReturnMap();
         return;
@@ -700,6 +863,8 @@ void UGvTSessionSubsystem::HandleDestroySessionComplete(FName SessionName, bool 
     }
 
     bOperationInProgress = false;
+    CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+    CurrentRoomCode.Reset();
     BroadcastStatus(bSuccess
         ? NSLOCTEXT("GvTSessions", "Left", "Session closed.")
         : NSLOCTEXT("GvTSessions", "LeaveFailed", "Failed to close the session."), bSuccess);

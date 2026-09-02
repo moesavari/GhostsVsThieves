@@ -74,6 +74,11 @@ AGvTThiefCharacter::AGvTThiefCharacter()
     FootstepNoiseTag = FGameplayTag::RequestGameplayTag(TEXT("Noise.Footstep"));
  }
 
+bool AGvTThiefCharacter::HasSelectedItem() const
+{
+    return InventoryComponent && IsValid(InventoryComponent->GetSelectedItem());
+}
+
 void AGvTThiefCharacter::BeginPlay()
 {
     Super::BeginPlay();

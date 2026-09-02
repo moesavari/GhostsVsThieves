@@ -248,6 +248,11 @@ void AGvTCrawlerGhostCharacter::OnHauntSearchStarted()
 void AGvTCrawlerGhostCharacter::OnHauntTargetCaught(AActor* Target)
 {
 	TargetVictim = Cast<APawn>(Target);
+	Multicast_StopChaseAudioOnCaught();
+}
+
+void AGvTCrawlerGhostCharacter::Multicast_StopChaseAudioOnCaught_Implementation()
+{
 	StopCurrentScareAudio(true, &ChaseAudio, true);
 }
 

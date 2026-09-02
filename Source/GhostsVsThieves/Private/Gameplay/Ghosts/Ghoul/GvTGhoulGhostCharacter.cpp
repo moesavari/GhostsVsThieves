@@ -180,6 +180,11 @@ void AGvTGhoulGhostCharacter::OnHauntSearchStarted()
 void AGvTGhoulGhostCharacter::OnHauntTargetCaught(AActor* Target)
 {
 	TargetVictim = Cast<APawn>(Target);
+	Multicast_StopChaseAudioOnCaught();
+}
+
+void AGvTGhoulGhostCharacter::Multicast_StopChaseAudioOnCaught_Implementation()
+{
 	StopCurrentScareAudio(true, &ChaseAudio, true);
 }
 

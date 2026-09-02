@@ -46,6 +46,9 @@ protected:
 	virtual void OnHauntSearchStarted() override;
 	virtual void OnHauntTargetCaught(AActor* Target) override;
 
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_StopChaseAudioOnCaught();
+
 	void OnRep_State();
 	void SetState(EGvTCrawlerGhostState NewState);
 	void StartOverhead_Internal(APawn* Victim);

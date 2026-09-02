@@ -52,6 +52,17 @@ public:
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void FindSessions(int32 MaxResults = 50, bool bLAN = false);
 
+    /** Finds a private lobby by its six-character room code and joins it automatically. */
+    UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
+    void JoinPrivateSessionByCode(const FString& RoomCode, bool bLAN = false);
+
+    /** Room code for the currently hosted/joined private lobby. Empty for public lobbies. */
+    UFUNCTION(BlueprintPure, Category="GvT|Sessions|Lobby")
+    FString GetHostedRoomCode() const { return CurrentRoomCode; }
+
+    UFUNCTION(BlueprintPure, Category="GvT|Sessions|Lobby")
+    EGvTSessionPrivacy GetCurrentSessionPrivacy() const { return CurrentSessionPrivacy; }
+
     /** Bypasses session discovery and connects to an IP/hostname, for WAN diagnostics. */
     UFUNCTION(BlueprintCallable, Category="GvT|Sessions")
     void JoinDirect(const FString& Address);
@@ -134,7 +145,8 @@ private:
     {
         None,
         Host,
-        Find
+        Find,
+        FindPrivate
     };
 
     IOnlineSessionPtr GetSessionInterface() const;
@@ -146,6 +158,9 @@ private:
     void PrepareHostSessionNow();
     void CreateSessionNow();
     void FindSessionsNow();
+    static FString GenerateRoomCode();
+    static FString NormalizeRoomCode(const FString& RoomCode);
+    static bool IsValidRoomCode(const FString& RoomCode);
     void HandleLoginComplete(int32 LocalUserNum, bool bSuccess, const FUniqueNetId& UserId, const FString& Error);
     void HandleCreateSessionComplete(FName SessionName, bool bSuccess);
     void HandleFindSessionsComplete(bool bSuccess);
@@ -159,7 +174,11 @@ private:
     int32 PendingPublicConnections = 6;
     int32 PendingMaxSearchResults = 50;
     bool bPendingLAN = true;
-	bool bPendingAdvertise = true;
+	bool bPendingPrivateCodeSearch = false;
+	EGvTSessionPrivacy PendingPrivacy = EGvTSessionPrivacy::Public;
+	FString PendingRoomCode;
+	EGvTSessionPrivacy CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
+	FString CurrentRoomCode;
 	EGvTPlayableMap PendingHostedMap = EGvTPlayableMap::MVPHouse;
     bool bCreateAfterDestroy = false;
     bool bOperationInProgress = false;

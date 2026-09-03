@@ -14,6 +14,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Engine/TargetPoint.h"
 #include "Navigation/PathFollowingComponent.h"
+#include "Systems/World/GvTHouseBoundsLibrary.h"
 
 AGvTHauntGhostBase::AGvTHauntGhostBase()
 {
@@ -836,14 +837,23 @@ void AGvTHauntGhostBase::HandleCaughtTarget(AActor* Target)
 
 	if (bContinueHuntAfterKill)
 	{
+		if (bCursedHaunt && !HasLivingThiefInsideHouse())
+		{
+			UE_LOG(LogTemp, Log, TEXT("[CursedHaunt] Ending after kill because no living thieves remain inside the house. Ghost=%s"), *GetNameSafe(this));
+			StartHauntDespawnSequence();
+			return;
+		}
+
 		if (bCursedHaunt && AppliedCursedKillExtensions < MaximumCursedKillExtensions)
 		{
 			HauntElapsedSeconds = FMath::Max(0.f, HauntElapsedSeconds - CursedKillExtensionSeconds);
 			++AppliedCursedKillExtensions;
 		}
+
 		CursedFocusTarget = nullptr;
 		SetAssignedChaseTarget(nullptr);
 		SetCurrentChaseTarget(nullptr);
+
 		if (APawn* NextVictim = FindBestVisibleVictim())
 		{
 			const float SavedElapsed = HauntElapsedSeconds;
@@ -852,12 +862,35 @@ void AGvTHauntGhostBase::HandleCaughtTarget(AActor* Target)
 			HauntElapsedSeconds = SavedElapsed;
 			AppliedCursedKillExtensions = SavedExtensions;
 		}
-		else HandleSearchExpired();
+		else
+		{
+			HandleSearchExpired();
+		}
 	}
 	else
 	{
 		StartHauntDespawnSequence();
 	}
+}
+
+bool AGvTHauntGhostBase::HasLivingThiefInsideHouse() const
+{
+	for (TActorIterator<AGvTThiefCharacter> It(GetWorld()); It; ++It)
+	{
+		const AGvTThiefCharacter* Thief = *It;
+		if (!IsValid(Thief) || Thief->IsDead())
+		{
+			continue;
+		}
+
+		bool bFoundHouseBounds = false;
+		if (UGvTHouseBoundsLibrary::IsLocationInsideHouse(this, Thief->GetActorLocation(), bFoundHouseBounds))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void AGvTHauntGhostBase::StartHauntDespawnSequence()

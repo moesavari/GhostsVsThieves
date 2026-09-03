@@ -21,6 +21,7 @@ class USceneComponent;
 class USoundBase;
 class UAudioComponent;
 class USoundAttenuation;
+class USkeletalMesh;
 
 UENUM(BlueprintType)
 enum class EGvTFearReactionType : uint8
@@ -79,6 +80,9 @@ public:
 
     UFUNCTION()
     void OnRep_IsDead();
+
+    UFUNCTION()
+    void OnRep_SelectedPlayerSkin();
 
     UFUNCTION(Server, Reliable)
     void Server_SetDead(AActor* Killer);
@@ -201,6 +205,12 @@ protected:
 
     UPROPERTY(ReplicatedUsing = OnRep_IsDead, BlueprintReadOnly, Category = "GvT|Death")
     bool bIsDead = false;
+
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "GvT|Appearance")
+    TArray<TObjectPtr<USkeletalMesh>> PlayerSkinMeshes;
+
+    UPROPERTY(ReplicatedUsing = OnRep_SelectedPlayerSkin, BlueprintReadOnly, Category = "GvT|Appearance")
+    TObjectPtr<USkeletalMesh> SelectedPlayerSkin = nullptr;
 
     UPROPERTY(Replicated, BlueprintReadOnly, Category = "GvT|Interaction")
     bool bInteractionLockMove = false;

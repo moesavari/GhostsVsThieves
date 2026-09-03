@@ -36,6 +36,7 @@
 #include "GvTPlayerController.h"
 #include "Components/AudioComponent.h"
 #include "Sound/SoundAttenuation.h"
+#include "Components/SkeletalMeshComponent.h"
 
 AGvTThiefCharacter::AGvTThiefCharacter()
 {
@@ -82,6 +83,12 @@ bool AGvTThiefCharacter::HasSelectedItem() const
 void AGvTThiefCharacter::BeginPlay()
 {
     Super::BeginPlay();
+
+    if (HasAuthority() && !PlayerSkinMeshes.IsEmpty())
+    {
+        SelectedPlayerSkin = PlayerSkinMeshes[FMath::RandRange(0, PlayerSkinMeshes.Num() - 1)];
+        OnRep_SelectedPlayerSkin();
+    }
 
     if (UCharacterMovementComponent* Move = GetCharacterMovement())
     {
@@ -271,6 +278,15 @@ void AGvTThiefCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
     DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockMove);
     DOREPLIFETIME(AGvTThiefCharacter, bInteractionLockLook);
     DOREPLIFETIME(AGvTThiefCharacter, bIsDead);
+    DOREPLIFETIME(AGvTThiefCharacter, SelectedPlayerSkin);
+}
+
+void AGvTThiefCharacter::OnRep_SelectedPlayerSkin()
+{
+    if (SelectedPlayerSkin && GetMesh())
+    {
+        GetMesh()->SetSkeletalMesh(SelectedPlayerSkin);
+    }
 }
 
 void AGvTThiefCharacter::OnMove(const FInputActionValue& Value)

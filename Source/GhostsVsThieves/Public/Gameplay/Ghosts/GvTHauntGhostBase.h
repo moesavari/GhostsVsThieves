@@ -91,6 +91,8 @@ protected:
 	void ApplyDirectChaseFallback(AActor* Target, float DeltaSeconds);
 	virtual void HandleCaughtTarget(AActor* Target);
 
+	bool HasLivingThiefInsideHouse() const;
+
 	void UpdateFacingFromMovement(float DeltaSeconds);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GvT|Ghost|Movement")

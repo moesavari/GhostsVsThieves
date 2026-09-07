@@ -43,6 +43,15 @@ void AGvTGameModeBase::StartPlay()
 	RefreshLivingPlayerCount();
 }
 
+void AGvTGameModeBase::PreLogin(const FString& Options, const FString& Address, const FUniqueNetIdRepl& UniqueId, FString& ErrorMessage)
+{
+	Super::PreLogin(Options, Address, UniqueId, ErrorMessage);
+	if (ErrorMessage.IsEmpty())
+	{
+		ErrorMessage = TEXT("Match already in progress.");
+	}
+}
+
 void AGvTGameModeBase::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);

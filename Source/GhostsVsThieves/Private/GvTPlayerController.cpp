@@ -458,19 +458,77 @@ void AGvTPlayerController::ReturnToMainMenuFromPauseMenu()
 	if (!IsLocalController() || MainMenuMapName.IsNone())
 	{
 		return;
-    }
+	}
 
-    SetPauseMenuOpen(false);
-    if (UGameInstance* GameInstance = GetGameInstance())
-    {
-        if (UGvTSessionSubsystem* Sessions = GameInstance->GetSubsystem<UGvTSessionSubsystem>())
-        {
-            Sessions->LeaveSessionAndReturnToMenu(MainMenuMapName);
-            return;
-        }
-    }
+	SetPauseMenuOpen(false);
 
-    UGameplayStatics::OpenLevel(this, MainMenuMapName, true);
+	if (HasAuthority() && GetNetMode() == NM_ListenServer)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+			{
+				if (AGvTPlayerController* PlayerController =
+					Cast<AGvTPlayerController>(It->Get()))
+				{
+					if (!PlayerController->IsLocalController())
+					{
+						PlayerController->Client_ReturnToMainMenuAfterMission(
+							MainMenuMapName);
+					}
+				}
+			}
+
+			TWeakObjectPtr<AGvTPlayerController> WeakThis(this);
+			const FName ReturnMapName = MainMenuMapName;
+			FTimerHandle HostReturnTimer;
+
+			World->GetTimerManager().SetTimer(
+				HostReturnTimer,
+				FTimerDelegate::CreateWeakLambda(
+					this,
+					[WeakThis, ReturnMapName]()
+					{
+						AGvTPlayerController* HostController = WeakThis.Get();
+						if (!HostController)
+						{
+							return;
+						}
+
+						if (UGameInstance* GameInstance =
+							HostController->GetGameInstance())
+						{
+							if (UGvTSessionSubsystem* Sessions =
+								GameInstance->GetSubsystem<UGvTSessionSubsystem>())
+							{
+								Sessions->LeaveSessionAndReturnToMenu(ReturnMapName);
+								return;
+							}
+						}
+
+						UGameplayStatics::OpenLevel(
+							HostController,
+							ReturnMapName,
+							true);
+					}),
+				0.25f,
+				false);
+
+			return;
+		}
+	}
+
+	if (UGameInstance* GameInstance = GetGameInstance())
+	{
+		if (UGvTSessionSubsystem* Sessions =
+			GameInstance->GetSubsystem<UGvTSessionSubsystem>())
+		{
+			Sessions->LeaveSessionAndReturnToMenu(MainMenuMapName);
+			return;
+		}
+	}
+
+	UGameplayStatics::OpenLevel(this, MainMenuMapName, true);
 }
 
 void AGvTPlayerController::QuitGameFromPauseMenu()
@@ -747,6 +805,19 @@ void AGvTPlayerController::HandlePanicChanged(float NewPanic01)
 
 	UE_LOG(LogTemp, Verbose, TEXT("[HUD] Panic display updated: %d%%"), DisplayedPercent);
 #endif
+}
+
+void AGvTPlayerController::RefreshPanicFeedbackSettings()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	if (const AGvTPlayerState* PS = GetPlayerState<AGvTPlayerState>())
+	{
+		HandlePanicChanged(PS->GetPanic01());
+	}
 }
 
 void AGvTPlayerController::HandleHauntPressureChanged(float NewPressure01)

@@ -23,12 +23,16 @@
 			]
 		},
 		{
+			"Name": "OnlineSubsystemSteam",
+			"Enabled": true
+		},
+		{
 			"Name": "OnlineSubsystemEOS",
 			"Enabled": true
 		},
 		{
-			"Name": "OnlineSubsystemSteam",
-			"Enabled": true
+			"Name": "OnlineSubsystemEOSPlus",
+			"Enabled": false
 		},
 		{
 			"Name": "SteamSockets",

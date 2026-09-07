@@ -88,6 +88,10 @@ public:
     UFUNCTION(BlueprintPure, Category="GvT|Pause Menu")
     bool IsPauseMenuOpen() const { return bPauseMenuOpen; }
 
+    /** Reapplies local panic audio/visual accessibility settings immediately. */
+    UFUNCTION(BlueprintCallable, Category="GvT|Accessibility")
+    void RefreshPanicFeedbackSettings();
+
     UFUNCTION(BlueprintImplementableEvent, Category="GvT|Mission")
     void OnExtractionMessage(const FText& Message, bool bSuccess);
 

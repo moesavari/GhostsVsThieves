@@ -27,4 +27,8 @@ struct FGvTLobbyPlayerInfo
 
 	UPROPERTY(BlueprintReadOnly, Category = "GvT|Sessions|Lobby")
 	bool bReady = false;
+
+	/** True when this player owns the current online session. */
+	UPROPERTY(BlueprintReadOnly, Category = "GvT|Sessions|Lobby")
+	bool bIsHost = false;
 };

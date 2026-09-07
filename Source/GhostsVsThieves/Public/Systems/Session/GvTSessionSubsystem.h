@@ -28,6 +28,9 @@ struct FGvTSessionSearchResult
 
     UPROPERTY(BlueprintReadOnly, Category="GvT|Sessions")
     int32 PingMs = 0;
+
+    UPROPERTY(BlueprintReadOnly, Category = "GvT|Sessions")
+    bool bIsPrivate = false;
 };
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FGvTSessionStatusChanged, const FText&, Message, bool, bSuccess);
@@ -59,6 +62,10 @@ public:
     /** Room code for the currently hosted/joined private lobby. Empty for public lobbies. */
     UFUNCTION(BlueprintPure, Category="GvT|Sessions|Lobby")
     FString GetHostedRoomCode() const { return CurrentRoomCode; }
+
+	/** Display name advertised by the currently hosted or joined lobby. */
+	UFUNCTION(BlueprintPure, Category="GvT|Sessions|Lobby")
+	FString GetCurrentRoomName() const { return CurrentRoomName; }
 
     UFUNCTION(BlueprintPure, Category="GvT|Sessions|Lobby")
     EGvTSessionPrivacy GetCurrentSessionPrivacy() const { return CurrentSessionPrivacy; }
@@ -179,6 +186,7 @@ private:
 	FString PendingRoomCode;
 	EGvTSessionPrivacy CurrentSessionPrivacy = EGvTSessionPrivacy::Public;
 	FString CurrentRoomCode;
+	FString CurrentRoomName;
 	EGvTPlayableMap PendingHostedMap = EGvTPlayableMap::MVPHouse;
     bool bCreateAfterDestroy = false;
     bool bOperationInProgress = false;
